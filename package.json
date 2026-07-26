@@ -1,0 +1,85 @@
+{
+  "name": "@vectorvesper/motion",
+  "version": "0.3.0",
+  "description": "The motion runtime behind Vector Vesper — a shared frame loop, one input layer, and a frame-budget governor for fast, coordinated interactive websites. Zero dependencies.",
+  "license": "MIT",
+  "author": "Vector Vesper",
+  "homepage": "https://vectorvesper.dev",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "react",
+    "devtools",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js",
+      "require": "./dist/react.cjs"
+    },
+    "./devtools": {
+      "types": "./dist/devtools.d.ts",
+      "import": "./dist/devtools.js",
+      "require": "./dist/devtools.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsup",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "react-dom": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "react": "^19",
+    "react-dom": "^19",
+    "tsup": "^8.5.0",
+    "typescript": "^5"
+  },
+  "keywords": [
+    "animation",
+    "motion",
+    "requestAnimationFrame",
+    "raf",
+    "frame-loop",
+    "pointer",
+    "scroll",
+    "performance",
+    "react",
+    "runtime",
+    "scheduler",
+    "devtools",
+    "profiler",
+    "frame-budget"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "main": "../dist/devtools.cjs",
+  "module": "../dist/devtools.js",
+  "types": "../dist/devtools.d.ts",
+  "sideEffects": false
+}
