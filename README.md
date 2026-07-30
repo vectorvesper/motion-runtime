@@ -2,8 +2,8 @@
 
 # @vectorvesper/motion
 
-**The motion runtime behind [Vector Vesper](https://vectorvesper.dev).**
-One frame loop, one input layer, and a frame-budget governor — so motion stays smooth as a page grows.
+**Motion primitives, built on one shared frame loop.**
+A sensor layer, a frame-budget governor, and a set of React hooks that all ride a single heartbeat — so motion stays smooth as a page grows.
 
 [![npm](https://img.shields.io/npm/v/@vectorvesper/motion.svg?color=8b5cf6)](https://www.npmjs.com/package/@vectorvesper/motion)
 ![zero dependencies](https://img.shields.io/badge/dependencies-0-10b981)
@@ -14,9 +14,11 @@ One frame loop, one input layer, and a frame-budget governor — so motion stays
 
 ---
 
-It's a **runtime, not a component library.** Most pages accumulate a dozen uncoordinated `requestAnimationFrame` loops, each attaching its own listeners and reading layout whenever it likes — the recipe for jank. `@vectorvesper/motion` gives every effect **one** heartbeat, **one** shared input layer, and a live performance budget they all obey. The core is **zero-dependency** and framework-agnostic; the React adapters are thin hooks on top.
+**Primitives, not a component library.** Most pages accumulate a dozen uncoordinated `requestAnimationFrame` loops, each attaching its own listeners and reading layout whenever it likes — the recipe for jank. `@vectorvesper/motion` gives every effect **one** heartbeat, **one** shared input layer, and a live performance budget they all obey. The core is **zero-dependency** and framework-agnostic; the React hooks are thin adapters on top.
 
-Because one runtime can see every effect at once, it can do something a pile of independent components structurally cannot: **when a frame runs long, it drops the least important work rather than letting everything degrade together.**
+Because one loop can see every effect at once, it can do something a pile of independent components structurally cannot: **when a frame runs long, it drops the least important work rather than letting everything degrade together.**
+
+The engine is **free and MIT** — read every line. Vector Vesper's paid catalog is the polished components built *on* these primitives, never the primitives themselves.
 
 ## Install
 
@@ -41,25 +43,26 @@ const off = getConductor().subscribe("render", (dt) => {
 // off() to unsubscribe — the loop sleeps when its last subscriber leaves.
 ```
 
-**React** — predict a hover ~200ms before it lands and pre-warm the expensive thing:
+**React** — render the expensive version only on hardware that can actually hold the frame:
 
 ```tsx
-import { usePointerIntent } from "@vectorvesper/motion/react";
+import { useAdaptiveQuality } from "@vectorvesper/motion/react";
 
-function PreviewCard() {
-  const { ref, intent } = usePointerIntent<HTMLDivElement>({ horizon: 0.5 });
-  return (
-    <article ref={ref}>
-      {intent && <WarmVideoPreview />}     {/* mounts before the cursor arrives */}
-      <CardContent />
-    </article>
-  );
+function Hero() {
+  const { tier } = useAdaptiveQuality();   // device floor fused with the live frame budget
+  return tier === 0 ? <ShaderBackground /> : <StaticGradient />;
 }
 ```
 
+`tier` degrades on a struggling device and recovers when the page settles — so the same code ships a rich experience to a desktop and a calm one to a mid-range phone, without you branching on user-agent guesses.
+
 ## What's inside
 
-Every primitive rides the same shared loop and input layer — that coordination is the point.
+Two layers. The **foundation** is the shared runtime and the primitives that sense, govern, and predict — the coordination that keeps a busy page smooth. The **creative hooks** are self-contained effects you reach for to build a specific thing.
+
+### Foundation
+
+Every one of these rides the same loop and input layer — that coordination is the point.
 
 | Primitive | React hook | What it does |
 | --- | --- | --- |
@@ -67,17 +70,24 @@ Every primitive rides the same shared loop and input layer — that coordination
 | **SensorBus** | `useSensorBus` | One set of pointer / scroll / viewport listeners, with damped velocity, shared by every reader. |
 | **AnimationBudget** | `useAnimationBudget` | Live frame-headroom governor → a stable quality tier (`high` / `medium` / `low`). |
 | **AdaptiveQuality** | `useAdaptiveQuality` | A conservative device floor fused with the live budget — consume the worse of the two. |
-| **PointerIntent** | `usePointerIntent` | Predicts the pointer is *coming* to an element before it hovers, from velocity. |
-| **MagneticElement** | `useMagneticIntent` | A magnetic pull toward the cursor. |
-| **VideoScrubber** | `useVideoScrubber` | Drive a video timeline from scroll or pointer. |
 | — | `useSafeToMount` | Mount an expensive subtree only once there's real frame headroom. |
-| — | `useLazyScene` | Defer a heavy scene until it's in view / the page is idle. |
-| — | `useImageTrail` | A trail of images that follows the pointer. |
-| — | `useNumberTicker` | Animate a number to its target. |
+| — | `useLazyScene` | Defer a heavy scene until it's in view and the page is idle. |
+| **PointerIntent** | `usePointerIntent` | Predicts the pointer is *heading for* an element before it hovers — for pre-fetching expensive assets on desktop. |
+| **MagneticElement** | `useMagneticIntent` | A magnetic pull toward the cursor. |
+
+### Creative hooks
+
+Ready-to-use effects. Reach for one when you want the specific thing it does.
+
+| React hook | What it does |
+| --- | --- |
+| `useVideoScrubber` | Drive a video timeline from scroll or pointer. |
+| `useNumberTicker` | Animate a number to its target, written straight to the DOM. |
+| `useImageTrail` | A trail of images that follows the pointer (self-contained, compositor-driven). |
 
 Plus math utilities: `damp`, `clamp01`, `rayRectIntersect`.
 
-## Why one runtime
+## Why one loop
 
 ```
 Typical page                          @vectorvesper/motion
@@ -92,7 +102,7 @@ Because reads (`input`) always finish before writes (`render`) in the shared loo
 
 ## Scheduling
 
-Subscribers declare what they are, and the runtime spends the frame accordingly:
+Subscribers declare what they are, and the loop spends the frame accordingly:
 
 ```ts
 getConductor().subscribe("render", draw, {
@@ -114,7 +124,7 @@ The budget is the **measured display refresh rate**, not an assumed 60Hz — 5ms
 
 ## Devtools
 
-The runtime's value is invisible until you can watch it. `@vectorvesper/motion/devtools` answers the question no component library can:  **which effect on this page is eating the frame?**
+The value is invisible until you can watch it. `@vectorvesper/motion/devtools` answers the question no component library can: **which effect on this page is eating the frame?**
 
 ```ts
 import { mountDevtools } from "@vectorvesper/motion/devtools";
@@ -140,13 +150,17 @@ Zero dependencies, no framework — it's a DOM function, so call it from a React
 import { getConductor, getSensorBus, damp } from "@vectorvesper/motion";
 
 // react — hooks (react + react-dom peers)
-import { useSensorBus, usePointerIntent } from "@vectorvesper/motion/react";
+import { useSensorBus, useAdaptiveQuality } from "@vectorvesper/motion/react";
 
-// devtools — the live runtime inspector
+// devtools — the live inspector
 import { mountDevtools } from "@vectorvesper/motion/devtools";
 ```
 
 Ships **ESM + CJS + TypeScript types**, and resolves under modern *and* classic module resolution — so it works in Vite, esbuild, Next.js, and Framer's code editor alike.
+
+## Stability
+
+The public API is **frozen at 1.0**. The exported surface — the hooks, the four singleton accessors, the pure helpers — is what the package commits to supporting; a build-time guard fails the release if it drifts. You can build on it without worrying it moves under you.
 
 ## Documentation
 

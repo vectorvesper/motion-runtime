@@ -19,7 +19,7 @@ import { getConductor } from "../conductor";
  * dependencies, unit-tested by feeding synthetic frame times. The exported
  * singleton is just conductor plumbing around it.
  *
- * ## Refresh-rate relative (v0.2)
+ * ## Refresh-rate relative (v0.3)
  *
  * Thresholds were absolute (54fps / 30fps), which told a 120Hz display
  * limping at 70fps that everything was fine. They are now multiples of the
@@ -27,7 +27,7 @@ import { getConductor } from "../conductor";
  * constants EXACTLY at 60Hz (18.5ms and 34ms), so 60Hz behaviour is
  * unchanged and only high-refresh displays start telling the truth.
  *
- * ## Honest headroom (v0.2)
+ * ## Honest headroom (v0.3)
  *
  * `headroom` used to be `frameBudget - dt`. Because rAF is pinned to vsync,
  * dt on a healthy 60Hz page is 16.6ms — so a perfectly idle page reported

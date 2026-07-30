@@ -12,7 +12,7 @@ import { RefreshRateProbe } from "./refresh-rate";
  * - dt is clamped so a backgrounded tab waking up doesn't feed a huge
  *   delta into spring/damping math.
  *
- * ## Scheduling (v0.2)
+ * ## Scheduling (v0.3)
  *
  * A shared loop is tidy. A shared loop that *makes decisions* is the reason
  * this is a runtime and not a utility. Subscribers declare what they are:

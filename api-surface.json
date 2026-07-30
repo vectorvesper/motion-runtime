@@ -1,0 +1,74 @@
+{
+  ".": {
+    "values": [
+      "AdaptiveState",
+      "BudgetState",
+      "BudgetTier",
+      "ConductorConfig",
+      "ConductorLane",
+      "ConductorStats",
+      "DeviceSignals",
+      "FrameFn",
+      "MagneticOptions",
+      "PointerIntentOptions",
+      "PointerSensor",
+      "ScrollSensor",
+      "ScrubDriver",
+      "ScrubMapping",
+      "SensorBus",
+      "SensorState",
+      "SubscribeOptions",
+      "SubscriberPriority",
+      "SubscriberStat",
+      "VideoScrubberOptions",
+      "ViewportSensor",
+      "clamp01",
+      "damp",
+      "getAdaptiveQuality",
+      "getAnimationBudget",
+      "getConductor",
+      "getSensorBus",
+      "rayRectIntersect"
+    ],
+    "types": [
+      "RectLike"
+    ]
+  },
+  "./react": {
+    "values": [
+      "useAdaptiveQuality",
+      "useAnimationBudget",
+      "useImageTrail",
+      "useLazyScene",
+      "useMagneticIntent",
+      "useNumberTicker",
+      "usePointerIntent",
+      "useSafeToMount",
+      "useSensorBus",
+      "useVideoScrubber"
+    ],
+    "types": [
+      "UseImageTrailOptions",
+      "UseLazySceneOptions",
+      "UseNumberTickerOptions",
+      "UsePointerIntentOptions",
+      "UsePointerIntentReturn",
+      "UseSafeToMountOptions",
+      "UseVideoScrubberOptions",
+      "UseVideoScrubberReturn"
+    ]
+  },
+  "./devtools": {
+    "values": [
+      "ConductorStats",
+      "SubscriberPriority",
+      "SubscriberStat",
+      "getConductor",
+      "mountDevtools"
+    ],
+    "types": [
+      "DevtoolsCorner",
+      "DevtoolsOptions"
+    ]
+  }
+}

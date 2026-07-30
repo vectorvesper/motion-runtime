@@ -39,7 +39,7 @@ export interface UseSafeToMountOptions {
  * lifecycle — an expensive component that unmounted itself the moment it made
  * the page slow would oscillate forever.
  *
- * ### Fixed in v0.2
+ * ### Fixed in v0.3
  *
  * v0.1 gave up permanently if the budget happened to be at tier 1 or worse at
  * the moment the hook mounted — it never subscribed, so it could not reopen

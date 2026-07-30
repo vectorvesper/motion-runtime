@@ -1,8 +1,45 @@
 # Changelog
 
-## 0.2.0
+## 1.0.0
+
+The public API is frozen.
+
+Nothing consumers actually use changed — the ten React hooks, the four singleton
+accessors (`getConductor`, `getSensorBus`, `getAnimationBudget`,
+`getAdaptiveQuality`) and the pure helpers (`damp`, `clamp01`,
+`rayRectIntersect`) are exactly as they were. What changed is what the package
+_stops_ exporting, so that the surface it now commits to supporting is the one
+it actually means.
+
+### Removed from the public surface
+
+These were internal machinery that had leaked into the exports. None were used
+by the hooks or documented for consumers; they remain in the codebase, just no
+longer part of the published API.
+
+- Refresh-rate internals: `RefreshRateProbe`, `snapToCandidate`,
+  `REFRESH_CANDIDATES`, `DEFAULT_HZ`.
+- `deviceTierFromSignals` — a test helper.
+- The imperative core classes `PointerIntent`, `MagneticElement`,
+  `VideoScrubber`, `SensorBus` (as a constructor) and `BudgetPolicy`. Drive
+  these through the React hooks, which own their lifecycle. `SensorBus` remains
+  exported as a **type** (it's what `getSensorBus()` returns); the option types
+  (`PointerIntentOptions`, `MagneticOptions`, `VideoScrubberOptions`, …) all stay.
+- `VIDEO_SCRUBBER_DEFAULTS` and `scrollProgress` — scrubber-internal.
+
+### Added
+
+- **API surface guard.** `scripts/check-api.mjs` diffs the built declarations
+  against a committed `api-surface.json` and fails the build on any accidental
+  change. It runs in `prepublishOnly`, so the frozen surface cannot drift into a
+  release unnoticed.
+
+## 0.3.0
 
 The loop became a scheduler.
+
+*(0.2.0 was never published — the version was bumped again before release.
+Everything below shipped as 0.3.0.)*
 
 v0.1 shared one `requestAnimationFrame` across every effect, which is tidy but
 not much more than housekeeping — every subscriber still ran every frame,

@@ -18,7 +18,7 @@ import { damp } from "../math";
  * Writes only `transform` (compositor-safe); records and restores the
  * previous inline transform on destroy.
  *
- * ## Read/write split (v0.2)
+ * ## Read/write split (v0.3)
  *
  * v0.1 called `getBoundingClientRect()` inside the render lane, immediately
  * before writing `transform`. With two magnetic elements on a page that

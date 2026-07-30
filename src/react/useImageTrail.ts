@@ -14,8 +14,11 @@ import { useEffect, useRef, useState, type RefObject } from "react";
  *
  * Fails open (does nothing) on touch devices and under reduced motion.
  *
- * Free-tier, self-contained. In the VV engine, spawn thresholds ride the
- * SensorBus's smoothed velocity and the budget caps active flights.
+ * A *creative* hook, not a foundation one: it is deliberately self-contained
+ * and does NOT join the shared conductor or SensorBus. Each flight is handed to
+ * the Web Animations API, which runs on the compositor — cheaper than a
+ * per-frame conductor subscription would be for this effect. It needs nothing
+ * else in the package to work.
  */
 
 export interface UseImageTrailOptions {
