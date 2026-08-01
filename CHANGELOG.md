@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.0.2
+
+Packaging only. No API change, no behaviour change — the public surface is
+identical and still guarded by `api-surface.json`.
+
+- **Sourcemaps are no longer published.** Every `.map` embedded `sourcesContent`,
+  so the tarball carried roughly 112 KB of the original commented TypeScript —
+  the whole engine, source comments included. Debugging convenience is not worth
+  shipping the source, so the maps are gone.
+- **The bundle is minified.** The previous build kept `// src/core/<file>.ts`
+  banners above each section, which made the published artifact read like the
+  repository. Minifying does not make anything secret — code that runs in a
+  browser can always be read — it just means the package is a compiled artifact
+  rather than a copy-paste-ready source drop.
+- **Private class members are stripped from the type declarations.** TypeScript
+  emitted every private field by name (`private frameMsEma;`,
+  `private prevPointerX;`, …), documenting the internals of `FrameConductor`,
+  `SensorBus` and `AnimationBudget`. Each run is now replaced with TypeScript's
+  own `#private;` brand, which keeps the classes nominally typed while publishing
+  nothing about their state. Public members, and their documentation, are
+  unchanged.
+
+Net effect: 591 KB unpacked across 36 files → 169 KB across 26.
+
 ## 1.0.0
 
 The public API is frozen.
