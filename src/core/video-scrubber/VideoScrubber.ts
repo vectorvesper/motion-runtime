@@ -91,6 +91,14 @@ export class VideoScrubber {
   private driver: ScrubDriver;
   private mapping: ScrubMapping;
   private smooth: number;
+  /**
+   * Sampled once, at construction, and honoured by every later write to
+   * `smooth`. Without it the reduced-motion clamp applied only in the
+   * constructor and any subsequent `update({ smooth })` silently restored the
+   * trailing lag — which is exactly what a React wrapper does when a `smooth`
+   * prop changes.
+   */
+  private readonly prefersReduced: boolean;
   private pointerAxis: "x" | "y";
   private onProgress?: (progress: number, time: number) => void;
 
@@ -125,8 +133,8 @@ export class VideoScrubber {
     this.pointerAxis = options.pointerAxis ?? VIDEO_SCRUBBER_DEFAULTS.pointerAxis;
     this.onProgress = options.onProgress;
 
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    this.smooth = reduced ? 0 : options.smooth ?? VIDEO_SCRUBBER_DEFAULTS.smooth;
+    this.prefersReduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    this.smooth = this.resolveSmooth(options.smooth ?? VIDEO_SCRUBBER_DEFAULTS.smooth);
 
     this.restore = {
       muted: video.muted,
@@ -231,9 +239,18 @@ export class VideoScrubber {
     this.target = clamp01(progress);
   }
 
+  /**
+   * Reduced motion wins over any requested smoothing. Scrubbing itself is
+   * direct manipulation, so it stays enabled — but the trailing lag is
+   * autonomous motion, and that is the part to drop.
+   */
+  private resolveSmooth(requested: number): number {
+    return this.prefersReduced ? 0 : requested;
+  }
+
   /** Live-tunable options. `driver` and `track` are fixed by design. */
   update(options: Pick<VideoScrubberOptions, "smooth" | "mapping" | "pointerAxis" | "onProgress">): void {
-    if (options.smooth !== undefined) this.smooth = options.smooth;
+    if (options.smooth !== undefined) this.smooth = this.resolveSmooth(options.smooth);
     if (options.mapping !== undefined) this.mapping = options.mapping;
     if (options.pointerAxis !== undefined) this.pointerAxis = options.pointerAxis;
     if (options.onProgress !== undefined) this.onProgress = options.onProgress;

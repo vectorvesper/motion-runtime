@@ -106,8 +106,25 @@ export class MagneticElement {
     });
   }
 
+  /**
+   * Retune in place. Keys explicitly set to `undefined` are IGNORED rather than
+   * applied, because the React adapter destructures the caller's options object
+   * and passes every key on every change — so an option the caller simply never
+   * supplied arrives here as `undefined`.
+   *
+   * A naive `{ ...this.opts, ...options }` let that wipe a default. With `damp`
+   * gone, `damp(current, target, undefined, dt)` evaluates `Math.exp(-undefined)`
+   * → NaN, the element's transform became `translate3d(NaNpx, NaNpx, 0)`, the
+   * browser discarded it as invalid, and the magnet silently never moved. The
+   * documented zero-argument call `useMagneticIntent()` hit this.
+   */
   update(options: MagneticOptions): void {
-    this.opts = { ...this.opts, ...options };
+    for (const key of Object.keys(options) as (keyof MagneticOptions)[]) {
+      const value = options[key];
+      if (value !== undefined) {
+        (this.opts as Record<string, unknown>)[key] = value;
+      }
+    }
   }
 
   destroy(): void {
