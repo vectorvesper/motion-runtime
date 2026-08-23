@@ -176,6 +176,7 @@ async function main() {
     cdp = connect(target.webSocketDebuggerUrl);
     await cdp.ready;
     await cdp.send("Runtime.enable");
+    await cdp.send("Page.enable");
 
     // Wait for the module to finish booting rather than sleeping a guess.
     for (let i = 0; i < 100; i++) {
@@ -194,6 +195,15 @@ async function main() {
     console.log("─".repeat(92));
 
     for (const [name, expected] of Object.entries(EXPECTED)) {
+      // Anything stealing focus mid-run makes the tab hidden, which pauses
+      // rAF and turns every later measurement into zeros. Re-front the page
+      // before each scenario rather than hoping nothing interrupts.
+      await cdp.send("Page.bringToFront");
+      for (let i = 0; i < 20 && (await evaluate(cdp, "document.hidden")); i++) {
+        await new Promise((r) => setTimeout(r, 250));
+        await cdp.send("Page.bringToFront");
+      }
+
       const s = await evaluate(cdp, `window.__probe.run(${JSON.stringify(name)}, 4000)`);
       if (s.error) throw new Error(s.error);
 

@@ -42,8 +42,9 @@ export interface UseLazySceneOptions {
  */
 export function useLazyScene<T extends HTMLElement = HTMLDivElement>(
   options: UseLazySceneOptions = {},
-): { ref: RefObject<T | null>; ready: boolean } {
+): { ref: RefObject<T | null>; near: boolean; ready: boolean } {
   const ref = useRef<T>(null);
+  const [near, setNear] = useState(false);
   const [ready, setReady] = useState(false);
   const [initial] = useState(options);
 
@@ -143,6 +144,10 @@ export function useLazyScene<T extends HTMLElement = HTMLDivElement>(
     const io = new IntersectionObserver(
       (entries) => {
         const intersecting = entries.some((e) => e.isIntersecting);
+        // Reported separately from `ready` because they answer different
+        // questions: `near` is "should this exist soon", `ready` is "can the
+        // page afford it now". A gate in front of a heavy scene needs both.
+        setNear(intersecting);
         if (intersecting) {
           startWaiting();
         } else {
@@ -161,5 +166,5 @@ export function useLazyScene<T extends HTMLElement = HTMLDivElement>(
     };
   }, [ready, initial]);
 
-  return { ref, ready };
+  return { ref, near, ready };
 }

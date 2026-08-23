@@ -89,6 +89,12 @@ export {
 export { useAdaptiveQuality } from "./react/useAdaptiveQuality";
 export { useFramePressure } from "./react/useFramePressure";
 export {
+  useSceneGate,
+  type UseSceneGateOptions,
+  type SceneGate,
+  type SceneState,
+} from "./react/useSceneGate";
+export {
   usePointerIntent,
   type UsePointerIntentOptions,
   type UsePointerIntentReturn,

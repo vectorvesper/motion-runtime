@@ -352,6 +352,7 @@
       "useNumberTicker",
       "usePointerIntent",
       "useSafeToMount",
+      "useSceneGate",
       "useSensorBus",
       "useTick",
       "useVideoScrubber"
@@ -359,12 +360,15 @@
     "types": [
       "InteractionScopeProps",
       "MountCost",
+      "SceneGate",
+      "SceneState",
       "UseImageTrailOptions",
       "UseLazySceneOptions",
       "UseNumberTickerOptions",
       "UsePointerIntentOptions",
       "UsePointerIntentReturn",
       "UseSafeToMountOptions",
+      "UseSceneGateOptions",
       "UseTickOptions",
       "UseVideoScrubberOptions",
       "UseVideoScrubberReturn"
@@ -393,6 +397,21 @@
       "MountCost": {
         "kind": "alias",
         "type": "\"light\" | \"normal\" | \"heavy\""
+      },
+      "SceneGate": {
+        "kind": "object",
+        "heritage": "",
+        "members": [
+          "mounted: boolean",
+          "quality: \"full\" | \"reduced\"",
+          "reason: string",
+          "ref: RefObject<T | null>",
+          "state: SceneState"
+        ]
+      },
+      "SceneState": {
+        "kind": "alias",
+        "type": "\"dormant\" | \"warming\" | \"active\" | \"constrained\" | \"poster\""
       },
       "UseImageTrailOptions": {
         "kind": "object",
@@ -445,6 +464,15 @@
         "heritage": "",
         "members": [
           "cost?: MountCost"
+        ]
+      },
+      "UseSceneGateOptions": {
+        "kind": "object",
+        "heritage": "",
+        "members": [
+          "cost?: MountCost",
+          "label?: string",
+          "preload?: number"
         ]
       },
       "UseTickOptions": {
@@ -570,7 +598,7 @@
         "params": [
           "options?: UseLazySceneOptions"
         ],
-        "returns": "{ ref: RefObject<T | null>; ready: boolean; }"
+        "returns": "{ ref: RefObject<T | null>; near: boolean; ready: boolean; }"
       },
       "useMagneticIntent": {
         "kind": "function",
@@ -610,6 +638,16 @@
           "{ cost, }?: UseSafeToMountOptions"
         ],
         "returns": "boolean"
+      },
+      "useSceneGate": {
+        "kind": "function",
+        "generics": [
+          "T extends HTMLElement = HTMLDivElement"
+        ],
+        "params": [
+          "{ label, cost, preload, }?: UseSceneGateOptions"
+        ],
+        "returns": "SceneGate<T>"
       },
       "useSensorBus": {
         "kind": "function",
