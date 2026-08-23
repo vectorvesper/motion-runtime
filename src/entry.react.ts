@@ -94,16 +94,3 @@ export {
   type SceneGate,
   type SceneState,
 } from "./react/useSceneGate";
-export {
-  usePointerIntent,
-  type UsePointerIntentOptions,
-  type UsePointerIntentReturn,
-} from "./react/usePointerIntent";
-export { useMagneticIntent } from "./react/useMagneticIntent";
-export {
-  useVideoScrubber,
-  type UseVideoScrubberOptions,
-  type UseVideoScrubberReturn,
-} from "./react/useVideoScrubber";
-export { useImageTrail, type UseImageTrailOptions } from "./react/useImageTrail";
-export { useNumberTicker, type UseNumberTickerOptions } from "./react/useNumberTicker";

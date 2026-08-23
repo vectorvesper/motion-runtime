@@ -4,14 +4,11 @@ import React from "react";
 import { render, cleanup, act } from "@testing-library/react";
 
 /**
- * The mount gate (useSafeToMount), the interaction adapter
- * (usePointerIntent), and the self-contained effects (useNumberTicker,
- * useImageTrail, useVideoScrubber).
+ * The self-contained effects.
  *
  * The recurring defect across this catalogue is lifecycle, not maths — work
- * that outlives its component, or a gate that never opens. So the contract
- * tested here is: does it start, does it open when it should, and does it let
- * go of everything on unmount.
+ * that outlives its component. So the contract tested here is: does it start,
+ * and does it let go of everything on unmount.
  */
 
 let rafCallbacks = new Map<number, FrameRequestCallback>();
@@ -112,135 +109,6 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
-});
-
-describe("useSafeToMount", () => {
-  it("starts closed, so the server and the first client render agree", async () => {
-    vi.resetModules();
-    const { useSafeToMount } = await import("./useSafeToMount");
-
-    let safe = true;
-    function Gate() {
-      safe = useSafeToMount();
-      return null;
-    }
-
-    render(<Gate />);
-    // The server has no frame timings. Opening on the first render would be a
-    // hydration mismatch every time.
-    expect(safe).toBe(false);
-  });
-
-  it("opens once the loop has sustained enough clean frames", async () => {
-    vi.resetModules();
-    const { useSafeToMount } = await import("./useSafeToMount");
-
-    let safe = false;
-    function Gate() {
-      safe = useSafeToMount({ cost: "light" });
-      return null;
-    }
-
-    render(<Gate />);
-    await act(async () => {
-      crankFrames(6);
-    });
-
-    expect(safe).toBe(true);
-  });
-
-  it("never closes again once it has opened", async () => {
-    vi.resetModules();
-    const { useSafeToMount } = await import("./useSafeToMount");
-
-    let safe = false;
-    function Gate() {
-      safe = useSafeToMount({ cost: "light" });
-      return null;
-    }
-
-    render(<Gate />);
-    await act(async () => {
-      crankFrames(5);
-    });
-    expect(safe).toBe(true);
-
-    // Something expensive that unmounted itself the moment it made the page
-    // slow would oscillate forever, so the gate is one-way by design.
-    await act(async () => {
-      crank(now + 400);
-      crank(now + 400);
-      crank(now + 400);
-    });
-    expect(safe).toBe(true);
-  });
-
-  it("gives up permanently on a machine below the core floor", async () => {
-    // Cores never improve while the page is open, so this is the one
-    // condition that legitimately ends the story early.
-    vi.spyOn(navigator, "hardwareConcurrency", "get").mockReturnValue(1);
-    vi.resetModules();
-    const { useSafeToMount } = await import("./useSafeToMount");
-    const { getConductor } = await import("../core/conductor");
-
-    let safe = true;
-    function Gate() {
-      safe = useSafeToMount({ cost: "heavy" });
-      return null;
-    }
-
-    render(<Gate />);
-    await act(async () => {
-      crankFrames(10);
-    });
-
-    expect(safe).toBe(false);
-    // And it must not have left the governor running to find that out.
-    expect(getConductor().getStats().subscribers).toHaveLength(0);
-  });
-
-  it("lets a light mount through on hardware that blocks a heavy one", async () => {
-    // Two cores clears "light" and fails "normal" and "heavy".
-    vi.spyOn(navigator, "hardwareConcurrency", "get").mockReturnValue(2);
-    vi.resetModules();
-    const { useSafeToMount } = await import("./useSafeToMount");
-
-    let light = false;
-    let heavy = true;
-    function Gate() {
-      light = useSafeToMount({ cost: "light" });
-      heavy = useSafeToMount({ cost: "heavy" });
-      return null;
-    }
-
-    render(<Gate />);
-    await act(async () => {
-      crankFrames(6);
-    });
-
-    expect(light).toBe(true);
-    expect(heavy).toBe(false);
-  });
-
-  it("releases the governor and its frame subscription on unmount", async () => {
-    vi.resetModules();
-    const { useSafeToMount } = await import("./useSafeToMount");
-    const { getConductor } = await import("../core/conductor");
-
-    function Gate() {
-      useSafeToMount({ cost: "light" });
-      return null;
-    }
-
-    const view = render(<Gate />);
-    await act(async () => {
-      crankFrames(2);
-    });
-    expect(getConductor().getStats().subscribers.length).toBeGreaterThan(0);
-
-    view.unmount();
-    expect(getConductor().getStats().subscribers).toHaveLength(0);
-  });
 });
 
 describe("usePointerIntent", () => {
@@ -414,6 +282,127 @@ describe("useVideoScrubber", () => {
       crankFrames(2);
     });
 
+    view.unmount();
+    expect(getConductor().getStats().subscribers).toHaveLength(0);
+  });
+});
+
+
+/** matchMedia is not implemented in jsdom; the magnetic hook gates on it. */
+function stubMatchMedia(matches: Record<string, boolean>): void {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: matches[query] ?? false,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  }));
+}
+
+function finePointerNoReducedMotion(): void {
+  stubMatchMedia({
+    "(any-pointer: fine)": true,
+    "(prefers-reduced-motion: reduce)": false,
+  });
+}
+
+describe("useMagneticIntent", () => {
+  it("stays inactive when there is no fine pointer", async () => {
+    stubMatchMedia({ "(any-pointer: fine)": false });
+    vi.resetModules();
+    const { useMagneticIntent } = await import("./useMagneticIntent");
+
+    let active = true;
+    function Target() {
+      const magnetic = useMagneticIntent<HTMLButtonElement>();
+      active = magnetic.active;
+      return <button ref={magnetic.ref}>Get started</button>;
+    }
+
+    render(<Target />);
+    act(() => crank(16));
+    // Touch only: the element has to behave like an ordinary button.
+    expect(active).toBe(false);
+  });
+
+  it("stays inactive under reduced motion", async () => {
+    stubMatchMedia({
+      "(any-pointer: fine)": true,
+      "(prefers-reduced-motion: reduce)": true,
+    });
+    vi.resetModules();
+    const { useMagneticIntent } = await import("./useMagneticIntent");
+
+    let active = true;
+    function Target() {
+      const magnetic = useMagneticIntent<HTMLButtonElement>();
+      active = magnetic.active;
+      return <button ref={magnetic.ref}>Get started</button>;
+    }
+
+    render(<Target />);
+    act(() => crank(16));
+    // This hook IS the motion, so it fails open to a normal element.
+    expect(active).toBe(false);
+  });
+
+  it("activates with a fine pointer and no reduced-motion preference", async () => {
+    finePointerNoReducedMotion();
+    vi.resetModules();
+    const { useMagneticIntent } = await import("./useMagneticIntent");
+
+    let active = false;
+    function Target() {
+      const magnetic = useMagneticIntent<HTMLButtonElement>();
+      active = magnetic.active;
+      return <button ref={magnetic.ref}>Get started</button>;
+    }
+
+    render(<Target />);
+    act(() => crank(16));
+    expect(active).toBe(true);
+  });
+
+  it("hands the transform back exactly as it found it", async () => {
+    finePointerNoReducedMotion();
+    vi.resetModules();
+    const { useMagneticIntent } = await import("./useMagneticIntent");
+
+    function Target() {
+      const magnetic = useMagneticIntent<HTMLButtonElement>();
+      return (
+        <button ref={magnetic.ref} style={{ transform: "rotate(45deg)" }}>
+          Get started
+        </button>
+      );
+    }
+
+    const view = render(<Target />);
+    const el = view.container.querySelector("button") as HTMLButtonElement;
+    act(() => crank(16));
+
+    // The hook owns transform while mounted, so a page that set its own
+    // has to get it back untouched.
+    view.unmount();
+    expect(el.style.transform).toBe("rotate(45deg)");
+  });
+
+  it("releases its frame subscription on unmount", async () => {
+    finePointerNoReducedMotion();
+    vi.resetModules();
+    const { useMagneticIntent } = await import("./useMagneticIntent");
+    const { getConductor } = await import("../core/conductor");
+
+    function Target() {
+      const magnetic = useMagneticIntent<HTMLButtonElement>();
+      return <button ref={magnetic.ref}>Get started</button>;
+    }
+
+    const view = render(<Target />);
+    act(() => crank(16));
     view.unmount();
     expect(getConductor().getStats().subscribers).toHaveLength(0);
   });

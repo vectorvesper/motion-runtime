@@ -82,10 +82,6 @@ export {
 // ── Option types ────────────────────────────────────────────────────
 // The classes these configure are internal; the option shapes are public so
 // the React hooks that wrap them can be typed against a named contract.
-export type {
-  PointerIntentOptions,
-  PointerIntentSensitivity,
-} from "./core/pointer-intent/PointerIntent";
 export { getFramePressure } from "./core/frame-pressure/FramePressure";
 export { getRendererHealth } from "./core/renderer-health/RendererHealth";
 export type { RendererHealthState } from "./core/renderer-health/RendererHealth";
@@ -93,9 +89,3 @@ export type {
   PressureState,
   PressureSource,
 } from "./core/frame-pressure/FramePressure";
-export type { MagneticOptions } from "./core/magnetic/MagneticElement";
-export type {
-  VideoScrubberOptions,
-  ScrubDriver,
-  ScrubMapping,
-} from "./core/video-scrubber/VideoScrubber";

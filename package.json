@@ -36,6 +36,11 @@
       "import": "./dist/r3f.js",
       "require": "./dist/r3f.cjs"
     },
+    "./effects": {
+      "types": "./dist/effects.d.ts",
+      "import": "./dist/effects.js",
+      "require": "./dist/effects.cjs"
+    },
     "./package.json": "./package.json"
   },
   "main": "./dist/index.cjs",

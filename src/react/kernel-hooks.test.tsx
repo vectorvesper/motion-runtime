@@ -5,7 +5,7 @@ import { render, cleanup, act } from "@testing-library/react";
 
 /**
  * The kernel-adjacent React adapters: useSensorBus, useAnimationBudget,
- * useAdaptiveQuality, useMagneticIntent.
+ * useAdaptiveQuality.
  *
  * These are thin wrappers whose whole job is lifecycle, so that is what is
  * tested — subscribe on mount, let go on unmount, and survive the StrictMode
@@ -35,13 +35,6 @@ function stubMatchMedia(matches: Record<string, boolean>): void {
     removeListener: () => {},
     dispatchEvent: () => false,
   }));
-}
-
-function finePointerNoReducedMotion(): void {
-  stubMatchMedia({
-    "(any-pointer: fine)": true,
-    "(prefers-reduced-motion: reduce)": false,
-  });
 }
 
 beforeEach(() => {
@@ -212,105 +205,6 @@ describe("useAdaptiveQuality", () => {
     }
 
     const view = render(<Consumer />);
-    view.unmount();
-    expect(getConductor().getStats().subscribers).toHaveLength(0);
-  });
-});
-
-describe("useMagneticIntent", () => {
-  it("stays inactive when there is no fine pointer", async () => {
-    stubMatchMedia({ "(any-pointer: fine)": false });
-    vi.resetModules();
-    const { useMagneticIntent } = await import("./useMagneticIntent");
-
-    let active = true;
-    function Target() {
-      const magnetic = useMagneticIntent<HTMLButtonElement>();
-      active = magnetic.active;
-      return <button ref={magnetic.ref}>Get started</button>;
-    }
-
-    render(<Target />);
-    act(() => crank(16));
-    // Touch only: the element has to behave like an ordinary button.
-    expect(active).toBe(false);
-  });
-
-  it("stays inactive under reduced motion", async () => {
-    stubMatchMedia({
-      "(any-pointer: fine)": true,
-      "(prefers-reduced-motion: reduce)": true,
-    });
-    vi.resetModules();
-    const { useMagneticIntent } = await import("./useMagneticIntent");
-
-    let active = true;
-    function Target() {
-      const magnetic = useMagneticIntent<HTMLButtonElement>();
-      active = magnetic.active;
-      return <button ref={magnetic.ref}>Get started</button>;
-    }
-
-    render(<Target />);
-    act(() => crank(16));
-    // This hook IS the motion, so it fails open to a normal element.
-    expect(active).toBe(false);
-  });
-
-  it("activates with a fine pointer and no reduced-motion preference", async () => {
-    finePointerNoReducedMotion();
-    vi.resetModules();
-    const { useMagneticIntent } = await import("./useMagneticIntent");
-
-    let active = false;
-    function Target() {
-      const magnetic = useMagneticIntent<HTMLButtonElement>();
-      active = magnetic.active;
-      return <button ref={magnetic.ref}>Get started</button>;
-    }
-
-    render(<Target />);
-    act(() => crank(16));
-    expect(active).toBe(true);
-  });
-
-  it("hands the transform back exactly as it found it", async () => {
-    finePointerNoReducedMotion();
-    vi.resetModules();
-    const { useMagneticIntent } = await import("./useMagneticIntent");
-
-    function Target() {
-      const magnetic = useMagneticIntent<HTMLButtonElement>();
-      return (
-        <button ref={magnetic.ref} style={{ transform: "rotate(45deg)" }}>
-          Get started
-        </button>
-      );
-    }
-
-    const view = render(<Target />);
-    const el = view.container.querySelector("button") as HTMLButtonElement;
-    act(() => crank(16));
-
-    // The hook owns transform while mounted, so a page that set its own
-    // has to get it back untouched.
-    view.unmount();
-    expect(el.style.transform).toBe("rotate(45deg)");
-  });
-
-  it("releases its frame subscription on unmount", async () => {
-    finePointerNoReducedMotion();
-    vi.resetModules();
-    const { useMagneticIntent } = await import("./useMagneticIntent");
-    const { getConductor } = await import("../core/conductor");
-
-    function Target() {
-      const magnetic = useMagneticIntent<HTMLButtonElement>();
-      return <button ref={magnetic.ref}>Get started</button>;
-    }
-
-    const view = render(<Target />);
-    act(() => crank(16));
     view.unmount();
     expect(getConductor().getStats().subscribers).toHaveLength(0);
   });

@@ -14,6 +14,7 @@ export default defineConfig({
     react: "src/entry.react.ts",
     devtools: "src/entry.devtools.ts",
     r3f: "src/entry.r3f.ts",
+    effects: "src/entry.effects.ts",
   },
   format: ["esm", "cjs"],
   dts: true,
