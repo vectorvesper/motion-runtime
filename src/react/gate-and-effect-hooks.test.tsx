@@ -4,7 +4,7 @@ import React from "react";
 import { render, cleanup, act } from "@testing-library/react";
 
 /**
- * The mount gates (useSafeToMount, useLazyScene), the interaction adapter
+ * The mount gate (useSafeToMount), the interaction adapter
  * (usePointerIntent), and the self-contained effects (useNumberTicker,
  * useImageTrail, useVideoScrubber).
  *
@@ -240,85 +240,6 @@ describe("useSafeToMount", () => {
 
     view.unmount();
     expect(getConductor().getStats().subscribers).toHaveLength(0);
-  });
-});
-
-describe("useLazyScene", () => {
-  it("holds the scene back until the element is near the viewport", async () => {
-    vi.resetModules();
-    const { useLazyScene } = await import("./useLazyScene");
-
-    let ready = true;
-    function Scene() {
-      const scene = useLazyScene<HTMLDivElement>();
-      ready = scene.ready;
-      return <div ref={scene.ref} />;
-    }
-
-    render(<Scene />);
-    expect(ready).toBe(false);
-  });
-
-  it("mounts once the element intersects and the main thread is idle", async () => {
-    vi.resetModules();
-    const { useLazyScene } = await import("./useLazyScene");
-
-    let ready = false;
-    function Scene() {
-      const scene = useLazyScene<HTMLDivElement>();
-      ready = scene.ready;
-      return <div ref={scene.ref} />;
-    }
-
-    render(<Scene />);
-    await act(async () => {
-      intersect();
-      flushIdle();
-    });
-
-    expect(ready).toBe(true);
-  });
-
-  it("stays mounted after scrolling away", async () => {
-    vi.resetModules();
-    const { useLazyScene } = await import("./useLazyScene");
-
-    let ready = false;
-    function Scene() {
-      const scene = useLazyScene<HTMLDivElement>();
-      ready = scene.ready;
-      return <div ref={scene.ref} />;
-    }
-
-    render(<Scene />);
-    await act(async () => {
-      intersect();
-      flushIdle();
-    });
-    expect(ready).toBe(true);
-
-    // Tearing a WebGL scene down and rebuilding it on every scroll pass costs
-    // far more than leaving it up.
-    await act(async () => {
-      crankFrames(3);
-    });
-    expect(ready).toBe(true);
-  });
-
-  it("disconnects its observer on unmount", async () => {
-    vi.resetModules();
-    const { useLazyScene } = await import("./useLazyScene");
-
-    function Scene() {
-      const scene = useLazyScene<HTMLDivElement>();
-      return <div ref={scene.ref} />;
-    }
-
-    const view = render(<Scene />);
-    expect(observers.length).toBeGreaterThan(0);
-
-    view.unmount();
-    expect(observers.every((o) => o.disconnected)).toBe(true);
   });
 });
 

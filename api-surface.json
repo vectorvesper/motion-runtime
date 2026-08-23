@@ -382,7 +382,6 @@
       "useFramePressure",
       "useImageTrail",
       "useInteractionScope",
-      "useLazyScene",
       "useMagneticIntent",
       "useNumberTicker",
       "usePointerIntent",
@@ -398,7 +397,6 @@
       "SceneGate",
       "SceneState",
       "UseImageTrailOptions",
-      "UseLazySceneOptions",
       "UseNumberTickerOptions",
       "UsePointerIntentOptions",
       "UsePointerIntentReturn",
@@ -409,6 +407,11 @@
       "UseVideoScrubberReturn"
     ],
     "shapes": {
+      "MountCost": {
+        "kind": "alias",
+        "isType": true,
+        "type": "\"light\" | \"normal\" | \"heavy\""
+      },
       "SceneGate": {
         "kind": "object",
         "isType": true,
@@ -486,11 +489,6 @@
           "style?: React.CSSProperties"
         ]
       },
-      "MountCost": {
-        "kind": "alias",
-        "isType": true,
-        "type": "\"light\" | \"normal\" | \"heavy\""
-      },
       "UseImageTrailOptions": {
         "kind": "object",
         "isType": true,
@@ -501,15 +499,6 @@
           "maxActive?: number",
           "size?: number",
           "spacing?: number"
-        ]
-      },
-      "UseLazySceneOptions": {
-        "kind": "object",
-        "isType": true,
-        "heritage": "",
-        "members": [
-          "cost?: MountCost",
-          "preload?: number"
         ]
       },
       "UseNumberTickerOptions": {
@@ -672,17 +661,6 @@
         "generics": [],
         "params": [],
         "returns": "string | null"
-      },
-      "useLazyScene": {
-        "kind": "function",
-        "isType": false,
-        "generics": [
-          "T extends HTMLElement = HTMLDivElement"
-        ],
-        "params": [
-          "options?: UseLazySceneOptions"
-        ],
-        "returns": "{ ref: RefObject<T | null>; near: boolean; ready: boolean; }"
       },
       "useMagneticIntent": {
         "kind": "function",

@@ -100,7 +100,6 @@ export {
   type UsePointerIntentReturn,
 } from "./react/usePointerIntent";
 export { useMagneticIntent } from "./react/useMagneticIntent";
-export { useLazyScene, type UseLazySceneOptions } from "./react/useLazyScene";
 export {
   useVideoScrubber,
   type UseVideoScrubberOptions,

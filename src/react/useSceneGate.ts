@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { useLazyScene } from "./useLazyScene";
 import { useAdaptiveQuality } from "./useAdaptiveQuality";
 import { useFramePressure } from "./useFramePressure";
-import type { MountCost } from "./useSafeToMount";
+import { useSafeToMount, type MountCost } from "./useSafeToMount";
+import { getConductor } from "../core/conductor";
+import { getSensorBus } from "../core/sensor-bus/SensorBus";
 
 /**
  * Where a heavy scene is in its life.
@@ -97,16 +98,58 @@ export interface SceneGate<T extends HTMLElement> {
  * `"reduced"` look like. The renderer adapter that applies these decisions to
  * a real three.js scene is a separate piece.
  *
- * It is also an addition, not a replacement. `useSafeToMount`,
- * `useLazyScene`, `useAdaptiveQuality` and `useFramePressure` all still work
- * on their own, and this composes them rather than hiding them.
+ * It composes `useSafeToMount`, `useAdaptiveQuality` and `useFramePressure`
+ * rather than reimplementing any of them, and all three still work on their
+ * own. It replaced `useLazyScene` outright: that hook carried a second,
+ * differently-behaved answer to "is the page healthy enough to mount", which
+ * is the one shape this codebase cannot afford to keep duplicating.
  */
 export function useSceneGate<T extends HTMLElement = HTMLDivElement>({
   label,
   cost = "heavy",
   preload = 200,
 }: UseSceneGateOptions = {}): SceneGate<T> {
-  const { ref, near, ready } = useLazyScene<T>({ preload, cost });
+  const ref = useRef<T>(null);
+  const [near, setNear] = useState(false);
+  const [settled, setSettled] = useState(false);
+
+  // One definition of "the page can afford this", shared with every other
+  // caller of useSafeToMount.
+  const safe = useSafeToMount({ cost });
+
+  // Close enough to be worth existing.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(
+      (entries) => setNear(entries.some((e) => e.isIntersecting)),
+      { rootMargin: `${preload}px` },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [preload]);
+
+  // Mounting a scene while the reader is mid-scroll is what they feel as a
+  // stutter, whatever the frame numbers say. Only the first mount waits for
+  // this — once the scene exists, scrolling past it is free.
+  useEffect(() => {
+    if (settled) return;
+    const release = getSensorBus().retain();
+    const off = getConductor().subscribe(
+      "update",
+      () => {
+        const { scroll } = getSensorBus().state;
+        if (Math.hypot(scroll.vx, scroll.vy) < SETTLED_SCROLL_SPEED) setSettled(true);
+      },
+      { priority: "essential", label: "useSceneGate(settle)" },
+    );
+    return () => {
+      off();
+      release();
+    };
+  }, [settled]);
+
+  const ready = near && safe && settled;
 
   // Once it has run, it has run. This is what keeps a scene alive when the
   // reader scrolls past it. State rather than a ref, because it changes what
@@ -168,6 +211,8 @@ export function useSceneGate<T extends HTMLElement = HTMLDivElement>({
   };
 }
 
+/** Scroll speed, px/s, below which the page counts as still. */
+const SETTLED_SCROLL_SPEED = 40;
 /** How long a reduced scene stays reduced after conditions improve. */
 const CONSTRAIN_DWELL_MS = 4000;
 /**
