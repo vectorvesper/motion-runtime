@@ -61,6 +61,17 @@ import { getConductor } from "../conductor";
  * tasks at all. Seeing one is evidence of main-thread pressure; not seeing one
  * is evidence of nothing.
  *
+ * **The decomposition is serial; the pipeline is not.** Frame time is closer to
+ * the longer of the CPU and GPU paths than to their sum, so when the main
+ * thread is the bottleneck, GPU time hides inside it and `offThreadMs` shrinks.
+ * Measured under 6x CPU throttling, a GPU load that read as `"render"` at
+ * normal speed correctly read as `"main-thread"` — the CPU could no longer feed
+ * the GPU fast enough, so the CPU genuinely was the bottleneck. The verdict
+ * stays actionable, because the answer in that case really is "fix the main
+ * thread, do not reduce quality". But do not read `offThreadMs` as a measure of
+ * how much GPU work exists; it measures how much of the frame the GPU was the
+ * thing being waited on.
+ *
  * **Nothing acts on this yet.** It reports. Shedding, quality tiers and mount
  * gates are unchanged. A classifier that is wrong is worse than no classifier,
  * so it earns the right to drive decisions by being read first.

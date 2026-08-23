@@ -6,22 +6,30 @@
  * 70fps read as perfectly fine. A frame budget only means something relative
  * to the rate the display can actually present at.
  *
- * How: rAF cannot fire FASTER than vsync, so the smallest interval we ever
- * observe IS the vsync period. Slow frames are jank and a minimum ignores
- * them for free — no percentiles, no sorting, no allocation.
+ * How: rAF cannot fire faster than vsync, so short intervals are the ones that
+ * carry information about the display and long ones are just jank. But "the
+ * smallest interval ever seen" is NOT the vsync period, which is what the
+ * first version of this assumed and what made it wrong in practice.
  *
- * We keep the two smallest and estimate from the SECOND smallest, because a
- * raw minimum trusts a single sample. Duplicate rAF callbacks, clock
- * adjustments and resumed tabs all produce one impossibly short interval, and
- * a single one of those would otherwise pin the estimate to a rate the
- * display cannot do — for thousands of frames, since the minimum is only
- * allowed to recover slowly. Requiring an outlier to happen twice costs one
- * number and removes the failure mode.
+ * Browsers deliver rAF callbacks in bursts. After a stall, two callbacks can
+ * arrive back to back, producing intervals far shorter than a frame. The old
+ * probe kept a running minimum over all time and required an outlier to happen
+ * twice — which a burst satisfies easily. One stutter would pin a 60Hz display
+ * at 120Hz, and the slow upward drift took about 1700 frames, near thirty
+ * seconds, to recover.
  *
- * The minimum is allowed to drift upward very slowly so that moving a window
- * from a 144Hz monitor to a 60Hz one is picked up within a few seconds. On a
- * stable display the drift is cancelled every frame by the incoming sample,
- * so the estimate does not wander.
+ * That is not a cosmetic error. `frameBudgetMs` feeds the conductor's shed
+ * thresholds, AnimationBudget's tiers and the pressure classifier's healthy
+ * check, so a halved budget makes a perfectly healthy page believe it is
+ * failing and degrade itself. Measured in Chrome, this happened on an ordinary
+ * 60Hz laptop within seconds of any load: the probe reported 100Hz, 120Hz and
+ * 144Hz on a display flatly running at 60.
+ *
+ * So the estimate now comes from a bounded window of recent intervals, and a
+ * fast interval has to RECUR before it is believed. A burst contributes two or
+ * three samples out of the window and is ignored; a genuine 120Hz display
+ * produces them constantly. Being windowed also means a wrong estimate cannot
+ * outlive the window — a couple of seconds rather than half a minute.
  *
  * Unknown rates snap to the nearest plausible display rate, and anything that
  * isn't close to one is rejected in favour of 60 — a page pinned at a steady
@@ -36,20 +44,36 @@ export const DEFAULT_HZ = 60;
 
 /** Frames observed before the estimate is trusted. */
 const MIN_SAMPLES = 8;
+/**
+ * How many recent intervals the estimate is built from.
+ *
+ * Bounds how long a wrong answer can survive: about two seconds at 60Hz,
+ * against the roughly thirty the old running-minimum took to drift back.
+ */
+const WINDOW = 128;
+/**
+ * How many samples in the window must sit near the candidate period before it
+ * is believed.
+ *
+ * A post-stall burst contributes two or three. A display genuinely running at
+ * that rate contributes most of the window, and even one merely *capable* of
+ * it while the page runs slower contributes far more than this.
+ */
+const MIN_CORROBORATION = 6;
+/** How close an interval must be to the candidate to corroborate it. */
+const CORROBORATION_TOLERANCE = 1.15;
 /** A candidate must be within this relative distance of the measurement. */
 const TOLERANCE = 0.12;
 /** Faster than 300Hz is a bogus sample (clock glitch, resumed tab). */
 const MIN_INTERVAL_MS = 1000 / 300;
 /** Slower than this is jank, not a display rate. */
 const MAX_INTERVAL_MS = 1000 / 24;
-/** Per-frame upward drift allowed on the running minimum (~1.27x per 600 frames). */
-const DRIFT = 1.0004;
 
 export class RefreshRateProbe {
-  /** Smallest interval seen. Held only so a second one can confirm it. */
-  private min1 = Infinity;
-  /** Second smallest — the value the estimate is actually built from. */
-  private min2 = Infinity;
+  /** Recent raw intervals. Bounded, so a bad estimate cannot outlive it. */
+  private window = new Float32Array(WINDOW);
+  private next = 0;
+  private filled = 0;
   private samples = 0;
   private hzValue: number = DEFAULT_HZ;
 
@@ -69,8 +93,9 @@ export class RefreshRateProbe {
   }
 
   reset(): void {
-    this.min1 = Infinity;
-    this.min2 = Infinity;
+    this.window.fill(0);
+    this.next = 0;
+    this.filled = 0;
     this.samples = 0;
     this.hzValue = DEFAULT_HZ;
   }
@@ -79,23 +104,36 @@ export class RefreshRateProbe {
   push(intervalMs: number): void {
     if (!(intervalMs >= MIN_INTERVAL_MS) || intervalMs > MAX_INTERVAL_MS) return;
 
-    // Let both minima creep upward so that moving the window to a slower
-    // display is eventually noticed. On a stable display the incoming sample
-    // cancels the drift every frame, so the estimate doesn't wander.
-    if (this.min1 !== Infinity) this.min1 *= DRIFT;
-    if (this.min2 !== Infinity) this.min2 *= DRIFT;
-
-    if (intervalMs < this.min1) {
-      this.min2 = this.min1;
-      this.min1 = intervalMs;
-    } else if (intervalMs < this.min2) {
-      this.min2 = intervalMs;
-    }
-
+    this.window[this.next] = intervalMs;
+    this.next = (this.next + 1) % WINDOW;
+    if (this.filled < WINDOW) this.filled++;
     this.samples++;
-    if (this.samples < MIN_SAMPLES || this.min2 === Infinity) return;
+    if (this.samples < MIN_SAMPLES) return;
 
-    this.hzValue = snapToCandidate(1000 / this.min2);
+    // Second smallest in the window, for the same reason the old version used
+    // it: one impossibly short sample should not decide anything on its own.
+    let min1 = Infinity;
+    let min2 = Infinity;
+    for (let i = 0; i < this.filled; i++) {
+      const v = this.window[i];
+      if (v < min1) {
+        min2 = min1;
+        min1 = v;
+      } else if (v < min2) {
+        min2 = v;
+      }
+    }
+    if (min2 === Infinity) return;
+
+    // ...and now the part the old version was missing: the period has to
+    // actually recur. Without this a two-callback burst is indistinguishable
+    // from a fast display.
+    const limit = min2 * CORROBORATION_TOLERANCE;
+    let near = 0;
+    for (let i = 0; i < this.filled; i++) if (this.window[i] <= limit) near++;
+    if (near < MIN_CORROBORATION) return;
+
+    this.hzValue = snapToCandidate(1000 / min2);
   }
 }
 

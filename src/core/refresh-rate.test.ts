@@ -60,10 +60,52 @@ describe("RefreshRateProbe", () => {
     expect(probe.hz).toBe(60);
   });
 
-  it("believes an outlier once it happens twice", () => {
+  it("believes a fast rate once it keeps happening", () => {
     const probe = new RefreshRateProbe();
     feed(probe, 1000 / 120, 30);
     expect(probe.hz).toBe(120);
+  });
+
+  it("is not fooled by a burst of callbacks after a stall", () => {
+    const probe = new RefreshRateProbe();
+    feed(probe, 1000 / 60, 60);
+    expect(probe.hz).toBe(60);
+
+    // Browsers deliver rAF in bursts after a stall: several back-to-back
+    // callbacks with intervals far below one frame. Three of them, on a
+    // display flatly running at 60.
+    feed(probe, 1000 / 240, 3);
+    feed(probe, 1000 / 60, 20);
+
+    // The old probe kept a running minimum and only required an outlier
+    // twice, so this pinned it at 240Hz — quartering the frame budget that
+    // the conductor, the governor and the pressure classifier all read.
+    expect(probe.hz).toBe(60);
+  });
+
+  it("still detects a fast display that a slow page is only half using", () => {
+    const probe = new RefreshRateProbe();
+    // A 120Hz panel where the page mostly manages 60, but not always. The
+    // fast frames are real and recur, so they should be believed.
+    for (let i = 0; i < 40; i++) {
+      probe.push(1000 / 60);
+      probe.push(1000 / 60);
+      if (i % 3 === 0) probe.push(1000 / 120);
+    }
+    expect(probe.hz).toBe(120);
+  });
+
+  it("forgets a wrong answer within the window, not over thousands of frames", () => {
+    const probe = new RefreshRateProbe();
+    feed(probe, 1000 / 120, 40);
+    expect(probe.hz).toBe(120);
+
+    // Moved to a 60Hz display. The old running minimum drifted upward at
+    // 0.04% per frame and needed roughly 1700 frames — about half a minute —
+    // to let go. A bounded window cannot hold a stale answer longer than the
+    // window itself.
+    feed(probe, 1000 / 60, 130);
+    expect(probe.hz).toBe(60);
   });
 
   it("discards bogus sub-millisecond intervals", () => {
@@ -73,13 +115,11 @@ describe("RefreshRateProbe", () => {
     expect(probe.hz).toBe(60);
   });
 
-  it("adapts upward when the window moves to a slower display", () => {
+  it("adapts when the window moves to a slower display", () => {
     const probe = new RefreshRateProbe();
     feed(probe, 1000 / 144, 20);
     expect(probe.hz).toBe(144);
-    // Dragged to a 60Hz monitor: the minimum is allowed to drift up until it
-    // settles on the new vsync period.
-    feed(probe, 1000 / 60, 4000);
+    feed(probe, 1000 / 60, 130);
     expect(probe.hz).toBe(60);
   });
 

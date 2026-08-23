@@ -152,6 +152,9 @@
       await sleep(ms);
       const state = last ?? getFramePressure().state;
       const snapshot = JSON.parse(JSON.stringify(state));
+      const cs = getConductor().getStats();
+      snapshot.displayHz = cs.displayHz;
+      snapshot.probeBudget = cs.frameBudgetMs;
 
       off();
       stop();
