@@ -7,16 +7,24 @@ import { PressurePolicy, type PressureSample } from "./FramePressure";
  * All the browser-dependent measurement lives in the singleton; this is the
  * decision logic on its own, which is the part that has to be right. A wrong
  * verdict here would make the runtime lower quality for the wrong reason.
+ *
+ * Note what `probeDelayMs` means in a sample: the raw MessageChannel round
+ * trip, measured from the input lane, which contains our own update and render
+ * work as well as everyone else's. That is why a "someone else is burning the
+ * main thread after us" case sets it to their time PLUS `runtimeMs`. The
+ * policy nets our share back out. Getting this wrong in a test would be
+ * testing a decomposition nobody performs.
  */
 
 const BUDGET = 1000 / 60; // 16.6ms
 
-/** Push `count` identical frames and return the last emitted state. */
+/** Push identical frames until the policy has emitted, and return the last. */
 function run(policy: PressurePolicy, sample: Partial<PressureSample>, count = 60) {
   const full: PressureSample = {
     frameMs: BUDGET,
     runtimeMs: 1,
-    mainTailMs: null,
+    probeDelayMs: null,
+    preRuntimeMs: 0,
     budgetMs: BUDGET,
     longTasks: 0,
     ...sample,
@@ -26,13 +34,20 @@ function run(policy: PressurePolicy, sample: Partial<PressureSample>, count = 60
   return last;
 }
 
+/** Someone else burning `ms` on the main thread AFTER our tick. */
+const otherAfter = (ms: number, runtimeMs: number) => ({
+  runtimeMs,
+  probeDelayMs: runtimeMs + ms,
+});
+
 describe("PressurePolicy — saying nothing", () => {
   it("stays quiet until it has seen enough frames", () => {
     const p = new PressurePolicy();
     const sample: PressureSample = {
       frameMs: 40,
       runtimeMs: 30,
-      mainTailMs: 5,
+      probeDelayMs: 31,
+      preRuntimeMs: 0,
       budgetMs: BUDGET,
       longTasks: 0,
     };
@@ -42,7 +57,7 @@ describe("PressurePolicy — saying nothing", () => {
 
   it("reports no pressure while frames are healthy", () => {
     const p = new PressurePolicy();
-    const out = run(p, { frameMs: BUDGET, runtimeMs: 2, mainTailMs: 3 });
+    const out = run(p, { frameMs: BUDGET, runtimeMs: 2, probeDelayMs: 3 });
 
     // Most of a healthy frame is waiting for vsync. Calling that idle time
     // "render pressure" would be worse than saying nothing.
@@ -51,7 +66,7 @@ describe("PressurePolicy — saying nothing", () => {
 
   it("still reports none when a healthy frame is mostly off-thread", () => {
     const p = new PressurePolicy();
-    const out = run(p, { frameMs: BUDGET, runtimeMs: 0.5, mainTailMs: 0.5 });
+    const out = run(p, { frameMs: BUDGET, runtimeMs: 0.5, probeDelayMs: 1 });
 
     expect(out!.offThreadMs).toBeGreaterThan(10);
     expect(out!.source).toBe("none");
@@ -61,26 +76,40 @@ describe("PressurePolicy — saying nothing", () => {
 describe("PressurePolicy — naming the cause", () => {
   it("blames our own subscribers when they dominate", () => {
     const p = new PressurePolicy();
-    const out = run(p, { frameMs: 40, runtimeMs: 30, mainTailMs: 4 });
+    // 30ms of our work; the probe sees our work plus a little of theirs.
+    const out = run(p, { frameMs: 40, ...otherAfter(1, 30) });
 
     expect(out!.source).toBe("runtime");
     expect(out!.confidence).toBeGreaterThan(0.5);
   });
 
-  it("blames the main thread when someone else's work dominates", () => {
+  it("blames the main thread when someone else's work runs after us", () => {
     const p = new PressurePolicy();
-    const out = run(p, { frameMs: 50, runtimeMs: 2, mainTailMs: 40 });
+    const out = run(p, { frameMs: 50, ...otherAfter(40, 2) });
 
     expect(out!.source).toBe("main-thread");
-    expect(out!.confidence).toBeGreaterThan(0.5);
+    expect(out!.mainOtherMs).toBeGreaterThan(30);
+  });
+
+  it("blames the main thread when someone else's work runs BEFORE us", () => {
+    const p = new PressurePolicy();
+    // A third-party rAF loop registered ahead of ours. The probe cannot see
+    // it at all — this is the case that read as "render" at 97% confidence on
+    // the first real-browser run.
+    const out = run(p, {
+      frameMs: 50, runtimeMs: 1, probeDelayMs: 2, preRuntimeMs: 42,
+    });
+
+    expect(out!.source).toBe("main-thread");
   });
 
   it("blames rendering when the main thread was free and the frame was still late", () => {
     const p = new PressurePolicy();
-    // 2ms of our work, 3ms of everything else's, and a 45ms frame. The main
-    // thread finished early and the frame still missed — that is the GPU or
-    // the compositor.
-    const out = run(p, { frameMs: 45, runtimeMs: 2, mainTailMs: 3 });
+    // Nothing ran before us, our work is trivial, the probe came straight
+    // back — and the frame still missed. That is the GPU or the compositor.
+    const out = run(p, {
+      frameMs: 45, runtimeMs: 2, probeDelayMs: 3, preRuntimeMs: 0.4,
+    });
 
     expect(out!.source).toBe("render");
     expect(out!.offThreadMs).toBeGreaterThan(35);
@@ -91,7 +120,9 @@ describe("PressurePolicy — naming the cause", () => {
     // The scenario from the runtime notes: 2ms of JS against 30ms of GPU.
     // Headroom looks generous, so shedding JS would remove motion and fix
     // nothing.
-    const out = run(p, { frameMs: 32, runtimeMs: 2, mainTailMs: 1 });
+    const out = run(p, {
+      frameMs: 32, runtimeMs: 2, probeDelayMs: 2.5, preRuntimeMs: 0.2,
+    });
 
     expect(out!.source).toBe("render");
     expect(out!.runtimeMs).toBeLessThan(3);
@@ -101,17 +132,18 @@ describe("PressurePolicy — naming the cause", () => {
 describe("PressurePolicy — refusing to guess", () => {
   it("says unknown when no single cause is large enough", () => {
     const p = new PressurePolicy();
-    // Three roughly equal thirds. Something is wrong; nothing is the cause.
-    const out = run(p, { frameMs: 45, runtimeMs: 15, mainTailMs: 15 });
+    // Roughly equal thirds. Something is wrong; nothing is the cause.
+    const out = run(p, {
+      frameMs: 45, runtimeMs: 15, probeDelayMs: 30, preRuntimeMs: 0,
+    });
 
     expect(out!.source).toBe("unknown");
     expect(out!.confidence).toBe(0);
   });
 
   it("reports low confidence when the winner barely wins", () => {
-    const p = new PressurePolicy();
-    const clear = run(new PressurePolicy(), { frameMs: 50, runtimeMs: 44, mainTailMs: 2 });
-    const narrow = run(p, { frameMs: 50, runtimeMs: 21, mainTailMs: 20 });
+    const clear = run(new PressurePolicy(), { frameMs: 50, ...otherAfter(2, 44) });
+    const narrow = run(new PressurePolicy(), { frameMs: 50, ...otherAfter(20, 21) });
 
     // Confidence is how clearly it won, not how large it was.
     expect(clear!.confidence).toBeGreaterThan(narrow!.confidence);
@@ -121,15 +153,15 @@ describe("PressurePolicy — refusing to guess", () => {
 describe("PressurePolicy — without the main-thread probe", () => {
   it("still recognises our own work, because that is measured directly", () => {
     const p = new PressurePolicy();
-    const out = run(p, { frameMs: 40, runtimeMs: 30, mainTailMs: null });
+    const out = run(p, { frameMs: 40, runtimeMs: 30, probeDelayMs: null });
 
     expect(out!.source).toBe("runtime");
-    expect(out!.mainTailMs).toBeNull();
+    expect(out!.mainOtherMs).toBeNull();
   });
 
   it("will not split the rest without evidence", () => {
     const p = new PressurePolicy();
-    const out = run(p, { frameMs: 40, runtimeMs: 2, mainTailMs: null });
+    const out = run(p, { frameMs: 40, runtimeMs: 2, probeDelayMs: null });
 
     // Something is eating 38ms. Which of the main thread or the GPU it is
     // cannot be answered from timing alone.
@@ -138,7 +170,9 @@ describe("PressurePolicy — without the main-thread probe", () => {
 
   it("leans on a long task, but only as a lean", () => {
     const p = new PressurePolicy();
-    const out = run(p, { frameMs: 40, runtimeMs: 2, mainTailMs: null, longTasks: 1 });
+    const out = run(p, {
+      frameMs: 40, runtimeMs: 2, probeDelayMs: null, longTasks: 1,
+    });
 
     expect(out!.source).toBe("main-thread");
     // The Long Task API fires above 50ms, so it proves something blocked and
@@ -150,10 +184,10 @@ describe("PressurePolicy — without the main-thread probe", () => {
 describe("PressurePolicy — long tasks are a positive signal only", () => {
   it("corroborates a main-thread verdict", () => {
     const withTask = run(new PressurePolicy(), {
-      frameMs: 50, runtimeMs: 2, mainTailMs: 40, longTasks: 1,
+      frameMs: 50, ...otherAfter(40, 2), longTasks: 1,
     });
     const without = run(new PressurePolicy(), {
-      frameMs: 50, runtimeMs: 2, mainTailMs: 40, longTasks: 0,
+      frameMs: 50, ...otherAfter(40, 2), longTasks: 0,
     });
 
     expect(withTask!.confidence).toBeGreaterThan(without!.confidence);
@@ -161,7 +195,9 @@ describe("PressurePolicy — long tasks are a positive signal only", () => {
 
   it("does not weaken a render verdict by being absent", () => {
     const p = new PressurePolicy();
-    const out = run(p, { frameMs: 45, runtimeMs: 2, mainTailMs: 3, longTasks: 0 });
+    const out = run(p, {
+      frameMs: 45, runtimeMs: 2, probeDelayMs: 3, preRuntimeMs: 0.4, longTasks: 0,
+    });
 
     // A page spending 25ms per frame on main-thread JS produces no long tasks
     // at all, so absence has to mean nothing.
@@ -176,20 +212,40 @@ describe("PressurePolicy — housekeeping", () => {
     const budget120 = 1000 / 120; // 8.3ms
     // 12ms is comfortable at 60Hz and a miss at 120Hz.
     const out = run(p, {
-      frameMs: 12, runtimeMs: 9, mainTailMs: 1, budgetMs: budget120,
+      frameMs: 12, ...otherAfter(0.5, 9), budgetMs: budget120,
     });
 
     expect(out!.source).toBe("runtime");
   });
 
+  it("speaks up on a page running at 5fps", () => {
+    const p = new PressurePolicy();
+    // At 30 required samples this stayed silent for six seconds — on exactly
+    // the page most in need of an answer.
+    let emitted = null;
+    for (let i = 0; i < 15; i++) {
+      emitted =
+        p.push({
+          frameMs: 200,
+          runtimeMs: 4,
+          probeDelayMs: 5,
+          preRuntimeMs: 1,
+          budgetMs: BUDGET,
+          longTasks: 0,
+        }) ?? emitted;
+    }
+    expect(emitted).not.toBeNull();
+    expect(emitted!.source).toBe("render");
+  });
+
   it("clears its verdict on reset", () => {
     const p = new PressurePolicy();
-    run(p, { frameMs: 40, runtimeMs: 30, mainTailMs: 4 });
+    run(p, { frameMs: 40, ...otherAfter(1, 30) });
     expect(p.state.source).toBe("runtime");
 
     p.reset();
     expect(p.state.source).toBe("none");
-    expect(p.state.mainTailMs).toBeNull();
+    expect(p.state.mainOtherMs).toBeNull();
     expect(p.state.frameMs).toBe(0);
   });
 });

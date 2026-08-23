@@ -139,6 +139,16 @@ export interface ConductorStats {
   activeScope: string | null;
   /** Human-readable name of that scope, when one was given. */
   activeScopeLabel: string | null;
+  /**
+   * How much of this frame was already gone before the runtime got it, in ms,
+   * smoothed. Every rAF callback in a frame receives the same start timestamp,
+   * so the gap between that and the moment our tick actually runs is other
+   * people's frame work — a third-party library's own loop, most often.
+   *
+   * Large values mean the page is main-thread bound by something that is not
+   * us, which is the one case where shedding our own work helps least.
+   */
+  preRuntimeMs: number;
   subscriberCount: number;
   /** Subscribers skipped on the most recent frame. */
   shedLastFrame: number;
@@ -276,6 +286,7 @@ class FrameConductor {
   private workMsEma = 0;
   private worstWorkMs = 0;
   private shedLastFrame = 0;
+  private preRuntimeEma = 0;
   private overrunEma = 0;
   /** Innermost-last. The tail holds the foreground lease. */
   private scopeStack: Array<{ scope: string; label?: string }> = [];
@@ -452,6 +463,7 @@ class FrameConductor {
       carriedOverrunMs: this.overrunEma,
       activeScope: this.foregroundScope,
       activeScopeLabel: this.foregroundLabel,
+      preRuntimeMs: this.preRuntimeEma,
       subscriberCount: this.liveCount,
       shedLastFrame: this.shedLastFrame,
       subscribers,
@@ -502,6 +514,11 @@ class FrameConductor {
 
   private tick = (now: number): void => {
     this.rafId = requestAnimationFrame(this.tick);
+
+    // `now` is when the frame's rendering steps began, and every rAF callback
+    // in the frame receives it. So the difference between it and the clock
+    // right now is whatever ran before us this frame.
+    this.preRuntimeEma += (performance.now() - now - this.preRuntimeEma) * 0.2;
 
     const rawIntervalMs = now - this.last;
     this.last = now;

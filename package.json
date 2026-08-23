@@ -39,7 +39,9 @@
   "scripts": {
     "build": "tsup && node scripts/sanitize-dts.mjs && node scripts/preserve-directives.mjs",
     "check:api": "node scripts/check-api.mjs",
-    "prepublishOnly": "npm run build && npm run check:api"
+    "prepublishOnly": "npm run build && npm run check:api",
+    "test:pressure": "node scripts/pressure-probe/harness.mjs",
+    "test:scheduling": "node scripts/pressure-probe/scheduling-check.mjs"
   },
   "peerDependencies": {
     "react": ">=18",

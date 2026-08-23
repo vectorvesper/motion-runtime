@@ -12,32 +12,42 @@ import { getConductor } from "../conductor";
  *
  * One frame is split three ways:
  *
- *     frameMs = runtimeMs + mainTailMs + offThreadMs
+ *     frameMs = runtimeMs + mainOtherMs + offThreadMs
  *
- * - `runtimeMs`  — our own subscribers. The conductor already measures this,
- *                  because it has to read the clock between subscribers anyway
- *                  to know how much of the frame is left.
- * - `mainTailMs` — how long the main thread stayed busy after our callback
- *                  returned: everyone else's rAF work, style, layout, paint.
- * - `offThreadMs`— the remainder. Compositing, the GPU, and on a healthy page,
- *                  simply waiting for the next vsync.
+ * - `runtimeMs`   — our own subscribers. The conductor already measures this,
+ *                   because it has to read the clock between subscribers
+ *                   anyway to know how much of the frame is left.
+ * - `mainOtherMs` — main-thread work that is not ours, on both sides of our
+ *                   tick: another library's rAF loop, style, layout, paint.
+ * - `offThreadMs` — the remainder. Compositing, the GPU, and on a healthy
+ *                   page, simply waiting for the next vsync.
  *
  * That last point is why this only classifies when a frame is over budget. On
  * a page hitting 60fps, `offThreadMs` is mostly idle, and reading idle as
  * "render pressure" would be worse than saying nothing.
  *
- * ## How mainTailMs is measured
+ * ## How the main-thread share is measured
  *
- * A message is posted to a `MessageChannel` at the end of the frame callback.
- * Messages are delivered as tasks, and tasks only run once the main thread
- * finishes what it is doing — which, at that point in the frame, means the rest
- * of the rendering steps. The delay before it arrives is the main thread's
- * remaining frame work.
+ * Two numbers, because work happens on both sides of us.
  *
- * It is sampled at roughly 10Hz rather than every frame. The classifier only
- * needs to update a few times a second, and posting a task 120 times a second
- * to measure cost is its own kind of cost — see the note in the vault about
- * anything that watches the runtime also running inside it.
+ * **After us:** a message is posted to a `MessageChannel` from the input lane.
+ * Messages are delivered as tasks, and a task only runs once the main thread
+ * finishes what it is doing — at that point in the frame, the rest of the
+ * rendering steps. Measured directly in Chrome: with a competing rAF callback
+ * burning 24ms, the round trip came back at 24.3ms. Our own update and render
+ * work is inside that number too, so the conductor's separate measurement is
+ * subtracted back out.
+ *
+ * **Before us:** `ConductorStats.preRuntimeMs`. Every rAF callback in a frame
+ * receives the same start timestamp, so the gap between it and the moment our
+ * tick runs is whatever ran first. Without this, a third-party loop registered
+ * ahead of ours is invisible to the probe and lands in `offThreadMs` — which
+ * made a pure main-thread load report as `"render"` at 97% confidence on the
+ * first real-browser run.
+ *
+ * The probe is sampled at roughly 10Hz rather than every frame. The verdict
+ * only changes slowly, and a probe running at frame rate is measuring a cost
+ * it is helping to create.
  *
  * ## What this deliberately does NOT claim
  *
@@ -80,8 +90,11 @@ export interface PressureState {
   frameMs: number;
   /** Smoothed time in our own subscribers, ms. */
   runtimeMs: number;
-  /** Smoothed main-thread time after our callback, ms. `null` until probed. */
-  mainTailMs: number | null;
+  /**
+   * Main-thread time this frame that is NOT ours, ms — work before our tick
+   * plus work after it. `null` until the probe has reported at least once.
+   */
+  mainOtherMs: number | null;
   /** Smoothed remainder — compositing, GPU, and vsync wait, ms. */
   offThreadMs: number;
   /** One presented frame at the detected display rate, ms. */
@@ -92,8 +105,14 @@ export interface PressureState {
 
 /** A frame this much over budget is worth explaining. */
 const SLOW_FACTOR = 1.25;
-/** Frames to observe before saying anything at all. */
-const MIN_SAMPLES = 30;
+/**
+ * Frames to observe before saying anything at all.
+ *
+ * Low on purpose. At 30 this stayed silent for six seconds on a page running
+ * at 5fps — which is exactly the page most in need of an answer. A verdict
+ * from a dozen frames is coarse; no verdict at all is useless.
+ */
+const MIN_SAMPLES = 12;
 /** Emit at most this often, in seconds. */
 const EMIT_INTERVAL = 0.5;
 /** EMA weight. Slower than the budget's, because this drives quality choices. */
@@ -107,8 +126,16 @@ const MIN_WINNING_SHARE = 0.4;
 export interface PressureSample {
   frameMs: number;
   runtimeMs: number;
-  /** `null` when this frame was not probed. */
-  mainTailMs: number | null;
+  /** Time gone in this frame before the runtime ran. Other people's rAF work. */
+  preRuntimeMs: number;
+  /**
+   * Raw MessageChannel round trip, or `null` when this frame was not probed.
+   *
+   * Measured from the input lane, so it contains our own update and render
+   * work as well as everyone else's. `mainOther()` is what nets that out —
+   * do not read this as "other people's time".
+   */
+  probeDelayMs: number | null;
   budgetMs: number;
   /** Long tasks observed since the previous sample. */
   longTasks: number;
@@ -125,6 +152,7 @@ export class PressurePolicy {
   private frameEma = 0;
   private runtimeEma = 0;
   private tailEma: number | null = null;
+  private preEma = 0;
   private budgetMs = 1000 / 60;
   private samples = 0;
   private longTasks = 0;
@@ -133,24 +161,45 @@ export class PressurePolicy {
   private confidence = 0;
 
   get state(): PressureState {
-    const tail = this.tailEma;
-    const off = Math.max(0, this.frameEma - this.runtimeEma - (tail ?? 0));
+    const other = this.mainOther();
+    const off = Math.max(0, this.frameEma - this.runtimeEma - (other ?? 0));
     return {
       source: this.source,
       confidence: this.confidence,
       frameMs: this.frameEma,
       runtimeMs: this.runtimeEma,
-      mainTailMs: tail,
+      mainOtherMs: other,
       offThreadMs: off,
       budgetMs: this.budgetMs,
       longTasks: this.longTasks,
     };
   }
 
+  /**
+   * Main-thread time that belongs to somebody else.
+   *
+   * The probe is posted from the input lane, which runs first, so the delay it
+   * measures also contains our own update and render work. Subtracting what the
+   * conductor separately measured leaves other people's share. Work that ran
+   * *before* our tick never reaches the probe at all, which is what
+   * `preRuntimeMs` is for — without it, a third-party rAF loop registered ahead
+   * of ours reads as off-thread, and the verdict comes back "render".
+   */
+  private mainOther(): number | null {
+    if (this.tailEma === null) return null;
+    const raw = this.preEma + Math.max(0, this.tailEma - this.runtimeEma);
+    // The two halves are smoothed independently and can briefly total more
+    // than the frame they are supposed to describe. Attributing more time than
+    // the frame contains is never right, and a reader who spots it stops
+    // trusting the whole readout.
+    return Math.min(raw, Math.max(0, this.frameEma - this.runtimeEma));
+  }
+
   reset(): void {
     this.frameEma = 0;
     this.runtimeEma = 0;
     this.tailEma = null;
+    this.preEma = 0;
     this.samples = 0;
     this.longTasks = 0;
     this.sinceEmit = 0;
@@ -167,11 +216,12 @@ export class PressurePolicy {
     const a = this.samples === 1 ? 1 : ALPHA;
     this.frameEma += (sample.frameMs - this.frameEma) * a;
     this.runtimeEma += (sample.runtimeMs - this.runtimeEma) * a;
-    if (sample.mainTailMs !== null) {
+    this.preEma += (sample.preRuntimeMs - this.preEma) * a;
+    if (sample.probeDelayMs !== null) {
       this.tailEma =
         this.tailEma === null
-          ? sample.mainTailMs
-          : this.tailEma + (sample.mainTailMs - this.tailEma) * ALPHA;
+          ? sample.probeDelayMs
+          : this.tailEma + (sample.probeDelayMs - this.tailEma) * ALPHA;
     }
 
     this.sinceEmit += sample.frameMs / 1000;
@@ -196,7 +246,7 @@ export class PressurePolicy {
 
     const frame = this.frameEma;
     const runtime = this.runtimeEma;
-    const tail = this.tailEma;
+    const tail = this.mainOther();
 
     // Without the probe we can still recognise our own work, because the
     // conductor measures that directly. We cannot split the rest.
@@ -341,7 +391,8 @@ class FramePressure {
     const emitted = this.policy.push({
       frameMs: stats.frameMs,
       runtimeMs: stats.workMs,
-      mainTailMs: tail,
+      probeDelayMs: tail,
+      preRuntimeMs: stats.preRuntimeMs,
       budgetMs: stats.frameBudgetMs,
       longTasks,
     });

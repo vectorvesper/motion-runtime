@@ -11,7 +11,7 @@ const INITIAL: PressureState = {
   confidence: 1,
   frameMs: 0,
   runtimeMs: 0,
-  mainTailMs: null,
+  mainOtherMs: null,
   offThreadMs: 0,
   budgetMs: 1000 / 60,
   longTasks: 0,
