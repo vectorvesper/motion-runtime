@@ -158,6 +158,11 @@ export interface ConductorConfig {
 
 const LANE_ORDER: ConductorLane[] = ["input", "update", "render"];
 const MAX_DT = 0.1; // seconds; anything longer is a tab-sleep artifact
+// Two frames can arrive on the same timestamp, and a clock can step backwards.
+// Either produces a dt of zero or less, and anything doing rate math divides by
+// it — one NaN then sticks forever, because NaN survives every smoothing pass
+// it touches. A real frame is never this short: 240Hz is 4.16ms.
+const MIN_DT = 0.001;
 
 const PRIORITY_RANK: Record<SubscriberPriority, number> = {
   essential: 0,
@@ -474,7 +479,7 @@ class FrameConductor {
 
     const rawIntervalMs = now - this.last;
     this.last = now;
-    const dt = Math.min(rawIntervalMs / 1000, MAX_DT);
+    const dt = Math.min(Math.max(rawIntervalMs / 1000, MIN_DT), MAX_DT);
     this.time += dt;
 
     this.refresh.push(rawIntervalMs);

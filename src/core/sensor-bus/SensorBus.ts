@@ -164,9 +164,21 @@ export class SensorBus {
     this.unsubscribe = null;
     this.teardown?.();
     this.teardown = null;
+
+    // Everything derived from movement is cleared, not just the pointer.
+    // A stopped bus still reporting velocity is a stale reading, and anything
+    // holding `.state` reads it as live.
     this.pointer.vx = 0;
     this.pointer.vy = 0;
     this.pointer.speed = 0;
+    this.scroll.vx = 0;
+    this.scroll.vy = 0;
+
+    // Forget that the pointer was ever seen. While stopped there are no
+    // listeners, so the bus does not watch the pointer travel — and on restart
+    // the distance it covered in between would otherwise read as one enormous
+    // move. Clearing this makes the next pointermove snap history again.
+    this.pointer.seen = false;
   }
 
   private syncViewport(): void {
