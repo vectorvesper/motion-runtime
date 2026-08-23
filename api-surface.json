@@ -13,6 +13,8 @@
       "PointerIntentOptions",
       "PointerIntentSensitivity",
       "PointerSensor",
+      "PressureSource",
+      "PressureState",
       "RectLike",
       "ScrollSensor",
       "ScrubDriver",
@@ -30,6 +32,7 @@
       "getAdaptiveQuality",
       "getAnimationBudget",
       "getConductor",
+      "getFramePressure",
       "getSensorBus",
       "rayRectIntersect"
     ],
@@ -182,6 +185,24 @@
           "y: number"
         ]
       },
+      "PressureSource": {
+        "kind": "alias",
+        "type": "\"none\" | \"runtime\" | \"main-thread\" | \"render\" | \"unknown\""
+      },
+      "PressureState": {
+        "kind": "object",
+        "heritage": "",
+        "members": [
+          "budgetMs: number",
+          "confidence: number",
+          "frameMs: number",
+          "longTasks: number",
+          "mainTailMs: number | null",
+          "offThreadMs: number",
+          "runtimeMs: number",
+          "source: PressureSource"
+        ]
+      },
       "RectLike": {
         "kind": "object",
         "heritage": "",
@@ -279,6 +300,12 @@
         "params": [],
         "returns": "AnimationBudget"
       },
+      "getFramePressure": {
+        "kind": "function",
+        "generics": [],
+        "params": [],
+        "returns": "FramePressure"
+      },
       "getSensorBus": {
         "kind": "function",
         "generics": [],
@@ -316,6 +343,7 @@
       "rayRectIntersect",
       "useAdaptiveQuality",
       "useAnimationBudget",
+      "useFramePressure",
       "useImageTrail",
       "useInteractionScope",
       "useLazyScene",
@@ -510,6 +538,12 @@
         "generics": [],
         "params": [],
         "returns": "BudgetState"
+      },
+      "useFramePressure": {
+        "kind": "function",
+        "generics": [],
+        "params": [],
+        "returns": "PressureState"
       },
       "useImageTrail": {
         "kind": "function",

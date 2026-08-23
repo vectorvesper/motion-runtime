@@ -1,3 +1,7 @@
+import {
+  getFramePressure,
+  type PressureState,
+} from "../core/frame-pressure/FramePressure";
 import { getConductor } from "../core/conductor";
 import { getAnimationBudget, type BudgetState } from "../core/animation-budget/AnimationBudget";
 
@@ -194,6 +198,9 @@ export function mountDevtools(options: DevtoolsOptions = {}): () => void {
   const vCarried = cell(grid, "carried", "ms");
   // Which region currently holds the foreground lease, if any.
   const vScope = cell(grid, "foreground");
+  // What is eating the frame, when anything is. This is the tile that says
+  // whether shedding our own work would help at all.
+  const vPressure = cell(grid, "pressure");
 
   // ---- subscriber table ---------------------------------------------------
   const table = el("table");
@@ -263,6 +270,14 @@ export function mountDevtools(options: DevtoolsOptions = {}): () => void {
     budget = s;
   });
 
+  // Same for the pressure classifier — it only measures while something is
+  // subscribed, so reading `.state` without holding it open would show a
+  // permanently healthy page.
+  let pressure: PressureState = getFramePressure().state;
+  const releasePressure = getFramePressure().subscribe((s) => {
+    pressure = s;
+  });
+
   const paint = () => {
     const stats = getConductor().getStats();
 
@@ -282,6 +297,13 @@ export function mountDevtools(options: DevtoolsOptions = {}): () => void {
       vScope,
       stats.activeScopeLabel ?? stats.activeScope ?? "—",
       stats.activeScope !== null,
+    );
+    setValue(
+      vPressure,
+      pressure.source === "none"
+        ? "—"
+        : `${pressure.source} ${Math.round(pressure.confidence * 100)}%`,
+      pressure.source !== "none" && pressure.source !== "unknown",
     );
 
     const subs = stats.subscribers;
@@ -322,6 +344,7 @@ export function mountDevtools(options: DevtoolsOptions = {}): () => void {
   return () => {
     off();
     releaseBudget();
+    releasePressure();
     head.removeEventListener("click", onToggle);
     host.remove();
   };

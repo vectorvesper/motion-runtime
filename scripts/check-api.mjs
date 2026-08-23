@@ -45,7 +45,21 @@ const ENTRIES = {
   "./devtools": "dist/devtools.d.ts",
 };
 
-const norm = (s) => s.replace(/\s+/g, " ").replace(/;\s*$/, "").trim();
+/**
+ * Normalise a declaration's text: strip comments, collapse whitespace.
+ *
+ * Comments have to go explicitly rather than by relying on getText() skipping
+ * leading trivia, because some of them are not leading trivia. A doc comment
+ * between two members of a union type sits *inside* the type node, so it lands
+ * in the text and a reworded sentence would read as an API change.
+ */
+const norm = (s) =>
+  s
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/\/\/[^\r\n]*/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/;\s*$/, "")
+    .trim();
 
 /**
  * A structural description of one declaration, with comments stripped.

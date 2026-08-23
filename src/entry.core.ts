@@ -86,6 +86,11 @@ export type {
   PointerIntentOptions,
   PointerIntentSensitivity,
 } from "./core/pointer-intent/PointerIntent";
+export { getFramePressure } from "./core/frame-pressure/FramePressure";
+export type {
+  PressureState,
+  PressureSource,
+} from "./core/frame-pressure/FramePressure";
 export type { MagneticOptions } from "./core/magnetic/MagneticElement";
 export type {
   VideoScrubberOptions,

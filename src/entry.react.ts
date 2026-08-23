@@ -87,6 +87,7 @@ export {
   type UseTickOptions,
 } from "./react/InteractionScope";
 export { useAdaptiveQuality } from "./react/useAdaptiveQuality";
+export { useFramePressure } from "./react/useFramePressure";
 export {
   usePointerIntent,
   type UsePointerIntentOptions,
