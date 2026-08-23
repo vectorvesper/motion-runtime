@@ -13,6 +13,7 @@ export default defineConfig({
     index: "src/entry.core.ts",
     react: "src/entry.react.ts",
     devtools: "src/entry.devtools.ts",
+    r3f: "src/entry.r3f.ts",
   },
   format: ["esm", "cjs"],
   dts: true,
@@ -32,5 +33,13 @@ export default defineConfig({
   // copy-paste-ready source drop.
   minify: true,
   // react is a peer dependency — never bundle it.
-  external: ["react", "react-dom", "react/jsx-runtime"],
+  // three and R3F are optional peers used only by the /r3f entry. Bundling
+  // either would drag a 3D engine into a package that advertises none.
+  external: [
+    "react",
+    "react-dom",
+    "react/jsx-runtime",
+    "three",
+    "@react-three/fiber",
+  ],
 });

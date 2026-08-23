@@ -1,6 +1,18 @@
 {
   ".": {
     "values": [
+      "SensorBus",
+      "VERSION",
+      "clamp01",
+      "damp",
+      "getAdaptiveQuality",
+      "getAnimationBudget",
+      "getConductor",
+      "getFramePressure",
+      "getSensorBus",
+      "rayRectIntersect"
+    ],
+    "types": [
       "AdaptiveState",
       "BudgetState",
       "BudgetTier",
@@ -19,27 +31,17 @@
       "ScrollSensor",
       "ScrubDriver",
       "ScrubMapping",
-      "SensorBus",
       "SensorState",
       "SubscribeOptions",
       "SubscriberPriority",
       "SubscriberStat",
-      "VERSION",
       "VideoScrubberOptions",
-      "ViewportSensor",
-      "clamp01",
-      "damp",
-      "getAdaptiveQuality",
-      "getAnimationBudget",
-      "getConductor",
-      "getFramePressure",
-      "getSensorBus",
-      "rayRectIntersect"
+      "ViewportSensor"
     ],
-    "types": [],
     "shapes": {
       "ConductorConfig": {
         "kind": "object",
+        "isType": true,
         "heritage": "",
         "members": [
           "onError?: (error: unknown, label: string, lane: ConductorLane) => void",
@@ -49,10 +51,12 @@
       },
       "ConductorLane": {
         "kind": "alias",
+        "isType": true,
         "type": "\"input\" | \"update\" | \"render\""
       },
       "ConductorStats": {
         "kind": "object",
+        "isType": true,
         "heritage": "",
         "members": [
           "activeScope: string | null",
@@ -73,10 +77,12 @@
       },
       "FrameFn": {
         "kind": "alias",
+        "isType": true,
         "type": "(dt: number, time: number) => void"
       },
       "SubscribeOptions": {
         "kind": "object",
+        "isType": true,
         "heritage": "",
         "members": [
           "hz?: number",
@@ -87,10 +93,12 @@
       },
       "SubscriberPriority": {
         "kind": "alias",
+        "isType": true,
         "type": "\"essential\" | \"enhanced\" | \"decorative\""
       },
       "SubscriberStat": {
         "kind": "object",
+        "isType": true,
         "heritage": "",
         "members": [
           "costMs: number",
@@ -106,12 +114,14 @@
       },
       "getConductor": {
         "kind": "function",
+        "isType": false,
         "generics": [],
         "params": [],
         "returns": "FrameConductor"
       },
       "AdaptiveState": {
         "kind": "object",
+        "isType": true,
         "heritage": "",
         "members": [
           "budgetTier: BudgetTier",
@@ -124,6 +134,7 @@
       },
       "BudgetState": {
         "kind": "object",
+        "isType": true,
         "heritage": "",
         "members": [
           "avgFrameMs: number",
@@ -137,10 +148,12 @@
       },
       "BudgetTier": {
         "kind": "alias",
+        "isType": true,
         "type": "0 | 1 | 2"
       },
       "DeviceSignals": {
         "kind": "object",
+        "isType": true,
         "heritage": "",
         "members": [
           "cores: number | null",
@@ -152,6 +165,7 @@
       },
       "MagneticOptions": {
         "kind": "object",
+        "isType": true,
         "heritage": "",
         "members": [
           "anticipate?: boolean",
@@ -163,6 +177,7 @@
       },
       "PointerIntentOptions": {
         "kind": "object",
+        "isType": true,
         "heritage": "",
         "members": [
           "dynamic?: boolean",
@@ -171,10 +186,12 @@
       },
       "PointerIntentSensitivity": {
         "kind": "alias",
+        "isType": true,
         "type": "\"low\" | \"normal\" | \"high\""
       },
       "PointerSensor": {
         "kind": "object",
+        "isType": true,
         "heritage": "",
         "members": [
           "down: boolean",
@@ -188,10 +205,12 @@
       },
       "PressureSource": {
         "kind": "alias",
+        "isType": true,
         "type": "\"none\" | \"runtime\" | \"main-thread\" | \"render\" | \"unknown\""
       },
       "PressureState": {
         "kind": "object",
+        "isType": true,
         "heritage": "",
         "members": [
           "budgetMs: number",
@@ -206,6 +225,7 @@
       },
       "RectLike": {
         "kind": "object",
+        "isType": true,
         "heritage": "",
         "members": [
           "bottom: number",
@@ -216,6 +236,7 @@
       },
       "ScrollSensor": {
         "kind": "object",
+        "isType": true,
         "heritage": "",
         "members": [
           "vx: number",
@@ -226,14 +247,17 @@
       },
       "ScrubDriver": {
         "kind": "alias",
+        "isType": true,
         "type": "\"scroll\" | \"pointer\" | \"manual\""
       },
       "ScrubMapping": {
         "kind": "alias",
+        "isType": true,
         "type": "\"auto\" | \"pin\" | \"cross\""
       },
       "SensorBus": {
         "kind": "object",
+        "isType": false,
         "heritage": "",
         "members": [
           "get state(): SensorState",
@@ -242,6 +266,7 @@
       },
       "SensorState": {
         "kind": "object",
+        "isType": true,
         "heritage": "",
         "members": [
           "pointer: PointerSensor",
@@ -251,6 +276,7 @@
       },
       "VideoScrubberOptions": {
         "kind": "object",
+        "isType": true,
         "heritage": "",
         "members": [
           "driver?: ScrubDriver",
@@ -263,6 +289,7 @@
       },
       "ViewportSensor": {
         "kind": "object",
+        "isType": true,
         "heritage": "",
         "members": [
           "dpr: number",
@@ -272,6 +299,7 @@
       },
       "clamp01": {
         "kind": "function",
+        "isType": false,
         "generics": [],
         "params": [
           "v: number"
@@ -280,6 +308,7 @@
       },
       "damp": {
         "kind": "function",
+        "isType": false,
         "generics": [],
         "params": [
           "current: number",
@@ -291,30 +320,35 @@
       },
       "getAdaptiveQuality": {
         "kind": "function",
+        "isType": false,
         "generics": [],
         "params": [],
         "returns": "AdaptiveQuality"
       },
       "getAnimationBudget": {
         "kind": "function",
+        "isType": false,
         "generics": [],
         "params": [],
         "returns": "AnimationBudget"
       },
       "getFramePressure": {
         "kind": "function",
+        "isType": false,
         "generics": [],
         "params": [],
         "returns": "FramePressure"
       },
       "getSensorBus": {
         "kind": "function",
+        "isType": false,
         "generics": [],
         "params": [],
         "returns": "SensorBus"
       },
       "rayRectIntersect": {
         "kind": "function",
+        "isType": false,
         "generics": [],
         "params": [
           "x: number",
@@ -327,6 +361,7 @@
       },
       "VERSION": {
         "kind": "value",
+        "isType": false,
         "type": "string"
       }
     }
@@ -374,8 +409,64 @@
       "UseVideoScrubberReturn"
     ],
     "shapes": {
+      "SceneGate": {
+        "kind": "object",
+        "isType": true,
+        "heritage": "",
+        "members": [
+          "mounted: boolean",
+          "quality: \"full\" | \"reduced\"",
+          "reason: string",
+          "ref: RefObject<T | null>",
+          "state: SceneState"
+        ]
+      },
+      "SceneState": {
+        "kind": "alias",
+        "isType": true,
+        "type": "\"dormant\" | \"warming\" | \"active\" | \"constrained\" | \"idle\" | \"poster\""
+      },
+      "UseSafeToMountOptions": {
+        "kind": "object",
+        "isType": true,
+        "heritage": "",
+        "members": [
+          "cost?: MountCost"
+        ]
+      },
+      "UseSceneGateOptions": {
+        "kind": "object",
+        "isType": true,
+        "heritage": "",
+        "members": [
+          "cost?: MountCost",
+          "label?: string",
+          "preload?: number"
+        ]
+      },
+      "useSafeToMount": {
+        "kind": "function",
+        "isType": false,
+        "generics": [],
+        "params": [
+          "{ cost, }?: UseSafeToMountOptions"
+        ],
+        "returns": "boolean"
+      },
+      "useSceneGate": {
+        "kind": "function",
+        "isType": false,
+        "generics": [
+          "T extends HTMLElement = HTMLDivElement"
+        ],
+        "params": [
+          "{ label, cost, preload, }?: UseSceneGateOptions"
+        ],
+        "returns": "SceneGate<T>"
+      },
       "InteractionScope": {
         "kind": "function",
+        "isType": false,
         "generics": [],
         "params": [
           "{ children, label, active, asChild, className, style, }: InteractionScopeProps"
@@ -384,6 +475,7 @@
       },
       "InteractionScopeProps": {
         "kind": "object",
+        "isType": true,
         "heritage": "",
         "members": [
           "active?: boolean",
@@ -396,25 +488,12 @@
       },
       "MountCost": {
         "kind": "alias",
+        "isType": true,
         "type": "\"light\" | \"normal\" | \"heavy\""
-      },
-      "SceneGate": {
-        "kind": "object",
-        "heritage": "",
-        "members": [
-          "mounted: boolean",
-          "quality: \"full\" | \"reduced\"",
-          "reason: string",
-          "ref: RefObject<T | null>",
-          "state: SceneState"
-        ]
-      },
-      "SceneState": {
-        "kind": "alias",
-        "type": "\"dormant\" | \"warming\" | \"active\" | \"constrained\" | \"poster\""
       },
       "UseImageTrailOptions": {
         "kind": "object",
+        "isType": true,
         "heritage": "",
         "members": [
           "duration?: number",
@@ -426,6 +505,7 @@
       },
       "UseLazySceneOptions": {
         "kind": "object",
+        "isType": true,
         "heritage": "",
         "members": [
           "cost?: MountCost",
@@ -434,6 +514,7 @@
       },
       "UseNumberTickerOptions": {
         "kind": "object",
+        "isType": true,
         "heritage": "",
         "members": [
           "format?: Intl.NumberFormatOptions",
@@ -445,6 +526,7 @@
       },
       "UsePointerIntentOptions": {
         "kind": "object",
+        "isType": true,
         "heritage": "extends PointerIntentOptions",
         "members": [
           "onIntentChange?: (intent: boolean) => void"
@@ -452,6 +534,7 @@
       },
       "UsePointerIntentReturn": {
         "kind": "object",
+        "isType": true,
         "heritage": "",
         "members": [
           "confidenceRef: RefObject<number>",
@@ -459,24 +542,9 @@
           "ref: RefObject<T | null>"
         ]
       },
-      "UseSafeToMountOptions": {
-        "kind": "object",
-        "heritage": "",
-        "members": [
-          "cost?: MountCost"
-        ]
-      },
-      "UseSceneGateOptions": {
-        "kind": "object",
-        "heritage": "",
-        "members": [
-          "cost?: MountCost",
-          "label?: string",
-          "preload?: number"
-        ]
-      },
       "UseTickOptions": {
         "kind": "object",
+        "isType": true,
         "heritage": "extends Omit<SubscribeOptions, \"scope\">",
         "members": [
           "background?: boolean",
@@ -485,10 +553,12 @@
       },
       "UseVideoScrubberOptions": {
         "kind": "alias",
+        "isType": true,
         "type": "Omit<VideoScrubberOptions, \"track\">"
       },
       "UseVideoScrubberReturn": {
         "kind": "object",
+        "isType": true,
         "heritage": "",
         "members": [
           "progressRef: RefObject<number>",
@@ -499,10 +569,12 @@
       },
       "VERSION": {
         "kind": "value",
+        "isType": false,
         "type": "string"
       },
       "clamp01": {
         "kind": "function",
+        "isType": false,
         "generics": [],
         "params": [
           "v: number"
@@ -511,6 +583,7 @@
       },
       "damp": {
         "kind": "function",
+        "isType": false,
         "generics": [],
         "params": [
           "current: number",
@@ -522,30 +595,35 @@
       },
       "getAdaptiveQuality": {
         "kind": "function",
+        "isType": false,
         "generics": [],
         "params": [],
         "returns": "AdaptiveQuality"
       },
       "getAnimationBudget": {
         "kind": "function",
+        "isType": false,
         "generics": [],
         "params": [],
         "returns": "AnimationBudget"
       },
       "getConductor": {
         "kind": "function",
+        "isType": false,
         "generics": [],
         "params": [],
         "returns": "FrameConductor"
       },
       "getSensorBus": {
         "kind": "function",
+        "isType": false,
         "generics": [],
         "params": [],
         "returns": "SensorBus"
       },
       "rayRectIntersect": {
         "kind": "function",
+        "isType": false,
         "generics": [],
         "params": [
           "x: number",
@@ -558,24 +636,28 @@
       },
       "useAdaptiveQuality": {
         "kind": "function",
+        "isType": false,
         "generics": [],
         "params": [],
         "returns": "AdaptiveState"
       },
       "useAnimationBudget": {
         "kind": "function",
+        "isType": false,
         "generics": [],
         "params": [],
         "returns": "BudgetState"
       },
       "useFramePressure": {
         "kind": "function",
+        "isType": false,
         "generics": [],
         "params": [],
         "returns": "PressureState"
       },
       "useImageTrail": {
         "kind": "function",
+        "isType": false,
         "generics": [
           "T extends HTMLElement = HTMLDivElement"
         ],
@@ -586,12 +668,14 @@
       },
       "useInteractionScope": {
         "kind": "function",
+        "isType": false,
         "generics": [],
         "params": [],
         "returns": "string | null"
       },
       "useLazyScene": {
         "kind": "function",
+        "isType": false,
         "generics": [
           "T extends HTMLElement = HTMLDivElement"
         ],
@@ -602,6 +686,7 @@
       },
       "useMagneticIntent": {
         "kind": "function",
+        "isType": false,
         "generics": [
           "T extends HTMLElement = HTMLElement"
         ],
@@ -612,6 +697,7 @@
       },
       "useNumberTicker": {
         "kind": "function",
+        "isType": false,
         "generics": [
           "T extends HTMLElement = HTMLSpanElement"
         ],
@@ -623,6 +709,7 @@
       },
       "usePointerIntent": {
         "kind": "function",
+        "isType": false,
         "generics": [
           "T extends HTMLElement = HTMLElement"
         ],
@@ -631,32 +718,16 @@
         ],
         "returns": "UsePointerIntentReturn<T>"
       },
-      "useSafeToMount": {
-        "kind": "function",
-        "generics": [],
-        "params": [
-          "{ cost, }?: UseSafeToMountOptions"
-        ],
-        "returns": "boolean"
-      },
-      "useSceneGate": {
-        "kind": "function",
-        "generics": [
-          "T extends HTMLElement = HTMLDivElement"
-        ],
-        "params": [
-          "{ label, cost, preload, }?: UseSceneGateOptions"
-        ],
-        "returns": "SceneGate<T>"
-      },
       "useSensorBus": {
         "kind": "function",
+        "isType": false,
         "generics": [],
         "params": [],
         "returns": "SensorBus"
       },
       "useTick": {
         "kind": "function",
+        "isType": false,
         "generics": [],
         "params": [
           "lane: ConductorLane",
@@ -667,6 +738,7 @@
       },
       "useVideoScrubber": {
         "kind": "function",
+        "isType": false,
         "generics": [
           "TTrack extends HTMLElement = HTMLDivElement"
         ],
@@ -679,19 +751,20 @@
   },
   "./devtools": {
     "values": [
-      "ConductorStats",
-      "SubscriberPriority",
-      "SubscriberStat",
       "getConductor",
       "mountDevtools"
     ],
     "types": [
+      "ConductorStats",
       "DevtoolsCorner",
-      "DevtoolsOptions"
+      "DevtoolsOptions",
+      "SubscriberPriority",
+      "SubscriberStat"
     ],
     "shapes": {
       "ConductorStats": {
         "kind": "object",
+        "isType": true,
         "heritage": "",
         "members": [
           "activeScope: string | null",
@@ -712,10 +785,12 @@
       },
       "SubscriberPriority": {
         "kind": "alias",
+        "isType": true,
         "type": "\"essential\" | \"enhanced\" | \"decorative\""
       },
       "SubscriberStat": {
         "kind": "object",
+        "isType": true,
         "heritage": "",
         "members": [
           "costMs: number",
@@ -731,16 +806,19 @@
       },
       "getConductor": {
         "kind": "function",
+        "isType": false,
         "generics": [],
         "params": [],
         "returns": "FrameConductor"
       },
       "DevtoolsCorner": {
         "kind": "alias",
+        "isType": true,
         "type": "\"top-left\" | \"top-right\" | \"bottom-left\" | \"bottom-right\""
       },
       "DevtoolsOptions": {
         "kind": "object",
+        "isType": true,
         "heritage": "",
         "members": [
           "container?: HTMLElement",
@@ -751,11 +829,51 @@
       },
       "mountDevtools": {
         "kind": "function",
+        "isType": false,
         "generics": [],
         "params": [
           "options?: DevtoolsOptions"
         ],
         "returns": "() => void"
+      }
+    }
+  },
+  "./r3f": {
+    "values": [
+      "useRenderQuality"
+    ],
+    "types": [
+      "RenderProfile",
+      "RenderProfiles"
+    ],
+    "shapes": {
+      "RenderProfile": {
+        "kind": "object",
+        "isType": true,
+        "heritage": "",
+        "members": [
+          "dpr?: number",
+          "shadows?: boolean"
+        ]
+      },
+      "RenderProfiles": {
+        "kind": "object",
+        "isType": true,
+        "heritage": "",
+        "members": [
+          "full: RenderProfile",
+          "reduced: RenderProfile"
+        ]
+      },
+      "useRenderQuality": {
+        "kind": "function",
+        "isType": false,
+        "generics": [],
+        "params": [
+          "state: SceneState",
+          "profiles: RenderProfiles"
+        ],
+        "returns": "void"
       }
     }
   }

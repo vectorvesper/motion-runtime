@@ -22,6 +22,14 @@ export type SceneState =
   | "active"
   /** Running, reduced quality — the device or the frame rate cannot take more. */
   | "constrained"
+  /**
+   * Started, currently off screen. Still alive, drawing nothing.
+   *
+   * Scrolling past a scene must not destroy it. Rebuilding a WebGL context and
+   * re-uploading its textures costs far more than leaving it mounted and
+   * paused, so once a scene has started it never returns to `dormant`.
+   */
+  | "idle"
   /** Not running at all. Show a still image instead. */
   | "poster";
 
@@ -38,7 +46,11 @@ export interface SceneGate<T extends HTMLElement> {
   /** Attach to the element that holds the scene. */
   ref: RefObject<T | null>;
   state: SceneState;
-  /** Should the scene be rendered at all? True for `active` and `constrained`. */
+  /**
+   * Should the scene exist? True for `active`, `constrained` and `idle` —
+   * `idle` included, because a scene that is merely off screen should be
+   * paused, not torn down.
+   */
   mounted: boolean;
   /** How much scene to build. Only meaningful while `mounted`. */
   quality: "full" | "reduced";
@@ -95,6 +107,15 @@ export function useSceneGate<T extends HTMLElement = HTMLDivElement>({
   preload = 200,
 }: UseSceneGateOptions = {}): SceneGate<T> {
   const { ref, near, ready } = useLazyScene<T>({ preload, cost });
+
+  // Once it has run, it has run. This is what keeps a scene alive when the
+  // reader scrolls past it. State rather than a ref, because it changes what
+  // renders — a ref written during render survives a discarded render, which
+  // is a real defect class in this codebase and one eslint already catches.
+  const [started, setStarted] = useState(false);
+  useEffect(() => {
+    if (ready) setStarted(true);
+  }, [ready]);
   const quality = useAdaptiveQuality();
   const pressure = useFramePressure();
 
@@ -108,6 +129,7 @@ export function useSceneGate<T extends HTMLElement = HTMLDivElement>({
   const verdict = decide({
     near,
     ready,
+    started,
     tier: quality.tier,
     reducedMotion: quality.reducedMotion,
     deviceTier: quality.deviceTier,
@@ -140,7 +162,7 @@ export function useSceneGate<T extends HTMLElement = HTMLDivElement>({
   return {
     ref,
     state,
-    mounted: state === "active" || state === "constrained",
+    mounted: state === "active" || state === "constrained" || state === "idle",
     quality: state === "active" ? "full" : "reduced",
     reason: label ? `${label}: ${reason}` : reason,
   };
@@ -161,6 +183,8 @@ const RENDER_CONFIDENCE_FLOOR = 0.4;
 interface Inputs {
   near: boolean;
   ready: boolean;
+  /** Has this scene ever been allowed to run? */
+  started: boolean;
   tier: 0 | 1 | 2;
   deviceTier: 0 | 1 | 2;
   reducedMotion: boolean;
@@ -179,8 +203,15 @@ export function decide(i: Inputs): { state: SceneState; reason: string } {
     return { state: "poster", reason: "this device cannot render it smoothly" };
   }
 
-  if (!i.near) return { state: "dormant", reason: "not near the viewport yet" };
-  if (!i.ready) return { state: "warming", reason: "waiting for a free moment" };
+  if (!i.started) {
+    if (!i.near) return { state: "dormant", reason: "not near the viewport yet" };
+    if (!i.ready) return { state: "warming", reason: "waiting for a free moment" };
+  } else if (!i.near) {
+    // Alive but off screen. The renderer adapter stops the render loop here;
+    // unmounting instead would throw away the WebGL context and every texture
+    // on it, to save nothing.
+    return { state: "idle", reason: "scrolled off screen, paused" };
+  }
 
   if (i.tier === 1) {
     return { state: "constrained", reason: "the frame rate is not holding up" };

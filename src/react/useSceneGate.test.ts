@@ -13,6 +13,7 @@ import { decide } from "./useSceneGate";
 const base = {
   near: true,
   ready: true,
+  started: true,
   tier: 0 as const,
   deviceTier: 0 as const,
   reducedMotion: false,
@@ -36,11 +37,32 @@ describe("scene gate — before it can run at all", () => {
   });
 
   it("stays dormant until it is near the viewport", () => {
-    expect(decide({ ...base, near: false }).state).toBe("dormant");
+    expect(decide({ ...base, started: false, near: false }).state).toBe("dormant");
   });
 
   it("warms while the page is still busy", () => {
-    expect(decide({ ...base, ready: false }).state).toBe("warming");
+    expect(decide({ ...base, started: false, ready: false }).state).toBe("warming");
+  });
+});
+
+describe("scene gate — surviving a scroll", () => {
+  it("pauses instead of tearing down when scrolled off screen", () => {
+    const out = decide({ ...base, near: false });
+
+    // Rebuilding a WebGL context and re-uploading its textures costs far more
+    // than leaving it mounted and drawing nothing.
+    expect(out.state).toBe("idle");
+    expect(out.reason).toMatch(/off screen/);
+  });
+
+  it("goes back to running when it comes back into view", () => {
+    expect(decide({ ...base, near: true }).state).toBe("active");
+  });
+
+  it("never returns to dormant once it has started", () => {
+    const out = decide({ ...base, near: false, ready: false });
+    expect(out.state).not.toBe("dormant");
+    expect(out.state).not.toBe("warming");
   });
 });
 
@@ -106,7 +128,7 @@ describe("scene gate — ordering of the rules", () => {
 
   it("does not report render pressure while it is still warming", () => {
     const out = decide({
-      ...base, ready: false, pressure: "render", confidence: 1,
+      ...base, started: false, ready: false, pressure: "render", confidence: 1,
     });
 
     // Nothing is rendering yet, so whatever is loading the frame is not us.
@@ -117,8 +139,9 @@ describe("scene gate — ordering of the rules", () => {
     const states = [
       decide({ ...base, reducedMotion: true }),
       decide({ ...base, deviceTier: 2 }),
+      decide({ ...base, started: false, near: false }),
+      decide({ ...base, started: false, ready: false }),
       decide({ ...base, near: false }),
-      decide({ ...base, ready: false }),
       decide({ ...base, tier: 1 }),
       decide({ ...base, pressure: "render", confidence: 0.9 }),
       decide(base),

@@ -43,6 +43,7 @@ const ENTRIES = {
   ".": "dist/index.d.ts",
   "./react": "dist/react.d.ts",
   "./devtools": "dist/devtools.d.ts",
+  "./r3f": "dist/r3f.d.ts",
 };
 
 /**
@@ -84,29 +85,35 @@ function describe(node, sf) {
       .map((m) => norm(m.getText(sf)))
       .filter((t) => !t.startsWith("#"))
       .sort();
-    return { kind: "object", heritage, members };
+    return {
+      kind: "object",
+      isType: ts.isInterfaceDeclaration(node),
+      heritage,
+      members,
+    };
   }
 
   if (ts.isTypeAliasDeclaration(node)) {
-    return { kind: "alias", type: norm(node.type.getText(sf)) };
+    return { kind: "alias", isType: true, type: norm(node.type.getText(sf)) };
   }
 
   if (ts.isFunctionDeclaration(node)) {
     const params = node.parameters.map((p) => norm(p.getText(sf)));
     const ret = node.type ? norm(node.type.getText(sf)) : "unknown";
     const generics = (node.typeParameters ?? []).map((t) => norm(t.getText(sf)));
-    return { kind: "function", generics, params, returns: ret };
+    return { kind: "function", isType: false, generics, params, returns: ret };
   }
 
   if (ts.isVariableDeclaration(node)) {
     return {
       kind: "value",
+      isType: false,
       type: node.type ? norm(node.type.getText(sf)) : "inferred",
     };
   }
 
   if (ts.isEnumDeclaration(node)) {
-    return { kind: "enum", members: node.members.map((m) => norm(m.getText(sf))).sort() };
+    return { kind: "enum", isType: false, members: node.members.map((m) => norm(m.getText(sf))).sort() };
   }
 
   return { kind: "other", text: norm(node.getText(sf)) };
@@ -240,8 +247,16 @@ function readSurface(file) {
   const shapes = {};
 
   for (const [exported, spec] of f.exports) {
-    (spec.isType ? types : values).add(exported);
-    shapes[exported] = shapeOfExport(abs, exported);
+    const shape = shapeOfExport(abs, exported);
+    shapes[exported] = shape;
+    // Classified by what the declaration IS, not by whether the emitted export
+    // carried a `type` modifier. Adding the /r3f entry made tsup move some
+    // declarations into a shared chunk, and the cross-chunk re-export drops
+    // the modifier — so the syntax-based split flipped five exports from type
+    // to value with no source change at all. Harmless for a consumer, useless
+    // for a guard.
+    const isType = shape.isType ?? spec.isType;
+    (isType ? types : values).add(exported);
   }
 
   const unresolved = Object.entries(shapes)
@@ -289,9 +304,16 @@ for (const entry of Object.keys(ENTRIES)) {
       if (!now.has(name)) nameProblems.push(`- ${entry} removed ${kind.slice(0, -1)}: ${name}`);
   }
 
-  const savedShapes = saved[entry]?.shapes;
-  // No shapes in the snapshot means it predates this check. Say so rather than
-  // reporting every export as changed.
+  // An entry absent from the snapshot is a new entry, not a stale file. Its
+  // exports are already being reported as additions by name.
+  if (!saved[entry]) {
+    nameProblems.push(`+ ${entry} is a new entry point`);
+    continue;
+  }
+
+  const savedShapes = saved[entry].shapes;
+  // No shapes on an entry that IS in the snapshot means the file predates this
+  // check. Say so rather than reporting every export as changed.
   if (!savedShapes) {
     console.error(
       `✗ ${entry}: api-surface.json has no shape data. It was written by an older` +
