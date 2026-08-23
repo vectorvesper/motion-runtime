@@ -33,7 +33,275 @@
       "getSensorBus",
       "rayRectIntersect"
     ],
-    "types": []
+    "types": [],
+    "shapes": {
+      "ConductorConfig": {
+        "kind": "object",
+        "heritage": "",
+        "members": [
+          "onError?: (error: unknown, label: string, lane: ConductorLane) => void",
+          "shedding?: boolean",
+          "slowSubscriberMs?: number"
+        ]
+      },
+      "ConductorLane": {
+        "kind": "alias",
+        "type": "\"input\" | \"update\" | \"render\""
+      },
+      "ConductorStats": {
+        "kind": "object",
+        "heritage": "",
+        "members": [
+          "activeScope: string | null",
+          "activeScopeLabel: string | null",
+          "carriedOverrunMs: number",
+          "displayHz: number",
+          "fps: number",
+          "frameBudgetMs: number",
+          "frameMs: number",
+          "running: boolean",
+          "shedLastFrame: number",
+          "subscriberCount: number",
+          "subscribers: SubscriberStat[]",
+          "workMs: number",
+          "worstWorkMs: number"
+        ]
+      },
+      "FrameFn": {
+        "kind": "alias",
+        "type": "(dt: number, time: number) => void"
+      },
+      "SubscribeOptions": {
+        "kind": "object",
+        "heritage": "",
+        "members": [
+          "hz?: number",
+          "label?: string",
+          "priority?: SubscriberPriority",
+          "scope?: string"
+        ]
+      },
+      "SubscriberPriority": {
+        "kind": "alias",
+        "type": "\"essential\" | \"enhanced\" | \"decorative\""
+      },
+      "SubscriberStat": {
+        "kind": "object",
+        "heritage": "",
+        "members": [
+          "costMs: number",
+          "hz: number | null",
+          "label: string",
+          "lane: ConductorLane",
+          "lastCostMs: number",
+          "priority: SubscriberPriority",
+          "runs: number",
+          "scope: string | null",
+          "shed: number"
+        ]
+      },
+      "getConductor": {
+        "kind": "function",
+        "generics": [],
+        "params": [],
+        "returns": "FrameConductor"
+      },
+      "AdaptiveState": {
+        "kind": "object",
+        "heritage": "",
+        "members": [
+          "budgetTier: BudgetTier",
+          "deviceTier: BudgetTier",
+          "label: \"high\" | \"medium\" | \"low\"",
+          "reasons: string[]",
+          "reducedMotion: boolean",
+          "tier: BudgetTier"
+        ]
+      },
+      "BudgetState": {
+        "kind": "object",
+        "heritage": "",
+        "members": [
+          "avgFrameMs: number",
+          "frameBudgetMs: number",
+          "headroom: number",
+          "label: \"high\" | \"medium\" | \"low\"",
+          "slowRatio: number",
+          "tier: BudgetTier",
+          "workMs: number"
+        ]
+      },
+      "BudgetTier": {
+        "kind": "alias",
+        "type": "0 | 1 | 2"
+      },
+      "DeviceSignals": {
+        "kind": "object",
+        "heritage": "",
+        "members": [
+          "cores: number | null",
+          "deviceMemory: number | null",
+          "reducedMotion: boolean",
+          "renderer: string",
+          "webgl2: boolean"
+        ]
+      },
+      "MagneticOptions": {
+        "kind": "object",
+        "heritage": "",
+        "members": [
+          "anticipate?: boolean",
+          "reach?: number",
+          "scale?: number",
+          "speed?: number",
+          "strength?: number"
+        ]
+      },
+      "PointerIntentOptions": {
+        "kind": "object",
+        "heritage": "",
+        "members": [
+          "dynamic?: boolean",
+          "sensitivity?: PointerIntentSensitivity"
+        ]
+      },
+      "PointerIntentSensitivity": {
+        "kind": "alias",
+        "type": "\"low\" | \"normal\" | \"high\""
+      },
+      "PointerSensor": {
+        "kind": "object",
+        "heritage": "",
+        "members": [
+          "down: boolean",
+          "seen: boolean",
+          "speed: number",
+          "vx: number",
+          "vy: number",
+          "x: number",
+          "y: number"
+        ]
+      },
+      "RectLike": {
+        "kind": "object",
+        "heritage": "",
+        "members": [
+          "bottom: number",
+          "left: number",
+          "right: number",
+          "top: number"
+        ]
+      },
+      "ScrollSensor": {
+        "kind": "object",
+        "heritage": "",
+        "members": [
+          "vx: number",
+          "vy: number",
+          "x: number",
+          "y: number"
+        ]
+      },
+      "ScrubDriver": {
+        "kind": "alias",
+        "type": "\"scroll\" | \"pointer\" | \"manual\""
+      },
+      "ScrubMapping": {
+        "kind": "alias",
+        "type": "\"auto\" | \"pin\" | \"cross\""
+      },
+      "SensorBus": {
+        "kind": "object",
+        "heritage": "",
+        "members": [
+          "get state(): SensorState",
+          "retain(): () => void"
+        ]
+      },
+      "SensorState": {
+        "kind": "object",
+        "heritage": "",
+        "members": [
+          "pointer: PointerSensor",
+          "scroll: ScrollSensor",
+          "viewport: ViewportSensor"
+        ]
+      },
+      "VideoScrubberOptions": {
+        "kind": "object",
+        "heritage": "",
+        "members": [
+          "driver?: ScrubDriver",
+          "mapping?: ScrubMapping",
+          "onProgress?: (progress: number, time: number) => void",
+          "pointerAxis?: \"x\" | \"y\"",
+          "speed?: number",
+          "track?: HTMLElement"
+        ]
+      },
+      "ViewportSensor": {
+        "kind": "object",
+        "heritage": "",
+        "members": [
+          "dpr: number",
+          "height: number",
+          "width: number"
+        ]
+      },
+      "clamp01": {
+        "kind": "function",
+        "generics": [],
+        "params": [
+          "v: number"
+        ],
+        "returns": "number"
+      },
+      "damp": {
+        "kind": "function",
+        "generics": [],
+        "params": [
+          "current: number",
+          "target: number",
+          "k: number",
+          "dt: number"
+        ],
+        "returns": "number"
+      },
+      "getAdaptiveQuality": {
+        "kind": "function",
+        "generics": [],
+        "params": [],
+        "returns": "AdaptiveQuality"
+      },
+      "getAnimationBudget": {
+        "kind": "function",
+        "generics": [],
+        "params": [],
+        "returns": "AnimationBudget"
+      },
+      "getSensorBus": {
+        "kind": "function",
+        "generics": [],
+        "params": [],
+        "returns": "SensorBus"
+      },
+      "rayRectIntersect": {
+        "kind": "function",
+        "generics": [],
+        "params": [
+          "x: number",
+          "y: number",
+          "vx: number",
+          "vy: number",
+          "rect: RectLike"
+        ],
+        "returns": "number | null"
+      },
+      "VERSION": {
+        "kind": "value",
+        "type": "string"
+      }
+    }
   },
   "./react": {
     "values": [
@@ -71,7 +339,270 @@
       "UseTickOptions",
       "UseVideoScrubberOptions",
       "UseVideoScrubberReturn"
-    ]
+    ],
+    "shapes": {
+      "InteractionScope": {
+        "kind": "function",
+        "generics": [],
+        "params": [
+          "{ children, label, active, asChild, className, style, }: InteractionScopeProps"
+        ],
+        "returns": "React.JSX.Element"
+      },
+      "InteractionScopeProps": {
+        "kind": "object",
+        "heritage": "",
+        "members": [
+          "active?: boolean",
+          "asChild?: boolean",
+          "children?: React.ReactNode",
+          "className?: string",
+          "label?: string",
+          "style?: React.CSSProperties"
+        ]
+      },
+      "MountCost": {
+        "kind": "alias",
+        "type": "\"light\" | \"normal\" | \"heavy\""
+      },
+      "UseImageTrailOptions": {
+        "kind": "object",
+        "heritage": "",
+        "members": [
+          "duration?: number",
+          "images: string[]",
+          "maxActive?: number",
+          "size?: number",
+          "spacing?: number"
+        ]
+      },
+      "UseLazySceneOptions": {
+        "kind": "object",
+        "heritage": "",
+        "members": [
+          "cost?: MountCost",
+          "preload?: number"
+        ]
+      },
+      "UseNumberTickerOptions": {
+        "kind": "object",
+        "heritage": "",
+        "members": [
+          "format?: Intl.NumberFormatOptions",
+          "locale?: string",
+          "prefix?: string",
+          "speed?: number",
+          "suffix?: string"
+        ]
+      },
+      "UsePointerIntentOptions": {
+        "kind": "object",
+        "heritage": "extends PointerIntentOptions",
+        "members": [
+          "onIntentChange?: (intent: boolean) => void"
+        ]
+      },
+      "UsePointerIntentReturn": {
+        "kind": "object",
+        "heritage": "",
+        "members": [
+          "confidenceRef: RefObject<number>",
+          "intent: boolean",
+          "ref: RefObject<T | null>"
+        ]
+      },
+      "UseSafeToMountOptions": {
+        "kind": "object",
+        "heritage": "",
+        "members": [
+          "cost?: MountCost"
+        ]
+      },
+      "UseTickOptions": {
+        "kind": "object",
+        "heritage": "extends Omit<SubscribeOptions, \"scope\">",
+        "members": [
+          "background?: boolean",
+          "enabled?: boolean"
+        ]
+      },
+      "UseVideoScrubberOptions": {
+        "kind": "alias",
+        "type": "Omit<VideoScrubberOptions, \"track\">"
+      },
+      "UseVideoScrubberReturn": {
+        "kind": "object",
+        "heritage": "",
+        "members": [
+          "progressRef: RefObject<number>",
+          "scrubberRef: RefObject<VideoScrubber | null>",
+          "trackRef: RefObject<TTrack | null>",
+          "videoRef: RefObject<HTMLVideoElement | null>"
+        ]
+      },
+      "VERSION": {
+        "kind": "value",
+        "type": "string"
+      },
+      "clamp01": {
+        "kind": "function",
+        "generics": [],
+        "params": [
+          "v: number"
+        ],
+        "returns": "number"
+      },
+      "damp": {
+        "kind": "function",
+        "generics": [],
+        "params": [
+          "current: number",
+          "target: number",
+          "k: number",
+          "dt: number"
+        ],
+        "returns": "number"
+      },
+      "getAdaptiveQuality": {
+        "kind": "function",
+        "generics": [],
+        "params": [],
+        "returns": "AdaptiveQuality"
+      },
+      "getAnimationBudget": {
+        "kind": "function",
+        "generics": [],
+        "params": [],
+        "returns": "AnimationBudget"
+      },
+      "getConductor": {
+        "kind": "function",
+        "generics": [],
+        "params": [],
+        "returns": "FrameConductor"
+      },
+      "getSensorBus": {
+        "kind": "function",
+        "generics": [],
+        "params": [],
+        "returns": "SensorBus"
+      },
+      "rayRectIntersect": {
+        "kind": "function",
+        "generics": [],
+        "params": [
+          "x: number",
+          "y: number",
+          "vx: number",
+          "vy: number",
+          "rect: RectLike"
+        ],
+        "returns": "number | null"
+      },
+      "useAdaptiveQuality": {
+        "kind": "function",
+        "generics": [],
+        "params": [],
+        "returns": "AdaptiveState"
+      },
+      "useAnimationBudget": {
+        "kind": "function",
+        "generics": [],
+        "params": [],
+        "returns": "BudgetState"
+      },
+      "useImageTrail": {
+        "kind": "function",
+        "generics": [
+          "T extends HTMLElement = HTMLDivElement"
+        ],
+        "params": [
+          "options: UseImageTrailOptions"
+        ],
+        "returns": "{ ref: RefObject<T | null>; }"
+      },
+      "useInteractionScope": {
+        "kind": "function",
+        "generics": [],
+        "params": [],
+        "returns": "string | null"
+      },
+      "useLazyScene": {
+        "kind": "function",
+        "generics": [
+          "T extends HTMLElement = HTMLDivElement"
+        ],
+        "params": [
+          "options?: UseLazySceneOptions"
+        ],
+        "returns": "{ ref: RefObject<T | null>; ready: boolean; }"
+      },
+      "useMagneticIntent": {
+        "kind": "function",
+        "generics": [
+          "T extends HTMLElement = HTMLElement"
+        ],
+        "params": [
+          "options?: MagneticOptions"
+        ],
+        "returns": "{ ref: RefObject<T | null>; active: boolean; }"
+      },
+      "useNumberTicker": {
+        "kind": "function",
+        "generics": [
+          "T extends HTMLElement = HTMLSpanElement"
+        ],
+        "params": [
+          "value: number",
+          "options?: UseNumberTickerOptions"
+        ],
+        "returns": "{ ref: RefObject<T | null>; }"
+      },
+      "usePointerIntent": {
+        "kind": "function",
+        "generics": [
+          "T extends HTMLElement = HTMLElement"
+        ],
+        "params": [
+          "options?: UsePointerIntentOptions"
+        ],
+        "returns": "UsePointerIntentReturn<T>"
+      },
+      "useSafeToMount": {
+        "kind": "function",
+        "generics": [],
+        "params": [
+          "{ cost, }?: UseSafeToMountOptions"
+        ],
+        "returns": "boolean"
+      },
+      "useSensorBus": {
+        "kind": "function",
+        "generics": [],
+        "params": [],
+        "returns": "SensorBus"
+      },
+      "useTick": {
+        "kind": "function",
+        "generics": [],
+        "params": [
+          "lane: ConductorLane",
+          "fn: FrameFn",
+          "options?: UseTickOptions"
+        ],
+        "returns": "void"
+      },
+      "useVideoScrubber": {
+        "kind": "function",
+        "generics": [
+          "TTrack extends HTMLElement = HTMLDivElement"
+        ],
+        "params": [
+          "options?: UseVideoScrubberOptions"
+        ],
+        "returns": "UseVideoScrubberReturn<TTrack>"
+      }
+    }
   },
   "./devtools": {
     "values": [
@@ -84,6 +615,74 @@
     "types": [
       "DevtoolsCorner",
       "DevtoolsOptions"
-    ]
+    ],
+    "shapes": {
+      "ConductorStats": {
+        "kind": "object",
+        "heritage": "",
+        "members": [
+          "activeScope: string | null",
+          "activeScopeLabel: string | null",
+          "carriedOverrunMs: number",
+          "displayHz: number",
+          "fps: number",
+          "frameBudgetMs: number",
+          "frameMs: number",
+          "running: boolean",
+          "shedLastFrame: number",
+          "subscriberCount: number",
+          "subscribers: SubscriberStat[]",
+          "workMs: number",
+          "worstWorkMs: number"
+        ]
+      },
+      "SubscriberPriority": {
+        "kind": "alias",
+        "type": "\"essential\" | \"enhanced\" | \"decorative\""
+      },
+      "SubscriberStat": {
+        "kind": "object",
+        "heritage": "",
+        "members": [
+          "costMs: number",
+          "hz: number | null",
+          "label: string",
+          "lane: ConductorLane",
+          "lastCostMs: number",
+          "priority: SubscriberPriority",
+          "runs: number",
+          "scope: string | null",
+          "shed: number"
+        ]
+      },
+      "getConductor": {
+        "kind": "function",
+        "generics": [],
+        "params": [],
+        "returns": "FrameConductor"
+      },
+      "DevtoolsCorner": {
+        "kind": "alias",
+        "type": "\"top-left\" | \"top-right\" | \"bottom-left\" | \"bottom-right\""
+      },
+      "DevtoolsOptions": {
+        "kind": "object",
+        "heritage": "",
+        "members": [
+          "container?: HTMLElement",
+          "expanded?: boolean",
+          "hz?: number",
+          "position?: DevtoolsCorner"
+        ]
+      },
+      "mountDevtools": {
+        "kind": "function",
+        "generics": [],
+        "params": [
+          "options?: DevtoolsOptions"
+        ],
+        "returns": "() => void"
+      }
+    }
   }
 }
