@@ -76,12 +76,12 @@ export { useSensorBus } from "./react/useSensorBus";
 export { useAnimationBudget } from "./react/useAnimationBudget";
 export { useSafeToMount, type UseSafeToMountOptions } from "./react/useSafeToMount";
 export {
-  MotionScope,
-  useMotionScope,
-  useMotionFrame,
-  type MotionScopeProps,
-  type UseMotionFrameOptions,
-} from "./react/MotionScope";
+  InteractionScope,
+  useInteractionScope,
+  useTick,
+  type InteractionScopeProps,
+  type UseTickOptions,
+} from "./react/InteractionScope";
 export { useAdaptiveQuality } from "./react/useAdaptiveQuality";
 export {
   usePointerIntent,

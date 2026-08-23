@@ -278,7 +278,11 @@ export function mountDevtools(options: DevtoolsOptions = {}): () => void {
     setValue(vTier, `${budget.tier} ${budget.label}`);
     setValue(vShed, String(stats.shedLastFrame));
     setValue(vCarried, stats.carriedOverrunMs.toFixed(1), stats.carriedOverrunMs > 0.5);
-    setValue(vScope, stats.activeScope ?? "—", stats.activeScope !== null);
+    setValue(
+      vScope,
+      stats.activeScopeLabel ?? stats.activeScope ?? "—",
+      stats.activeScope !== null,
+    );
 
     const subs = stats.subscribers;
     if (subs.length === 0) {

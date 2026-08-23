@@ -107,6 +107,12 @@ export interface SubscriberStat {
   runs: number;
   /** Frames skipped because the frame ran out of budget. */
   shed: number;
+  /**
+   * The interaction region this work belongs to, or `null` for background
+   * work. Compare against `ConductorStats.activeScope` to see what is
+   * currently protected.
+   */
+  scope: string | null;
 }
 
 export interface ConductorStats {
@@ -131,6 +137,8 @@ export interface ConductorStats {
   carriedOverrunMs: number;
   /** Scope currently holding the foreground lease, or null. */
   activeScope: string | null;
+  /** Human-readable name of that scope, when one was given. */
+  activeScopeLabel: string | null;
   subscriberCount: number;
   /** Subscribers skipped on the most recent frame. */
   shedLastFrame: number;
@@ -270,7 +278,7 @@ class FrameConductor {
   private shedLastFrame = 0;
   private overrunEma = 0;
   /** Innermost-last. The tail holds the foreground lease. */
-  private scopeStack: string[] = [];
+  private scopeStack: Array<{ scope: string; label?: string }> = [];
 
   private shedding = true;
   private onError: ConductorConfig["onError"];
@@ -307,9 +315,21 @@ class FrameConductor {
     return this.workMsEma;
   }
 
-  /** The scope currently holding the foreground lease, or null. */
+  /** The scope currently holding the foreground claim, or null. */
   get foregroundScope(): string | null {
-    return this.scopeStack.length > 0 ? this.scopeStack[this.scopeStack.length - 1] : null;
+    return this.scopeStack.length > 0
+      ? this.scopeStack[this.scopeStack.length - 1].scope
+      : null;
+  }
+
+  /**
+   * The label of the scope holding the foreground claim, for display. Scope ids
+   * are generated, so this is the only part a human can read.
+   */
+  get foregroundLabel(): string | null {
+    return this.scopeStack.length > 0
+      ? (this.scopeStack[this.scopeStack.length - 1].label ?? null)
+      : null;
   }
 
   /**
@@ -330,16 +350,20 @@ class FrameConductor {
    * Claims nest. The most recent holds the lease, and releasing restores the one
    * beneath it. Releasing twice is a no-op.
    */
-  claimScope(scope: string): () => void {
-    this.scopeStack.push(scope);
+  claimScope(scope: string, label?: string): () => void {
+    this.scopeStack.push({ scope, label });
     let released = false;
     return () => {
       if (released) return;
       released = true;
-      // Remove the newest matching claim, not the oldest: overlapping leases on
+      // Remove the newest matching claim, not the oldest: overlapping claims on
       // the same scope must unwind in the order they were taken.
-      const at = this.scopeStack.lastIndexOf(scope);
-      if (at !== -1) this.scopeStack.splice(at, 1);
+      for (let i = this.scopeStack.length - 1; i >= 0; i--) {
+        if (this.scopeStack[i].scope === scope) {
+          this.scopeStack.splice(i, 1);
+          return;
+        }
+      }
     };
   }
 
@@ -404,6 +428,7 @@ class FrameConductor {
       for (const s of this.lanes[lane]) {
         if (!s.alive) continue;
         subscribers.push({
+          scope: s.scope,
           label: s.label,
           lane: s.lane,
           priority: s.priority,
@@ -426,6 +451,7 @@ class FrameConductor {
       worstWorkMs: this.worstWorkMs,
       carriedOverrunMs: this.overrunEma,
       activeScope: this.foregroundScope,
+      activeScopeLabel: this.foregroundLabel,
       subscriberCount: this.liveCount,
       shedLastFrame: this.shedLastFrame,
       subscribers,

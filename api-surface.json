@@ -36,7 +36,7 @@
   },
   "./react": {
     "values": [
-      "MotionScope",
+      "InteractionScope",
       "VERSION",
       "clamp01",
       "damp",
@@ -48,25 +48,25 @@
       "useAdaptiveQuality",
       "useAnimationBudget",
       "useImageTrail",
+      "useInteractionScope",
       "useLazyScene",
       "useMagneticIntent",
-      "useMotionFrame",
-      "useMotionScope",
       "useNumberTicker",
       "usePointerIntent",
       "useSafeToMount",
       "useSensorBus",
+      "useTick",
       "useVideoScrubber"
     ],
     "types": [
-      "MotionScopeProps",
+      "InteractionScopeProps",
       "UseImageTrailOptions",
       "UseLazySceneOptions",
-      "UseMotionFrameOptions",
       "UseNumberTickerOptions",
       "UsePointerIntentOptions",
       "UsePointerIntentReturn",
       "UseSafeToMountOptions",
+      "UseTickOptions",
       "UseVideoScrubberOptions",
       "UseVideoScrubberReturn"
     ]
