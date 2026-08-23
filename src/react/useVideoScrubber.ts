@@ -47,7 +47,7 @@ export interface UseVideoScrubberReturn<TTrack extends HTMLElement> {
  *
  * ### 📚 Usage Example:
  * ```tsx
- * import { useVideoScrubber } from "@vv-motion/react";
+ * import { useVideoScrubber } from "@vectorvesper/motion/react";
  * 
  * export function ScrollScrubVideo() {
  *   const { videoRef, trackRef, progressRef } = useVideoScrubber<HTMLDivElement>({

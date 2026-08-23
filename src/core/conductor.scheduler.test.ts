@@ -342,3 +342,194 @@ describe("diagnostics", () => {
     expect(ran120).toBeGreaterThan(0); // degraded to a lower cadence, not frozen
   });
 });
+
+describe("motion scopes (interaction lease)", () => {
+  it("no lease held: scoped and unscoped work are treated alike", async () => {
+    const conductor = await freshConductor();
+    const ran: string[] = [];
+    conductor.subscribe("update", () => ran.push("in"), {
+      priority: "enhanced",
+      scope: "gallery",
+    });
+    conductor.subscribe("update", () => ran.push("out"), { priority: "enhanced" });
+
+    crank();
+    expect(ran).toEqual(["in", "out"]);
+  });
+
+  it("a lease sheds out-of-scope work while in-scope work at the same priority survives", async () => {
+    const conductor = await freshConductor();
+    const ran: string[] = [];
+
+    // Burn past the demoted enhanced threshold (0.45 * 16.67 = 7.5ms) but stay
+    // under the normal one (0.7 * 16.67 = 11.7ms). Only the demoted subscriber
+    // should be refused.
+    conductor.subscribe("update", () => burn(9), { priority: "essential" });
+    conductor.subscribe("update", () => ran.push("in"), {
+      priority: "enhanced",
+      scope: "gallery",
+    });
+    conductor.subscribe("update", () => ran.push("out"), { priority: "enhanced" });
+
+    const release = conductor.claimScope("gallery");
+    crank();
+    release();
+
+    expect(ran).toEqual(["in"]);
+  });
+
+  it("releasing the lease restores out-of-scope work", async () => {
+    const conductor = await freshConductor();
+    let outRuns = 0;
+
+    conductor.subscribe("update", () => burn(9), { priority: "essential" });
+    conductor.subscribe("update", () => { outRuns++; }, { priority: "enhanced" });
+
+    const release = conductor.claimScope("gallery");
+    crank();
+    expect(outRuns).toBe(0);
+
+    release();
+    crank();
+    expect(outRuns).toBe(1);
+  });
+
+  it("essential work is never shed, lease or not", async () => {
+    const conductor = await freshConductor();
+    let essentialRuns = 0;
+
+    conductor.subscribe("update", () => burn(40), { priority: "essential" });
+    conductor.subscribe("update", () => { essentialRuns++; }, { priority: "essential" });
+
+    const release = conductor.claimScope("gallery");
+    crank();
+    crank();
+    release();
+
+    expect(essentialRuns).toBe(2);
+  });
+
+  it("nested claims unwind in order, and double release is a no-op", async () => {
+    const conductor = await freshConductor();
+
+    const releaseA = conductor.claimScope("a");
+    const releaseB = conductor.claimScope("b");
+    expect(conductor.foregroundScope).toBe("b");
+
+    releaseB();
+    expect(conductor.foregroundScope).toBe("a");
+    releaseB(); // must not pop "a"
+    expect(conductor.foregroundScope).toBe("a");
+
+    releaseA();
+    expect(conductor.foregroundScope).toBeNull();
+  });
+
+  it("overlapping claims on one scope keep the lease until the last release", async () => {
+    const conductor = await freshConductor();
+
+    const first = conductor.claimScope("gallery");
+    const second = conductor.claimScope("gallery");
+    expect(conductor.foregroundScope).toBe("gallery");
+
+    first();
+    expect(conductor.foregroundScope).toBe("gallery");
+    second();
+    expect(conductor.foregroundScope).toBeNull();
+  });
+
+  it("the starvation guard still forces demoted work through", async () => {
+    const conductor = await freshConductor();
+    let outRuns = 0;
+
+    conductor.subscribe("update", () => burn(9), { priority: "essential" });
+    conductor.subscribe("update", () => { outRuns++; }, { priority: "enhanced" });
+
+    const release = conductor.claimScope("gallery");
+    for (let i = 0; i < 6; i++) crank();
+    release();
+
+    // Shed four frames running, then forced through — a held lease must not be
+    // able to freeze background work indefinitely.
+    expect(outRuns).toBeGreaterThan(0);
+  });
+
+  it("reports the active scope in stats", async () => {
+    const conductor = await freshConductor();
+    conductor.subscribe("update", () => {}, { priority: "enhanced" });
+
+    expect(conductor.getStats().activeScope).toBeNull();
+    const release = conductor.claimScope("hero");
+    expect(conductor.getStats().activeScope).toBe("hero");
+    release();
+    expect(conductor.getStats().activeScope).toBeNull();
+  });
+});
+
+/**
+ * At maximum debt the budget is floored rather than exhausted, so the bands
+ * must stay ordered. Every subscriber here costs real clock time — shedding a
+ * free function reclaims nothing, and the scheduler correctly declines to.
+ */
+describe("bands stay ordered under saturating debt", () => {
+  /** Drive the debt to its cap: frames landing at ~4x the budget. */
+  function saturate(crankFn: (ms?: number) => void, frames = 40): void {
+    for (let i = 0; i < frames; i++) crankFn(64);
+  }
+
+  it("in-scope work outlives out-of-scope work even when deeply overrun", async () => {
+    const conductor = await freshConductor();
+    let inRuns = 0;
+    let outRuns = 0;
+
+    // Consumes most of the floored budget before the contenders are reached.
+    conductor.subscribe("update", () => burn(2.5), { priority: "essential" });
+    conductor.subscribe("update", () => { inRuns++; }, {
+      priority: "enhanced",
+      scope: "gallery",
+    });
+    conductor.subscribe("update", () => { outRuns++; }, { priority: "enhanced" });
+
+    const release = conductor.claimScope("gallery");
+    saturate(crank);
+    release();
+
+    // Pre-spending the frame made these identical, because every threshold sat
+    // below the starting position once the debt was capped.
+    expect(inRuns).toBeGreaterThan(outRuns);
+  });
+
+  it("essential never sheds at maximum debt", async () => {
+    const conductor = await freshConductor();
+    let runs = 0;
+    conductor.subscribe("update", () => burn(2.5), { priority: "essential" });
+    conductor.subscribe("update", () => { runs++; }, { priority: "essential" });
+
+    saturate(crank, 20);
+    expect(runs).toBe(20);
+  });
+
+  it("decorative sheds more than enhanced at maximum debt", async () => {
+    const conductor = await freshConductor();
+    let dec = 0;
+    let enh = 0;
+
+    conductor.subscribe("update", () => burn(2.5), { priority: "essential" });
+    conductor.subscribe("update", () => { enh++; }, { priority: "enhanced" });
+    conductor.subscribe("update", () => { dec++; }, { priority: "decorative" });
+
+    saturate(crank);
+    expect(enh).toBeGreaterThan(dec);
+  });
+
+  it("nothing freezes: the starvation guard still fires at maximum debt", async () => {
+    const conductor = await freshConductor();
+    let dec = 0;
+
+    conductor.subscribe("update", () => burn(6), { priority: "essential" });
+    conductor.subscribe("update", () => { dec++; }, { priority: "decorative" });
+
+    saturate(crank);
+    expect(dec).toBeGreaterThan(0);
+  });
+});

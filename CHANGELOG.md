@@ -1,5 +1,97 @@
 # Changelog
 
+## 1.2.0
+
+**Priority shedding now actually fires.** It never had.
+
+The shed decision compared only this runtime's own elapsed work against the
+frame budget. That made it unreachable in the normal case: when React, style,
+layout, paint or the GPU are what is eating the frame, our subscribers might
+total 3ms of a 16.6ms budget while the frame lands in 28ms. The conductor
+measured 3ms, concluded there was room, and ran everything — on a page visibly
+at 29fps, while `headroom` next door already reported -19ms. Two subsystems,
+two beliefs about the same frame.
+
+- **Carried overrun.** Each frame now begins already spent by however far the
+  previous one overran, taken from the wall clock and capped at one frame
+  budget. A frame that landed 11ms late starts 11ms in debt, which pushes
+  decorative work past its threshold immediately. The debt rises quickly and
+  decays slowly on purpose — symmetric smoothing oscillates, because shedding
+  rescues the frame, the debt clears, the work returns, and the frame blows out
+  again.
+- **`ConductorStats.carriedOverrunMs`** exposes that debt, and the devtools
+  overlay shows it as `carried`. Non-zero means something outside this runtime
+  is eating the frame, and it is why low-priority work is being dropped.
+- **`essential` is unaffected.** Its threshold is still infinite, so sensors,
+  governors and direct manipulation can never be shed however deep the debt.
+
+Measured on a reference harness — 24 subscribers, 0.6ms of synthetic work each,
+identical code in both modes with only the shedding flag changed:
+
+| | fps | p95 frame | worst frame |
+|---|---|---|---|
+| shedding on | 60 | 17.5ms | 29.6ms |
+| shedding off | 30 | 35.7ms | not comparable* |
+
+At heavier load (80 subscribers, 3ms each) the same comparison ran at 14fps
+against 4-5fps. These are synthetic subscribers measured on one machine, not a
+benchmark suite. *The shedding-off run was interrupted by a multi-second
+background stall, so its worst-frame figure measures the interruption rather
+than the page.
+
+**Motion scopes — a foreground lease for interaction.** Priorities are a fixed
+statement about what work is worth. A scope is a live statement about where
+attention is right now.
+
+```tsx
+<MotionScope name="gallery">
+  <Gallery />
+</MotionScope>
+```
+
+While a scope holds the lease, every subscriber outside it sheds one band
+earlier — `enhanced` behaves as `decorative`, `decorative` yields sooner still.
+So the ambient scene in the corner gives up its frame time to the gallery being
+dragged, and takes it back on release. `essential` is exempt either way, and
+the starvation guard still applies, so a held lease cannot freeze background
+work.
+
+Everything rendered inside the provider joins the scope, and a pointer down
+inside it takes the lease. The name is therefore written once: a scope repeated
+by hand at each subscription can disagree with itself, and a mismatched name
+fails silently rather than loudly.
+
+**`useMotionFrame`** subscribes to the loop from a component, inheriting that
+scope from the tree. It also holds the callback in a ref, so a frame function
+can close over current props without resubscribing on every render — doing that
+by hand churns the lane arrays and resets each subscriber's cost average.
+
+`ConductorStats.activeScope` and the devtools `foreground` tile report who
+holds the lease. `getConductor().claimScope(name)` remains available for
+imperative and non-React use.
+
+**Priorities swept.** Every non-essential subscriber previously declared
+`enhanced`, so the `decorative` band went unused and degradation was binary
+rather than graduated. `PointerIntent`, `useNumberTicker` and the
+`usePointerIntent` mirror now declare `decorative`.
+
+**The devtools overlay is `decorative`, not `essential`.** Measured under CPU
+throttling it was the most expensive subscriber on the page, so privileging it
+meant shedding the content in order to keep alive the readout about the
+content. It cannot vanish: the starvation guard forces any subscriber through
+after a few skipped frames, so under heavy load it degrades from 5Hz to roughly
+3Hz rather than stopping.
+
+## 1.1.2
+
+Restored the `"use client"` directive on the React and devtools bundles, which
+esbuild had been stripping since 1.0. A build step re-applies it from the source
+file after bundling, so it cannot drift again. 1.1.0 and 1.1.1 were published on
+the way to this fix and are superseded by it.
+
+`entry.react.ts` re-binds core values as local constants rather than
+re-exporting them, so the React entry no longer resolves through a shared chunk.
+
 ## 1.0.2
 
 Packaging only. No API change, no behaviour change — the public surface is

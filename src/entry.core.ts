@@ -4,18 +4,41 @@
  * Zero runtime dependencies. Framework-agnostic: usable from vanilla JS, Vue,
  * Svelte, or any renderer. React adapters live in "@vectorvesper/motion/react".
  *
- * ## Public API — frozen at 1.0
+ * ## What this entry exports
  *
- * This is the whole supported surface. It is deliberately small: the four
- * singleton accessors, a few pure helpers, and the types you need to consume
- * them. The imperative core classes (PointerIntent, MagneticElement,
- * VideoScrubber, SensorBus, BudgetPolicy) are NOT exported — you drive them
- * through the React hooks, which own their lifecycle. Refresh-rate detection
- * and the device-tier heuristic are internal and stay that way.
+ * The whole public core API. It is small on purpose: four singleton getters,
+ * a few pure helpers, and the types you need to use them.
  *
- * Anything added here is a permanent commitment (removing it is a breaking
- * change). `scripts/check-api.mjs` guards the surface against silent drift.
+ * The classes behind those singletons (PointerIntent, MagneticElement,
+ * VideoScrubber, SensorBus, BudgetPolicy) are not exported. Use the React
+ * hooks instead. They handle setup and teardown for you. Refresh-rate
+ * detection and the device-tier heuristic are internal.
+ *
+ * This surface can still change while 2.0 is in progress. Once 2.0 ships,
+ * removing anything from it is a breaking change. `scripts/check-api.mjs`
+ * diffs the built output against api-surface.json so nothing moves by
+ * accident.
  */
+
+// ── Version ─────────────────────────────────────────────────────────
+/**
+ * The published package version. Support questions start with "which version?",
+ * and until now there was no way for a consumer to answer that at runtime.
+ *
+ * Substituted at build time from package.json by tsup's `define`, so it cannot
+ * drift from the actual version.
+ *
+ * It was added hoping it would also fix a structural problem — this file is
+ * otherwise entirely `export … from`, which compiles to a root entry whose every
+ * statement forwards to a hashed chunk, and Framer's resolver rejects that as
+ * "not a valid npm package (f3)". **It did not fix it.** With splitting on, and
+ * with "./react" now mirroring this surface, the constant is shared between both
+ * entries, so tsup hoists it into the chunk and the root stays a pure barrel.
+ *
+ * The working fix is that "./react" re-exports everything here — see
+ * entry.react.ts. Import from "@vectorvesper/motion/react" in Framer.
+ */
+export const VERSION: string = __VV_VERSION__;
 
 // ── Scheduling ──────────────────────────────────────────────────────
 export {

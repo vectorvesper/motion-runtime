@@ -1,6 +1,6 @@
 {
   "name": "@vectorvesper/motion",
-  "version": "1.0.3",
+  "version": "1.2.0",
   "description": "Motion primitives on one shared frame loop — a sensor layer, a frame-budget governor, and React hooks for fast, coordinated interactive sites. Zero dependencies.",
   "license": "MIT",
   "author": "Vector Vesper",
@@ -37,7 +37,7 @@
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "tsup && node scripts/sanitize-dts.mjs",
+    "build": "tsup && node scripts/sanitize-dts.mjs && node scripts/preserve-directives.mjs",
     "check:api": "node scripts/check-api.mjs",
     "prepublishOnly": "npm run build && npm run check:api"
   },

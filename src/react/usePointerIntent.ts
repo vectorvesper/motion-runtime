@@ -71,7 +71,7 @@ export interface UsePointerIntentReturn<T extends HTMLElement> {
  *
  * ### 📚 Usage Example:
  * ```tsx
- * import { usePointerIntent } from "@vv-motion/react";
+ * import { usePointerIntent } from "@vectorvesper/motion/react";
  * 
  * export function InteractiveCard() {
  *   const { ref, intent, confidenceRef } = usePointerIntent<HTMLDivElement>({
@@ -119,7 +119,7 @@ export function usePointerIntent<T extends HTMLElement = HTMLElement>(
     // after the core's update-lane work, without React re-renders.
     const offFrame = getConductor().subscribe("render", () => {
       confidenceRef.current = instance.confidence;
-    }, { priority: "enhanced", label: "usePointerIntent(mirror)" });
+    }, { priority: "decorative", label: "usePointerIntent(mirror)" });
     return () => {
       offFrame();
       instance.destroy();

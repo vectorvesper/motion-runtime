@@ -27,6 +27,29 @@ import { RefreshRateProbe } from "./refresh-rate";
  * skipped `MAX_CONSECUTIVE_SHED` times in a row is forced through, so heavy
  * pages degrade decorative work to a lower framerate instead of freezing it.
  *
+ * ## Carried overrun (v0.4)
+ *
+ * Shedding used to compare only our own elapsed work against the budget. That
+ * made it unreachable in the normal case: when React, style, layout, paint or
+ * the GPU are what is eating the frame, our subscribers might total 3ms of a
+ * 16.6ms budget while the frame actually lands in 28ms. We would measure 3ms,
+ * conclude there was room, and run everything — on a page visibly at 29fps.
+ *
+ * So the budget each frame is reduced by how far the PREVIOUS frame overran,
+ * taken from the wall clock: a frame that landed 11ms late leaves about 5ms to
+ * spend rather than 16.6, and every band scales down with it. The debt is what
+ * the interval says, whoever caused it.
+ *
+ * Reducing the budget rather than pre-spending the frame is deliberate.
+ * Pre-spending collapses the design under load — at full debt every threshold
+ * lies below the starting position, so all three bands shed on frame entry and
+ * priority stops meaning anything precisely when it matters most.
+ *
+ * The debt rises quickly and decays slowly on purpose. Symmetric smoothing
+ * oscillates — shedding rescues the frame, the debt clears, the work returns,
+ * the frame blows out again. Slow decay holds the quality decision steady
+ * until the page has been healthy for a while.
+ *
  * `hz` throttles a subscriber to a slower cadence. The accumulated dt is
  * passed through, so frame-rate-independent damping stays correct at any
  * cadence — an ambient background at 30Hz looks identical and costs half.
@@ -59,6 +82,15 @@ export interface SubscribeOptions {
   hz?: number;
   /** Name shown in devtools and in slow-subscriber warnings. */
   label?: string;
+  /**
+   * Which interaction scope this work belongs to. While some OTHER scope holds
+   * the foreground lease, this subscriber sheds one band earlier than its
+   * priority would normally allow. Omit for work that belongs to no particular
+   * region — that is treated as background whenever any lease is held.
+   *
+   * `essential` is never affected, whatever the scope.
+   */
+  scope?: string;
 }
 
 export interface SubscriberStat {
@@ -91,6 +123,14 @@ export interface ConductorStats {
   workMs: number;
   /** Decaying peak of `workMs`, in ms. */
   worstWorkMs: number;
+  /**
+   * How much of this frame was already spent before we ran anything, carried
+   * from the previous frame's overrun. Non-zero means something outside this
+   * runtime is eating the frame, and it is why low-priority work is shedding.
+   */
+  carriedOverrunMs: number;
+  /** Scope currently holding the foreground lease, or null. */
+  activeScope: string | null;
   subscriberCount: number;
   /** Subscribers skipped on the most recent frame. */
   shedLastFrame: number;
@@ -139,6 +179,41 @@ const SHED_THRESHOLD: Record<SubscriberPriority, number> = {
 /** A subscriber skipped this many frames running is forced through. */
 const MAX_CONSECUTIVE_SHED = 4;
 
+/**
+ * Thresholds used for work OUTSIDE the scope currently holding the foreground
+ * lease. Each band drops to the next one down, so during a drag the ambient
+ * work elsewhere on the page yields before the thing under the finger does.
+ * Essential work is exempt at any threshold.
+ */
+const DEMOTED_THRESHOLD: Record<SubscriberPriority, number> = {
+  essential: Infinity,
+  enhanced: 0.45,
+  decorative: 0.2,
+};
+
+/**
+ * Smoothing for the carried overrun. Asymmetric on purpose: react within a few
+ * frames, recover over roughly half a second, so quality decisions don't flap.
+ */
+const OVERRUN_RISE_ALPHA = 0.25;
+const OVERRUN_DECAY_ALPHA = 0.03;
+
+/**
+ * Cap the debt at one frame budget. Beyond that it would take longer to pay off
+ * after a one-off stall (a tab wake, a long task) than the information is worth.
+ */
+const MAX_DEBT_FACTOR = 1;
+
+/**
+ * Debt shrinks the budget rather than pre-spending the frame, and never below
+ * this fraction of it. Pre-spending was the obvious model and it was wrong: at
+ * full debt every threshold sat below the starting position, so all three
+ * priority bands crossed their line on frame entry and shedding stopped
+ * discriminating at exactly the load where discriminating matters. Keeping a
+ * floor means the bands stay ordered however deep the debt gets.
+ */
+const MIN_BUDGET_FRACTION = 0.25;
+
 /** Smoothing for the rolling frame/work averages. */
 const EMA_ALPHA = 0.1;
 /** Per-frame decay applied to the worst-work peak. */
@@ -150,6 +225,8 @@ interface Subscriber {
   priority: SubscriberPriority;
   rank: number;
   shedAt: number;
+  demotedShedAt: number;
+  scope: string | null;
   label: string;
   /** Seconds between runs; 0 = every frame. */
   interval: number;
@@ -186,6 +263,9 @@ class FrameConductor {
   private workMsEma = 0;
   private worstWorkMs = 0;
   private shedLastFrame = 0;
+  private overrunEma = 0;
+  /** Innermost-last. The tail holds the foreground lease. */
+  private scopeStack: string[] = [];
 
   private shedding = true;
   private onError: ConductorConfig["onError"];
@@ -222,6 +302,42 @@ class FrameConductor {
     return this.workMsEma;
   }
 
+  /** The scope currently holding the foreground lease, or null. */
+  get foregroundScope(): string | null {
+    return this.scopeStack.length > 0 ? this.scopeStack[this.scopeStack.length - 1] : null;
+  }
+
+  /**
+   * Claim the foreground for an interaction. Returns a release function.
+   *
+   * ```ts
+   * const release = getConductor().claimScope("gallery");
+   * // on pointerup:
+   * release();
+   * ```
+   *
+   * While a lease is held, every subscriber that did NOT declare this scope
+   * sheds one band earlier — so ambient work elsewhere on the page gives up its
+   * frame time to the thing the user is actually touching. Priorities are a
+   * fixed statement about what work is worth; a lease is a live statement about
+   * where attention currently is. Essential work is exempt either way.
+   *
+   * Claims nest. The most recent holds the lease, and releasing restores the one
+   * beneath it. Releasing twice is a no-op.
+   */
+  claimScope(scope: string): () => void {
+    this.scopeStack.push(scope);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      // Remove the newest matching claim, not the oldest: overlapping leases on
+      // the same scope must unwind in the order they were taken.
+      const at = this.scopeStack.lastIndexOf(scope);
+      if (at !== -1) this.scopeStack.splice(at, 1);
+    };
+  }
+
   subscribe(lane: ConductorLane, fn: FrameFn, options: SubscribeOptions = {}): () => void {
     const priority = options.priority ?? "enhanced";
     const hz = options.hz !== undefined && options.hz > 0 ? options.hz : null;
@@ -231,6 +347,8 @@ class FrameConductor {
       priority,
       rank: PRIORITY_RANK[priority],
       shedAt: SHED_THRESHOLD[priority],
+      demotedShedAt: DEMOTED_THRESHOLD[priority],
+      scope: options.scope ?? null,
       label: options.label ?? "anonymous",
       interval: hz === null ? 0 : 1 / hz,
       hz,
@@ -301,6 +419,8 @@ class FrameConductor {
       frameMs: this.frameMsEma,
       workMs: this.workMsEma,
       worstWorkMs: this.worstWorkMs,
+      carriedOverrunMs: this.overrunEma,
+      activeScope: this.foregroundScope,
       subscriberCount: this.liveCount,
       shedLastFrame: this.shedLastFrame,
       subscribers,
@@ -360,6 +480,24 @@ class FrameConductor {
     this.refresh.push(rawIntervalMs);
     const budgetMs = this.refresh.frameBudgetMs;
 
+    // How far the previous frame overran, capped so a single stall doesn't
+    // leave us shedding for seconds afterwards. Rises fast, decays slow.
+    const overrunMs = Math.min(
+      Math.max(0, rawIntervalMs - budgetMs),
+      budgetMs * MAX_DEBT_FACTOR,
+    );
+    this.overrunEma +=
+      (overrunMs - this.overrunEma) *
+      (overrunMs > this.overrunEma ? OVERRUN_RISE_ALPHA : OVERRUN_DECAY_ALPHA);
+    const debtMs = this.overrunEma;
+    // What is actually left of this frame to spend, floored so the priority
+    // bands stay ordered even when the debt is at its cap.
+    const effectiveBudgetMs = Math.max(
+      budgetMs - debtMs,
+      budgetMs * MIN_BUDGET_FRACTION,
+    );
+    const foreground = this.foregroundScope;
+
     this.ticking = true;
     const frameStart = performance.now();
     // Advances only when a subscriber actually executes, so it doubles as
@@ -384,10 +522,14 @@ class FrameConductor {
           if (sub.accum + dt * 0.5 < sub.interval) continue; // not due yet
         }
 
+        // Work outside the scope holding the lease yields a band early.
+        const shedAt =
+          foreground === null || sub.scope === foreground ? sub.shedAt : sub.demotedShedAt;
+
         if (
           this.shedding &&
           sub.starve < MAX_CONSECUTIVE_SHED &&
-          cursor - frameStart > budgetMs * sub.shedAt
+          cursor - frameStart > effectiveBudgetMs * shedAt
         ) {
           // Out of room. Skip without touching accum, so a throttled
           // subscriber stays due and runs with the correct dt next frame.

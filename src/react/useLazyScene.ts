@@ -34,7 +34,7 @@ export interface UseLazySceneOptions {
  *
  * ### 📚 Usage Example:
  * ```tsx
- * import { useLazyScene } from "@vv-motion/react";
+ * import { useLazyScene } from "@vectorvesper/motion/react";
  * import { HeavyWebGLCanvas } from "./HeavyWebGLCanvas";
  * 
  * export function LazySceneWrapper() {

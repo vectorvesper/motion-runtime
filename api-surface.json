@@ -12,6 +12,7 @@
       "MagneticOptions",
       "PointerIntentOptions",
       "PointerSensor",
+      "RectLike",
       "ScrollSensor",
       "ScrubDriver",
       "ScrubMapping",
@@ -20,6 +21,7 @@
       "SubscribeOptions",
       "SubscriberPriority",
       "SubscriberStat",
+      "VERSION",
       "VideoScrubberOptions",
       "ViewportSensor",
       "clamp01",
@@ -30,17 +32,26 @@
       "getSensorBus",
       "rayRectIntersect"
     ],
-    "types": [
-      "RectLike"
-    ]
+    "types": []
   },
   "./react": {
     "values": [
+      "MotionScope",
+      "VERSION",
+      "clamp01",
+      "damp",
+      "getAdaptiveQuality",
+      "getAnimationBudget",
+      "getConductor",
+      "getSensorBus",
+      "rayRectIntersect",
       "useAdaptiveQuality",
       "useAnimationBudget",
       "useImageTrail",
       "useLazyScene",
       "useMagneticIntent",
+      "useMotionFrame",
+      "useMotionScope",
       "useNumberTicker",
       "usePointerIntent",
       "useSafeToMount",
@@ -48,8 +59,10 @@
       "useVideoScrubber"
     ],
     "types": [
+      "MotionScopeProps",
       "UseImageTrailOptions",
       "UseLazySceneOptions",
+      "UseMotionFrameOptions",
       "UseNumberTickerOptions",
       "UsePointerIntentOptions",
       "UsePointerIntentReturn",

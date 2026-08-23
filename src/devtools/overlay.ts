@@ -18,6 +18,8 @@ import { getAnimationBudget, type BudgetState } from "../core/animation-budget/A
  * - It refreshes at 5Hz and writes through `textContent` against nodes built
  *   once. A profiler that shows up in its own profile is a bad profiler —
  *   though it does list itself in the table rather than hiding.
+ * - It subscribes as `decorative`, so it is shed before the work it measures.
+ *   An instrument that outranks its subject distorts the reading.
  * - It is a separate entry point (`@vectorvesper/motion/devtools`), so it
  *   only reaches a bundle that explicitly imports it.
  */
@@ -187,6 +189,11 @@ export function mountDevtools(options: DevtoolsOptions = {}): () => void {
   const vHeadroom = cell(grid, "headroom", "ms");
   const vTier = cell(grid, "tier");
   const vShed = cell(grid, "shed / frame");
+  // Non-zero means the previous frame overran and this one starts already
+  // spent — the reason low-priority work is being dropped.
+  const vCarried = cell(grid, "carried", "ms");
+  // Which region currently holds the foreground lease, if any.
+  const vScope = cell(grid, "foreground");
 
   // ---- subscriber table ---------------------------------------------------
   const table = el("table");
@@ -270,6 +277,8 @@ export function mountDevtools(options: DevtoolsOptions = {}): () => void {
     setValue(vHeadroom, budget.headroom.toFixed(1), budget.headroom < 0);
     setValue(vTier, `${budget.tier} ${budget.label}`);
     setValue(vShed, String(stats.shedLastFrame));
+    setValue(vCarried, stats.carriedOverrunMs.toFixed(1), stats.carriedOverrunMs > 0.5);
+    setValue(vScope, stats.activeScope ?? "—", stats.activeScope !== null);
 
     const subs = stats.subscribers;
     if (subs.length === 0) {
@@ -291,11 +300,17 @@ export function mountDevtools(options: DevtoolsOptions = {}): () => void {
       `${stats.displayHz}Hz display (${stats.frameBudgetMs.toFixed(1)}ms budget)`;
   };
 
-  // Essential: a profiler that vanishes under load is lying about exactly the
-  // moment you care about. At 5Hz its own cost is negligible — and it reports
-  // that cost in the table like everything else.
+  // Decorative, deliberately. The worry with shedding a profiler is that it
+  // vanishes at the moment you care about — but it cannot: a subscriber skipped
+  // MAX_CONSECUTIVE_SHED frames running is forced through, so under heavy load
+  // this degrades from 5Hz to roughly 3Hz rather than stopping.
+  //
+  // Essential would be worse than useless here. Measured under CPU throttling
+  // this was the most expensive subscriber on the page, so privileging it means
+  // shedding the content in order to keep the readout about the content alive.
+  // An instrument must never outrank what it measures.
   const off = getConductor().subscribe("render", paint, {
-    priority: "essential",
+    priority: "decorative",
     hz,
     label: "devtools overlay",
   });

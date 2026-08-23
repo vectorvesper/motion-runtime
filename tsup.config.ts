@@ -1,6 +1,14 @@
 import { defineConfig } from "tsup";
+import { createRequire } from "node:module";
+
+const pkg = createRequire(import.meta.url)("./package.json") as { version: string };
 
 export default defineConfig({
+  // Substituted into `VERSION` in entry.core.ts. Read from package.json so the
+  // exported version cannot drift from the published one.
+  define: {
+    __VV_VERSION__: JSON.stringify(pkg.version),
+  },
   entry: {
     index: "src/entry.core.ts",
     react: "src/entry.react.ts",

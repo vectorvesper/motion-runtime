@@ -38,7 +38,7 @@ export interface UseNumberTickerOptions {
  *
  * ### 📚 Usage Example:
  * ```tsx
- * import { useNumberTicker } from "@vv-motion/react";
+ * import { useNumberTicker } from "@vectorvesper/motion/react";
  * 
  * export function ScoreDisplay() {
  *   const { ref } = useNumberTicker(8500, {
@@ -113,7 +113,10 @@ export function useNumberTicker<T extends HTMLElement = HTMLSpanElement>(
 
       currentRef.current = next;
       write(next);
-    }, { priority: "enhanced", label: "useNumberTicker" });
+      // Decorative: a counter that updates less often under load still reads
+      // correctly, because the damping is frame-rate independent. It just
+      // arrives at the value a little later.
+    }, { priority: "decorative", label: "useNumberTicker" });
 
     return () => {
       unsubscribe();

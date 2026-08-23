@@ -73,8 +73,11 @@ export class PointerIntent {
     this.onChange = onChange;
     this.releaseBus = getSensorBus().retain();
     // Update lane: runs after the bus's input-lane derivative pass.
+    // Decorative: this produces a confidence signal for prefetching, never
+    // visible motion. Shedding it under load costs a slightly later prefetch,
+    // which is the correct thing to give up when the frame is already full.
     this.unsubscribe = getConductor().subscribe("update", this.frame, {
-      priority: "enhanced",
+      priority: "decorative",
       label: "PointerIntent",
     });
   }
