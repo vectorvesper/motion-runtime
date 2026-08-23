@@ -74,7 +74,11 @@ export const rayRectIntersect = _rayRectIntersect;
 
 export { useSensorBus } from "./react/useSensorBus";
 export { useAnimationBudget } from "./react/useAnimationBudget";
-export { useSafeToMount, type UseSafeToMountOptions } from "./react/useSafeToMount";
+export {
+  useSafeToMount,
+  type UseSafeToMountOptions,
+  type MountCost,
+} from "./react/useSafeToMount";
 export {
   InteractionScope,
   useInteractionScope,

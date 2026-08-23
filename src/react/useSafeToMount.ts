@@ -5,60 +5,68 @@ import { getConductor } from "../core/conductor";
 import { getAnimationBudget } from "../core/animation-budget/AnimationBudget";
 
 /**
- * Options for `useSafeToMount`.
+ * How expensive the thing you are about to mount is.
+ *
+ * The heavier it is, the more free frame time the page has to show before it
+ * is worth starting. Shared by {@link useSafeToMount} and `useLazyScene`.
  */
+export type MountCost = "light" | "normal" | "heavy";
+
+/**
+ * The thresholds each cost maps to.
+ *
+ * These replaced three separate numbers — minimum headroom, consecutive clean
+ * frames, and a CPU core floor. Every one of them was a question a developer
+ * had no way to answer, and the catalogue proved it: of ten call sites, six
+ * passed the identical override and four passed nothing. That is not tuning,
+ * it is people working around a default. "How expensive is this?" is a
+ * question the person writing the component can actually answer.
+ */
+const COST: Record<
+  MountCost,
+  { headroomMs: number; cleanFrames: number; minCores: number }
+> = {
+  light: { headroomMs: 1, cleanFrames: 1, minCores: 2 },
+  normal: { headroomMs: 2, cleanFrames: 2, minCores: 4 },
+  heavy: { headroomMs: 6, cleanFrames: 3, minCores: 4 },
+};
+
 export interface UseSafeToMountOptions {
   /**
-   * Minimum free time required in every qualifying frame, in milliseconds.
-   * Measured against the detected display rate — at 60Hz the whole frame is
-   * 16.6ms, so a value of `6` asks for roughly a third of it to still be
-   * unspoken for.
-   * @default 6
+   * How expensive the thing being mounted is. Default `"normal"`.
+   *
+   * - `"light"` — a small canvas, a handful of animated elements
+   * - `"normal"` — most components
+   * - `"heavy"` — a full 3D scene, post-processing, a large particle system
    */
-  minHeadroomMs?: number;
-  /**
-   * Number of consecutive clean frames (above `minHeadroomMs`) required
-   * before returning `true`.
-   * @default 3
-   */
-  requiredCleanFrames?: number;
-  /**
-   * Minimum hardware concurrency (CPU logical cores) required to allow mounting.
-   * Direct hardware-level block to skip telemetry checks entirely on very weak
-   * devices. This one is permanent — cores do not improve while the page is open.
-   * @default 4
-   */
-  minCores?: number;
+  cost?: MountCost;
 }
 
 /**
- * Returns `true` only once the frame loop has sustained enough headroom to
- * safely absorb a new expensive mount.
+ * Returns `true` once the page has enough spare frame time to absorb an
+ * expensive mount.
  *
- * Once `true`, the value **never returns to `false`** within the same mount
- * lifecycle — an expensive component that unmounted itself the moment it made
- * the page slow would oscillate forever.
+ * ```tsx
+ * const ready = useSafeToMount({ cost: "heavy" });
+ * return ready ? <Scene /> : <Poster />;
+ * ```
  *
- * ### Fixed in v0.3
+ * It starts `false` and only ever flips to `true`. Something that unmounted
+ * itself the moment it made the page slow would oscillate forever, so the gate
+ * is one-way.
  *
- * v0.1 gave up permanently if the budget happened to be at tier 1 or worse at
- * the moment the hook mounted — it never subscribed, so it could not reopen
- * without a full remount. That is exactly backwards for the common case: a
- * page is *always* busy during hydration, which is precisely when this hook
- * mounts. It now waits, and opens the gate when the page actually settles.
- *
- * It also relies on the corrected `headroom` signal. In v0.1 that number was
- * derived from the vsync-pinned frame interval, so a healthy 60Hz page
- * reported ~0ms and the default `minHeadroomMs: 6` was unreachable.
+ * On a machine with too few CPU cores for the given cost it stays `false` and
+ * stops watching. Cores cannot improve while the page is open, so that is the
+ * one condition that ends the story early.
  */
 export function useSafeToMount({
-  minHeadroomMs = 6,
-  requiredCleanFrames = 3,
-  minCores = 4,
+  cost = "normal",
 }: UseSafeToMountOptions = {}): boolean {
   const [safe, setSafe] = useState(false);
 
   useEffect(() => {
+    const { headroomMs, cleanFrames: required, minCores } = COST[cost];
+
     // Static hardware floor. Unlike the frame signals this can never improve,
     // so it is the one condition that legitimately ends the story early.
     if (typeof navigator !== "undefined") {
@@ -68,37 +76,42 @@ export function useSafeToMount({
 
     const budget = getAnimationBudget();
     // Hold the governor open for as long as we're watching. It only measures
-    // while something is subscribed, and polling a governor that isn't
-    // running would read a frozen snapshot forever.
+    // while something is subscribed, and polling a governor that isn't running
+    // would read a frozen snapshot forever.
     const releaseBudget = budget.subscribe(() => {});
 
-    let cleanFrames = 0;
+    let clean = 0;
     let settled = false;
 
     // Poll per frame rather than per budget emit: the budget only emits on
-    // tier changes and a 2Hz heartbeat, which would quietly turn
-    // `requiredCleanFrames: 3` into "wait a second and a half".
+    // tier changes and a 2Hz heartbeat, which would quietly turn a two-frame
+    // requirement into "wait a second".
     //
     // There is deliberately no "already healthy, open immediately" shortcut.
     // It would have to run inside this effect, which means a synchronous
     // setState and a cascading render, and it cannot move into render without
     // breaking hydration — the server has no frame timings, so the first
-    // client render must agree with it and start `false`. Waiting the same
-    // three frames on every page costs ~50ms before an expensive mount, which
-    // is a fine price for one code path instead of two.
+    // client render must agree with it and start `false`.
+    //
+    // History worth keeping: the first version gave up permanently if the
+    // budget happened to be degraded at mount. That is exactly backwards, since
+    // a page is always busy during hydration, which is precisely when this
+    // hook mounts. It also relied on a `headroom` figure derived from the
+    // vsync-pinned frame interval, so a healthy 60Hz page reported ~0ms and no
+    // threshold above zero was reachable at all.
     const off = getConductor().subscribe(
       "input",
       () => {
         if (settled) return;
         const { tier, headroom } = budget.state;
-        if (tier === 0 && headroom >= minHeadroomMs) {
-          cleanFrames++;
-          if (cleanFrames >= requiredCleanFrames) {
+        if (tier === 0 && headroom >= headroomMs) {
+          clean++;
+          if (clean >= required) {
             settled = true;
             setSafe(true);
           }
         } else {
-          cleanFrames = 0;
+          clean = 0;
         }
       },
       // Subscribed after the governor's own essential measure pass, so it
@@ -110,7 +123,7 @@ export function useSafeToMount({
       off();
       releaseBudget();
     };
-  }, [minHeadroomMs, requiredCleanFrames, minCores]);
+  }, [cost]);
 
   return safe;
 }

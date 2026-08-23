@@ -28,8 +28,8 @@ export interface UseImageTrailOptions {
   size?: number;
   /** Pointer distance between spawns, px. Default 90. */
   spacing?: number;
-  /** Flight duration, ms. Default 900. */
-  life?: number;
+  /** How long each image stays on screen, in ms. Default 900. */
+  duration?: number;
   /** Pool size = max simultaneously visible images. Default 10. */
   maxActive?: number;
 }
@@ -48,7 +48,7 @@ export function useImageTrail<T extends HTMLElement = HTMLDivElement>(
 
     const size = initial.size ?? 160;
     const spacing = initial.spacing ?? 90;
-    const life = initial.life ?? 900;
+    const duration = initial.duration ?? 900;
     const poolSize = initial.maxActive ?? 10;
 
     // The container must position its children.
@@ -104,7 +104,7 @@ export function useImageTrail<T extends HTMLElement = HTMLDivElement>(
             transform: `translate(${x - size / 2 + drift}px, ${y - size / 2 + 36}px) scale(0.9) rotate(0deg)`,
           },
         ],
-        { duration: life, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
+        { duration: duration, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
       );
     };
 

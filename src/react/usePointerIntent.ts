@@ -128,10 +128,10 @@ export function usePointerIntent<T extends HTMLElement = HTMLElement>(
     };
   }, [element, initial]);
 
-  const { horizon, extend, minSpeed, enter, exit } = options;
+  const { sensitivity, dynamic } = options;
   useEffect(() => {
-    instanceRef.current?.update({ horizon, extend, minSpeed, enter, exit });
-  }, [horizon, extend, minSpeed, enter, exit]);
+    instanceRef.current?.update({ sensitivity, dynamic });
+  }, [sensitivity, dynamic]);
 
   // eslint-disable-next-line react-hooks/refs -- the factory only wires deferred
   // getters/setters; elementRef.current is never read during render.

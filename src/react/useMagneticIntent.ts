@@ -45,10 +45,12 @@ export function useMagneticIntent<T extends HTMLElement = HTMLElement>(
     };
   }, [initial]);
 
-  const { strength, reach, damp, scale } = options;
+  // `anticipate` is forwarded too. It used to be readable only at construction,
+  // so changing it after mount silently did nothing.
+  const { strength, reach, speed, scale, anticipate } = options;
   useEffect(() => {
-    instanceRef.current?.update({ strength, reach, damp, scale });
-  }, [strength, reach, damp, scale]);
+    instanceRef.current?.update({ strength, reach, speed, scale, anticipate });
+  }, [strength, reach, speed, scale, anticipate]);
 
   return { ref, active };
 }

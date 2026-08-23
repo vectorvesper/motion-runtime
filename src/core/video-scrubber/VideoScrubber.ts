@@ -41,8 +41,14 @@ export interface VideoScrubberOptions {
   track?: HTMLElement;
   /** Scroll→progress mapping (scroll driver only). */
   mapping?: ScrubMapping;
-  /** Damping responsiveness per second; 0 = instant. */
-  smooth?: number;
+  /**
+   * How quickly the video catches up to the scrub position. Higher arrives
+   * sooner; `0` is instant with no trailing at all. Default 8.
+   *
+   * The old name for this was `smooth`, which read backwards — a lower number
+   * produced *more* smoothing.
+   */
+  speed?: number;
   /** Pointer driver: which axis of the track maps to progress. */
   pointerAxis?: "x" | "y";
   /** Fired when smoothed progress changes (per frame, deduplicated). */
@@ -52,7 +58,7 @@ export interface VideoScrubberOptions {
 export const VIDEO_SCRUBBER_DEFAULTS = {
   driver: "scroll",
   mapping: "auto",
-  smooth: 8,
+  speed: 8,
   pointerAxis: "x",
 } as const satisfies Omit<VideoScrubberOptions, "track" | "onProgress">;
 
@@ -90,12 +96,12 @@ export class VideoScrubber {
 
   private driver: ScrubDriver;
   private mapping: ScrubMapping;
-  private smooth: number;
+  private speed: number;
   /**
    * Sampled once, at construction, and honoured by every later write to
-   * `smooth`. Without it the reduced-motion clamp applied only in the
-   * constructor and any subsequent `update({ smooth })` silently restored the
-   * trailing lag — which is exactly what a React wrapper does when a `smooth`
+   * `speed`. Without it the reduced-motion clamp applied only in the
+   * constructor and any subsequent `update({ speed })` silently restored the
+   * trailing lag — which is exactly what a React wrapper does when a `speed`
    * prop changes.
    */
   private readonly prefersReduced: boolean;
@@ -134,7 +140,7 @@ export class VideoScrubber {
     this.onProgress = options.onProgress;
 
     this.prefersReduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    this.smooth = this.resolveSmooth(options.smooth ?? VIDEO_SCRUBBER_DEFAULTS.smooth);
+    this.speed = this.resolveSpeed(options.speed ?? VIDEO_SCRUBBER_DEFAULTS.speed);
 
     this.restore = {
       muted: video.muted,
@@ -244,13 +250,13 @@ export class VideoScrubber {
    * direct manipulation, so it stays enabled — but the trailing lag is
    * autonomous motion, and that is the part to drop.
    */
-  private resolveSmooth(requested: number): number {
+  private resolveSpeed(requested: number): number {
     return this.prefersReduced ? 0 : requested;
   }
 
   /** Live-tunable options. `driver` and `track` are fixed by design. */
-  update(options: Pick<VideoScrubberOptions, "smooth" | "mapping" | "pointerAxis" | "onProgress">): void {
-    if (options.smooth !== undefined) this.smooth = this.resolveSmooth(options.smooth);
+  update(options: Pick<VideoScrubberOptions, "speed" | "mapping" | "pointerAxis" | "onProgress">): void {
+    if (options.speed !== undefined) this.speed = this.resolveSpeed(options.speed);
     if (options.mapping !== undefined) this.mapping = options.mapping;
     if (options.pointerAxis !== undefined) this.pointerAxis = options.pointerAxis;
     if (options.onProgress !== undefined) this.onProgress = options.onProgress;
@@ -289,7 +295,7 @@ export class VideoScrubber {
     }
 
     this.current =
-      this.smooth > 0 ? damp(this.current, this.target, this.smooth, dt) : this.target;
+      this.speed > 0 ? damp(this.current, this.target, this.speed, dt) : this.target;
 
     if (Math.abs(this.current - this.lastEmitted) > PROGRESS_EPSILON) {
       this.lastEmitted = this.current;

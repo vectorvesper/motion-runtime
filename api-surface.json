@@ -11,6 +11,7 @@
       "FrameFn",
       "MagneticOptions",
       "PointerIntentOptions",
+      "PointerIntentSensitivity",
       "PointerSensor",
       "RectLike",
       "ScrollSensor",
@@ -60,6 +61,7 @@
     ],
     "types": [
       "InteractionScopeProps",
+      "MountCost",
       "UseImageTrailOptions",
       "UseLazySceneOptions",
       "UseNumberTickerOptions",

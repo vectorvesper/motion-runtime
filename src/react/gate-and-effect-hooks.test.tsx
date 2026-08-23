@@ -137,7 +137,7 @@ describe("useSafeToMount", () => {
 
     let safe = false;
     function Gate() {
-      safe = useSafeToMount({ requiredCleanFrames: 3, minCores: 1 });
+      safe = useSafeToMount({ cost: "light" });
       return null;
     }
 
@@ -155,7 +155,7 @@ describe("useSafeToMount", () => {
 
     let safe = false;
     function Gate() {
-      safe = useSafeToMount({ requiredCleanFrames: 2, minCores: 1 });
+      safe = useSafeToMount({ cost: "light" });
       return null;
     }
 
@@ -176,15 +176,16 @@ describe("useSafeToMount", () => {
   });
 
   it("gives up permanently on a machine below the core floor", async () => {
+    // Cores never improve while the page is open, so this is the one
+    // condition that legitimately ends the story early.
+    vi.spyOn(navigator, "hardwareConcurrency", "get").mockReturnValue(1);
     vi.resetModules();
     const { useSafeToMount } = await import("./useSafeToMount");
     const { getConductor } = await import("../core/conductor");
 
     let safe = true;
     function Gate() {
-      // Cores never improve while the page is open, so this is the one
-      // condition that legitimately ends the story early.
-      safe = useSafeToMount({ minCores: 9999 });
+      safe = useSafeToMount({ cost: "heavy" });
       return null;
     }
 
@@ -198,13 +199,36 @@ describe("useSafeToMount", () => {
     expect(getConductor().getStats().subscribers).toHaveLength(0);
   });
 
+  it("lets a light mount through on hardware that blocks a heavy one", async () => {
+    // Two cores clears "light" and fails "normal" and "heavy".
+    vi.spyOn(navigator, "hardwareConcurrency", "get").mockReturnValue(2);
+    vi.resetModules();
+    const { useSafeToMount } = await import("./useSafeToMount");
+
+    let light = false;
+    let heavy = true;
+    function Gate() {
+      light = useSafeToMount({ cost: "light" });
+      heavy = useSafeToMount({ cost: "heavy" });
+      return null;
+    }
+
+    render(<Gate />);
+    await act(async () => {
+      crankFrames(6);
+    });
+
+    expect(light).toBe(true);
+    expect(heavy).toBe(false);
+  });
+
   it("releases the governor and its frame subscription on unmount", async () => {
     vi.resetModules();
     const { useSafeToMount } = await import("./useSafeToMount");
     const { getConductor } = await import("../core/conductor");
 
     function Gate() {
-      useSafeToMount({ minCores: 1 });
+      useSafeToMount({ cost: "light" });
       return null;
     }
 

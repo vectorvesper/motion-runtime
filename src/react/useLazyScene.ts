@@ -4,56 +4,41 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { getAnimationBudget } from "../core/animation-budget/AnimationBudget";
 import { getSensorBus } from "../core/sensor-bus/SensorBus";
 import { getConductor } from "../core/conductor";
+import type { MountCost } from "./useSafeToMount";
 
 export interface UseLazySceneOptions {
   /**
-   * IntersectionObserver rootMargin (in CSS margin syntax) used to expand or contract
-   * the viewport intersection bounds. Enables pre-mounting elements before they scroll into view.
-   * @default "200px"
+   * How far before the element reaches the viewport to start, in pixels.
+   * Default 200.
    */
-  rootMargin?: string;
+  preload?: number;
   /**
-   * If true, delays mounting until the browser reaches an idle period (using `requestIdleCallback`).
-   * Ensures the main thread is not blocked during heavy scroll actions.
-   * @default true
+   * How expensive the scene is. Default `"normal"`. It decides how much the
+   * hook waits for besides visibility:
+   *
+   * - `"light"` — mount as soon as it is near the viewport
+   * - `"normal"` — also wait for a free slot on the main thread
+   * - `"heavy"` — also wait for frames to recover if the page is struggling,
+   *   up to three seconds
    */
-  requireIdle?: boolean;
-  /**
-   * If true, delays mounting if the global `AnimationBudget` performance tier is low (Tier 2/dropping frames).
-   * It will wait for the budget to recover, up to a maximum timeout of 3 seconds (fail-open safeguard).
-   * @default false
-   */
-  deferWhileLow?: boolean;
+  cost?: MountCost;
 }
 
 /**
- * A React hook that defers mounting heavy content (such as Three.js canvases, WebGL shaders, or autoplaying videos)
- * until the element is close to the viewport, the browser has reached an idle frame slot, and the animation budget is healthy.
+ * Hold a heavy scene back until the page can afford it.
  *
- * Once loaded, the component remains mounted to prevent unmounting/remounting overhead on subsequent scroll actions.
- *
- * ### 📚 Usage Example:
  * ```tsx
- * import { useLazyScene } from "@vectorvesper/motion/react";
- * import { HeavyWebGLCanvas } from "./HeavyWebGLCanvas";
- * 
- * export function LazySceneWrapper() {
- *   const { ref, ready } = useLazyScene<HTMLDivElement>({
- *     rootMargin: "300px", // Mount when element is within 300px of viewport
- *     requireIdle: true,   // Wait for main thread idle slot
- *     deferWhileLow: true  // Defer if frame rate is currently dropping
- *   });
- * 
- *   return (
- *     <div ref={ref} className="canvas-placeholder">
- *       {ready ? <HeavyWebGLCanvas /> : <div className="spinner">Loading...</div>}
- *     </div>
- *   );
- * }
+ * const { ref, ready } = useLazyScene<HTMLDivElement>({ cost: "heavy" });
+ *
+ * return <div ref={ref}>{ready ? <Scene /> : <Poster />}</div>;
  * ```
  *
- * @param {UseLazySceneOptions} [options={}] Configuration options for layout, idle, and performance budget gates.
- * @returns {{ ref: RefObject<T | null>; ready: boolean }} A ref to attach to the placeholder element, and a boolean `ready` indicating if the heavy scene should mount.
+ * It waits for the element to come near the viewport, then for whatever else
+ * the `cost` asks for. Once it is ready it stays ready — tearing a scene down
+ * and rebuilding it on the way back up costs far more than leaving it running.
+ *
+ * It also holds off while the visitor is actively scrolling, whatever the cost,
+ * because mounting mid-scroll is what a reader feels as a stutter.
  */
 export function useLazyScene<T extends HTMLElement = HTMLDivElement>(
   options: UseLazySceneOptions = {},
@@ -124,7 +109,7 @@ export function useLazyScene<T extends HTMLElement = HTMLDivElement>(
         }
 
         // 2. Budget-safety: Check performance budget if enabled
-        if (!initial.deferWhileLow) return proceed();
+        if (initial.cost !== "heavy") return proceed();
         const budget = getAnimationBudget();
         if (budget.state.tier < 2) return proceed();
         
@@ -147,7 +132,8 @@ export function useLazyScene<T extends HTMLElement = HTMLDivElement>(
 
     const startWaiting = () => {
       stopWaiting(); // Clean up any existing active timers
-      if (initial.requireIdle !== false && "requestIdleCallback" in window) {
+      const wantsIdle = (initial.cost ?? "normal") !== "light";
+      if (wantsIdle && "requestIdleCallback" in window) {
         idleHandle = window.requestIdleCallback(gateOnBudget, { timeout: 1500 });
       } else {
         timeoutId = setTimeout(gateOnBudget, 0);
@@ -163,7 +149,7 @@ export function useLazyScene<T extends HTMLElement = HTMLDivElement>(
           stopWaiting();
         }
       },
-      { rootMargin: initial.rootMargin ?? "200px" },
+      { rootMargin: `${initial.preload ?? 200}px` },
     );
     io.observe(el);
 

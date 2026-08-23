@@ -4,11 +4,14 @@ import { useEffect, useRef, type RefObject } from "react";
 import { getConductor } from "../core/conductor";
 
 export interface UseNumberTickerOptions {
-  /** 
-   * Damping responsiveness. Higher values mean a faster, snappier arrival.
-   * Default is 6 (a smooth, dignified deceleration). 
+  /**
+   * How quickly the number reaches its target. Higher arrives sooner.
+   * Default 6, which reads as a smooth deceleration.
+   *
+   * Not a duration: the value chases its target rather than running a fixed
+   * timeline, which is what lets it retarget mid-flight without restarting.
    */
-  k?: number;
+  speed?: number;
   /** 
    * Intl.NumberFormat options to style currencies, percentages, decimals, etc.
    */
@@ -62,7 +65,7 @@ export function useNumberTicker<T extends HTMLElement = HTMLSpanElement>(
   const ref = useRef<T>(null);
   const currentRef = useRef(0);
   const targetRef = useRef(value);
-  const kRef = useRef(options.k ?? 6);
+  const speedRef = useRef(options.speed ?? 6);
   
   // Cache formatter options and strings to avoid recreation inside the tick loop
   const formatterRef = useRef<Intl.NumberFormat | null>(null);
@@ -70,7 +73,7 @@ export function useNumberTicker<T extends HTMLElement = HTMLSpanElement>(
   const suffixRef = useRef(options.suffix ?? "");
 
   useEffect(() => {
-    kRef.current = options.k ?? 6;
+    speedRef.current = options.speed ?? 6;
     prefixRef.current = options.prefix ?? "";
     suffixRef.current = options.suffix ?? "";
     formatterRef.current = new Intl.NumberFormat(options.locale, options.format);
@@ -104,7 +107,7 @@ export function useNumberTicker<T extends HTMLElement = HTMLSpanElement>(
       const current = currentRef.current;
 
       // Exponential damping
-      let next = current + (target - current) * (1 - Math.exp(-kRef.current * dt));
+      let next = current + (target - current) * (1 - Math.exp(-speedRef.current * dt));
 
       // Snapping threshold: if close enough, snap to target and stop ticking
       if (Math.abs(target - next) < 0.01) {

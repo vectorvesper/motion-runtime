@@ -52,7 +52,7 @@ export interface UseVideoScrubberReturn<TTrack extends HTMLElement> {
  * export function ScrollScrubVideo() {
  *   const { videoRef, trackRef, progressRef } = useVideoScrubber<HTMLDivElement>({
  *     driver: "scroll",
- *     smooth: 10,       // Damping factor (higher = smoother, 0 = instant)
+ *     speed: 10,        // How fast it catches up; 0 is instant
  *     mapping: "pin",   // Pin the video viewport while scrubbing
  *   });
  * 
@@ -106,10 +106,10 @@ export function useVideoScrubber<TTrack extends HTMLElement = HTMLDivElement>(
     };
   }, [initial]);
 
-  const { smooth, mapping, pointerAxis } = options;
+  const { speed, mapping, pointerAxis } = options;
   useEffect(() => {
-    scrubberRef.current?.update({ smooth, mapping, pointerAxis });
-  }, [smooth, mapping, pointerAxis]);
+    scrubberRef.current?.update({ speed, mapping, pointerAxis });
+  }, [speed, mapping, pointerAxis]);
 
   return { videoRef, trackRef, progressRef, scrubberRef };
 }

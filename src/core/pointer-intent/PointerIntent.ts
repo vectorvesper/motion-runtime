@@ -13,30 +13,51 @@ import { damp, rayRectIntersect } from "../math";
  * begin the magnetic pull — 100–300ms before the cursor lands.
  */
 
+/**
+ * How eager the prediction is.
+ *
+ * This replaced five separate numbers — look-ahead horizon, rect inflation, a
+ * minimum pointer speed, and a pair of confidence thresholds for gaining and
+ * losing intent. The last two are hysteresis: correct to have, impossible to
+ * pick by hand, and meaningless in isolation.
+ */
+export type PointerIntentSensitivity = "low" | "normal" | "high";
+
 export interface PointerIntentOptions {
-  /** Look-ahead horizon in seconds. Default 0.5. */
-  horizon?: number;
-  /** Rect inflation in px — how generous the target is. Default 12. */
-  extend?: number;
-  /** Below this pointer speed (px/s) prediction is off; hover still counts. Default 80. */
-  minSpeed?: number;
-  /** Confidence needed to gain intent. Default 0.35. */
-  enter?: number;
-  /** Confidence below which intent is lost. Default 0.18. */
-  exit?: number;
-  /** If true, bypasses rect caching and re-measures the element frame-accurately whenever approached. Use for translating/animating elements. Default false. */
+  /**
+   * How readily the pointer is judged to be heading here. Default `"normal"`.
+   *
+   * - `"low"` — only a clear, committed approach counts
+   * - `"normal"` — a good default for a link or a card
+   * - `"high"` — fires early and more often, for something cheap to prepare
+   */
+  sensitivity?: PointerIntentSensitivity;
+  /**
+   * Re-measure the element every frame instead of caching its position. Needed
+   * only when the element itself moves — a carousel, something being animated.
+   * Default false.
+   */
   dynamic?: boolean;
 }
 
-const DEFAULTS: Required<PointerIntentOptions> = {
-  horizon: 0.5,
-  extend: 12,
-  minSpeed: 80,
-  enter: 0.35,
-  exit: 0.18,
-  dynamic: false,
+interface Tuning {
+  horizon: number;
+  extend: number;
+  minSpeed: number;
+  enter: number;
+  exit: number;
+}
+
+const SENSITIVITY: Record<PointerIntentSensitivity, Tuning> = {
+  low: { horizon: 0.3, extend: 8, minSpeed: 120, enter: 0.5, exit: 0.3 },
+  normal: { horizon: 0.5, extend: 12, minSpeed: 80, enter: 0.35, exit: 0.18 },
+  high: { horizon: 0.8, extend: 20, minSpeed: 50, enter: 0.25, exit: 0.12 },
 };
 
+const DEFAULTS: Required<PointerIntentOptions> = {
+  sensitivity: "normal",
+  dynamic: false,
+};
 // How fast confidence chases its target each frame (higher = snappier).
 const CONFIDENCE_DAMP = 10;
 
@@ -50,6 +71,7 @@ export class PointerIntent {
   readonly el: HTMLElement;
 
   private opts: Required<PointerIntentOptions>;
+  private tuning: Tuning;
   private onChange?: (intent: boolean) => void;
   private confidenceValue = 0;
   private intentValue = false;
@@ -70,6 +92,7 @@ export class PointerIntent {
   ) {
     this.el = el;
     this.opts = { ...DEFAULTS, ...options };
+    this.tuning = SENSITIVITY[this.opts.sensitivity];
     this.onChange = onChange;
     this.releaseBus = getSensorBus().retain();
     // Update lane: runs after the bus's input-lane derivative pass.
@@ -95,14 +118,14 @@ export class PointerIntent {
   update(options: PointerIntentOptions): void {
     // Merge only the fields that are actually set. The React adapter spreads
     // possibly-undefined props whenever any option changes; a naive spread
-    // would clobber the unspecified ones back to undefined and quietly break
-    // horizon and the enter/exit hysteresis.
+    // would clobber the unspecified ones back to undefined.
     for (const key of Object.keys(options) as (keyof PointerIntentOptions)[]) {
       const value = options[key];
       if (value !== undefined) {
-        (this.opts as any)[key] = value;
+        (this.opts as Record<string, unknown>)[key] = value;
       }
     }
+    this.tuning = SENSITIVITY[this.opts.sensitivity];
   }
 
   destroy(): void {
@@ -112,7 +135,7 @@ export class PointerIntent {
 
   private measureRect(time: number): void {
     const r = this.el.getBoundingClientRect();
-    const e = this.opts.extend;
+    const e = this.tuning.extend;
     this.cachedRect = {
       left: r.left - e,
       top: r.top - e,
@@ -155,10 +178,10 @@ export class PointerIntent {
 
       if (inside) {
         target = 1;
-      } else if (pointer.speed > this.opts.minSpeed) {
+      } else if (pointer.speed > this.tuning.minSpeed) {
         const tHit = rayRectIntersect(pointer.x, pointer.y, pointer.vx, pointer.vy, rect);
-        if (tHit !== null && tHit <= this.opts.horizon) {
-          target = Math.max(0.2, 1 - tHit / this.opts.horizon);
+        if (tHit !== null && tHit <= this.tuning.horizon) {
+          target = Math.max(0.2, 1 - tHit / this.tuning.horizon);
         }
       }
     }
@@ -166,8 +189,8 @@ export class PointerIntent {
     this.confidenceValue = damp(this.confidenceValue, target, CONFIDENCE_DAMP, dt);
 
     const next = this.intentValue
-      ? this.confidenceValue > this.opts.exit
-      : this.confidenceValue > this.opts.enter;
+      ? this.confidenceValue > this.tuning.exit
+      : this.confidenceValue > this.tuning.enter;
     if (next !== this.intentValue) {
       this.intentValue = next;
       this.onChange?.(next);

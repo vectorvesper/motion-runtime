@@ -39,20 +39,20 @@ export interface MagneticOptions {
   strength?: number;
   /** Distance (px from center) where proximity pull begins. Default 90. */
   reach?: number;
-  /** Damping responsiveness. Default 12. */
-  damp?: number;
+  /** How quickly the element follows the pointer. Higher is snappier. Default 12. */
+  speed?: number;
   /** Scale at full engagement (1 = off). Default 1.04. */
   scale?: number;
-  /** Use PointerIntent for pre-attraction. Default true. */
-  intent?: boolean;
+  /** Start reaching while the pointer is still approaching. Default true. */
+  anticipate?: boolean;
 }
 
 const DEFAULTS: Required<MagneticOptions> = {
   strength: 12,
   reach: 90,
-  damp: 12,
+  speed: 12,
   scale: 1.04,
-  intent: true,
+  anticipate: true,
 };
 
 // Re-measure at least this often even when scroll and viewport look
@@ -87,9 +87,7 @@ export class MagneticElement {
     this.el = el;
     this.opts = { ...DEFAULTS, ...options };
     this.prevTransform = el.style.transform;
-    if (this.opts.intent) {
-      this.intentInst = new PointerIntent(el, { extend: this.opts.reach * 0.5, dynamic: true });
-    }
+    this.syncAnticipation();
     this.releaseBus = getSensorBus().retain();
     // Input lane: every layout read on the page happens here, before anything
     // writes. Essential — a stale anchor makes the element pull toward the
@@ -125,6 +123,32 @@ export class MagneticElement {
         (this.opts as Record<string, unknown>)[key] = value;
       }
     }
+    this.syncAnticipation();
+  }
+
+  /**
+   * Build or tear down the approach detector to match `anticipate`.
+   *
+   * Called from `update` as well as the constructor: this used to be read only
+   * at construction, so turning anticipation on or off after mount silently
+   * did nothing.
+   *
+   * Sensitivity is derived from `reach` rather than passed through. A wider
+   * magnetic field should start reaching from further out, and the detector no
+   * longer takes a raw pixel inflation — it takes a band.
+   */
+  private syncAnticipation(): void {
+    if (!this.opts.anticipate) {
+      this.intentInst?.destroy();
+      this.intentInst = null;
+      return;
+    }
+    const sensitivity = this.opts.reach >= 120 ? "high" : "normal";
+    if (this.intentInst) {
+      this.intentInst.update({ sensitivity });
+      return;
+    }
+    this.intentInst = new PointerIntent(this.el, { sensitivity, dynamic: true });
   }
 
   destroy(): void {
@@ -189,9 +213,9 @@ export class MagneticElement {
       }
     }
 
-    this.ox = damp(this.ox, targetX, this.opts.damp, dt);
-    this.oy = damp(this.oy, targetY, this.opts.damp, dt);
-    this.engagement = damp(this.engagement, targetEngagement, this.opts.damp, dt);
+    this.ox = damp(this.ox, targetX, this.opts.speed, dt);
+    this.oy = damp(this.oy, targetY, this.opts.speed, dt);
+    this.engagement = damp(this.engagement, targetEngagement, this.opts.speed, dt);
 
     const s = 1 + (this.opts.scale - 1) * this.engagement;
     this.el.style.transform =

@@ -82,7 +82,10 @@ export {
 // ── Option types ────────────────────────────────────────────────────
 // The classes these configure are internal; the option shapes are public so
 // the React hooks that wrap them can be typed against a named contract.
-export type { PointerIntentOptions } from "./core/pointer-intent/PointerIntent";
+export type {
+  PointerIntentOptions,
+  PointerIntentSensitivity,
+} from "./core/pointer-intent/PointerIntent";
 export type { MagneticOptions } from "./core/magnetic/MagneticElement";
 export type {
   VideoScrubberOptions,
