@@ -12,8 +12,10 @@ import { render, cleanup } from "@testing-library/react";
  * mock can answer honestly.
  */
 
+const canvas = document.createElement("canvas");
+
 const store = {
-  gl: { shadowMap: { enabled: true, needsUpdate: false } },
+  gl: { domElement: canvas, shadowMap: { enabled: true, needsUpdate: false } },
   setDpr: vi.fn(),
   setFrameloop: vi.fn(),
   invalidate: vi.fn(),
@@ -111,5 +113,59 @@ describe("useRenderQuality — the profile", () => {
     view.unmount();
     // The scene borrowed the renderer; it has to give it back as it found it.
     expect(store.gl.shadowMap.enabled).toBe(true);
+  });
+});
+
+
+describe("useRenderQuality — a lost graphics context", () => {
+  async function health() {
+    const mod = await import("../core/renderer-health/RendererHealth");
+    return mod.getRendererHealth();
+  }
+
+  it("calls preventDefault, or no replacement context is possible", async () => {
+    await mount("active");
+
+    const event = new Event("webglcontextlost", { cancelable: true });
+    canvas.dispatchEvent(event);
+
+    // Without this the browser will not attempt a restore, and some drivers
+    // then refuse a new context on the page at all.
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("reports the loss so something outside the canvas can react", async () => {
+    const h = await health();
+    const before = h.state.generation;
+
+    await mount("active");
+    canvas.dispatchEvent(new Event("webglcontextlost", { cancelable: true }));
+
+    expect(h.state.lost).toBe(true);
+    expect(h.state.generation).toBe(before + 1);
+  });
+
+  it("reports healthy when a replacement mounts", async () => {
+    const h = await health();
+    await mount("active");
+    canvas.dispatchEvent(new Event("webglcontextlost", { cancelable: true }));
+    expect(h.state.lost).toBe(true);
+
+    cleanup();
+    // The remount under a new key is the recovery. A renderer mounting at all
+    // means a working context.
+    await mount("active");
+    expect(h.state.lost).toBe(false);
+  });
+
+  it("stops listening on unmount", async () => {
+    const h = await health();
+    const view = await mount("active");
+    view.unmount();
+
+    const before = h.state.generation;
+    canvas.dispatchEvent(new Event("webglcontextlost", { cancelable: true }));
+
+    expect(h.state.generation).toBe(before);
   });
 });

@@ -87,6 +87,8 @@ export type {
   PointerIntentSensitivity,
 } from "./core/pointer-intent/PointerIntent";
 export { getFramePressure } from "./core/frame-pressure/FramePressure";
+export { getRendererHealth } from "./core/renderer-health/RendererHealth";
+export type { RendererHealthState } from "./core/renderer-health/RendererHealth";
 export type {
   PressureState,
   PressureSource,

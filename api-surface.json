@@ -9,6 +9,7 @@
       "getAnimationBudget",
       "getConductor",
       "getFramePressure",
+      "getRendererHealth",
       "getSensorBus",
       "rayRectIntersect"
     ],
@@ -28,6 +29,7 @@
       "PressureSource",
       "PressureState",
       "RectLike",
+      "RendererHealthState",
       "ScrollSensor",
       "ScrubDriver",
       "ScrubMapping",
@@ -359,10 +361,27 @@
         ],
         "returns": "number | null"
       },
+      "RendererHealthState": {
+        "kind": "object",
+        "isType": true,
+        "heritage": "",
+        "members": [
+          "generation: number",
+          "lastLostAt: number | null",
+          "lost: boolean"
+        ]
+      },
       "VERSION": {
         "kind": "value",
         "isType": false,
         "type": "string"
+      },
+      "getRendererHealth": {
+        "kind": "function",
+        "isType": false,
+        "generics": [],
+        "params": [],
+        "returns": "RendererHealth"
       }
     }
   },
@@ -417,6 +436,7 @@
         "isType": true,
         "heritage": "",
         "members": [
+          "generation: number",
           "mounted: boolean",
           "quality: \"full\" | \"reduced\"",
           "reason: string",
@@ -427,7 +447,7 @@
       "SceneState": {
         "kind": "alias",
         "isType": true,
-        "type": "\"dormant\" | \"warming\" | \"active\" | \"constrained\" | \"idle\" | \"poster\""
+        "type": "\"dormant\" | \"warming\" | \"active\" | \"constrained\" | \"idle\" | \"recovering\" | \"poster\""
       },
       "UseSafeToMountOptions": {
         "kind": "object",

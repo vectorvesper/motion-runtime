@@ -19,6 +19,7 @@ const base = {
   reducedMotion: false,
   pressure: "none",
   confidence: 1,
+  contextLost: false,
 };
 
 describe("scene gate — before it can run at all", () => {
@@ -63,6 +64,39 @@ describe("scene gate — surviving a scroll", () => {
     const out = decide({ ...base, near: false, ready: false });
     expect(out.state).not.toBe("dormant");
     expect(out.state).not.toBe("warming");
+  });
+});
+
+describe("scene gate — a lost graphics context", () => {
+  it("reports recovering when the context is taken away", () => {
+    const out = decide({ ...base, contextLost: true });
+
+    expect(out.state).toBe("recovering");
+    expect(out.reason).toMatch(/graphics context/);
+  });
+
+  it("outranks a quality problem", () => {
+    // No point reducing detail on a canvas that is not drawing anything.
+    const out = decide({
+      ...base, contextLost: true, tier: 1, pressure: "render", confidence: 1,
+    });
+
+    expect(out.state).toBe("recovering");
+  });
+
+  it("ignores a loss elsewhere on a scene that never started", () => {
+    // A driver reset reports page-wide. A scene still below the fold has no
+    // context to have lost.
+    const out = decide({ ...base, started: false, near: false, contextLost: true });
+
+    expect(out.state).toBe("dormant");
+  });
+
+  it("still shows a poster under reduced motion", () => {
+    const out = decide({ ...base, contextLost: true, reducedMotion: true });
+
+    // Rebuilding something that is never going to run is wasted work.
+    expect(out.state).toBe("poster");
   });
 });
 

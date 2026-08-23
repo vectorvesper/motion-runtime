@@ -6,14 +6,9 @@ import { useFramePressure } from "./useFramePressure";
 import { useSafeToMount, type MountCost } from "./useSafeToMount";
 import { getConductor } from "../core/conductor";
 import { getSensorBus } from "../core/sensor-bus/SensorBus";
+import { getRendererHealth } from "../core/renderer-health/RendererHealth";
 
-/**
- * Where a heavy scene is in its life.
- *
- * There is deliberately no `"recovering"` state yet. Nothing can enter it
- * until WebGL context-loss handling exists, and a state nobody can reach is a
- * branch a reader has to write dead code for.
- */
+/** Where a heavy scene is in its life. */
 export type SceneState =
   /** Too far from the viewport to be worth existing. */
   | "dormant"
@@ -31,6 +26,13 @@ export type SceneState =
    * paused, so once a scene has started it never returns to `dormant`.
    */
   | "idle"
+  /**
+   * The graphics context was taken away and a replacement is being built.
+   *
+   * Still `mounted` — the rebuild happens by remounting the canvas under a new
+   * `generation`, so hiding it here would prevent the very thing that fixes it.
+   */
+  | "recovering"
   /** Not running at all. Show a still image instead. */
   | "poster";
 
@@ -55,6 +57,12 @@ export interface SceneGate<T extends HTMLElement> {
   mounted: boolean;
   /** How much scene to build. Only meaningful while `mounted`. */
   quality: "full" | "reduced";
+  /**
+   * Put this on the `<Canvas key>`. It changes when the graphics context is
+   * lost, which is what makes React throw away the dead tree and build a
+   * working one — the rebuild React is already good at.
+   */
+  generation: number;
   /**
    * Why it is in this state, in a sentence. Written for a support thread and
    * a devtools row, not for a machine — do not branch on it.
@@ -162,6 +170,9 @@ export function useSceneGate<T extends HTMLElement = HTMLDivElement>({
   const quality = useAdaptiveQuality();
   const pressure = useFramePressure();
 
+  const [health, setHealth] = useState(() => getRendererHealth().state);
+  useEffect(() => getRendererHealth().subscribe(setHealth), []);
+
   // Once quality drops, hold it down for a moment. Every input here already
   // has its own smoothing, but they can still disagree frame to frame, and a
   // scene that rebuilds its detail level twice a second is worse than one that
@@ -178,6 +189,7 @@ export function useSceneGate<T extends HTMLElement = HTMLDivElement>({
     deviceTier: quality.deviceTier,
     pressure: pressure.source,
     confidence: pressure.confidence,
+    contextLost: health.lost,
   });
 
   let state = verdict.state;
@@ -205,7 +217,12 @@ export function useSceneGate<T extends HTMLElement = HTMLDivElement>({
   return {
     ref,
     state,
-    mounted: state === "active" || state === "constrained" || state === "idle",
+    mounted:
+      state === "active" ||
+      state === "constrained" ||
+      state === "idle" ||
+      state === "recovering",
+    generation: health.generation,
     quality: state === "active" ? "full" : "reduced",
     reason: label ? `${label}: ${reason}` : reason,
   };
@@ -230,6 +247,8 @@ interface Inputs {
   ready: boolean;
   /** Has this scene ever been allowed to run? */
   started: boolean;
+  /** Has the graphics context been taken away? */
+  contextLost: boolean;
   tier: 0 | 1 | 2;
   deviceTier: 0 | 1 | 2;
   reducedMotion: boolean;
@@ -246,6 +265,13 @@ export function decide(i: Inputs): { state: SceneState; reason: string } {
   }
   if (i.deviceTier === 2) {
     return { state: "poster", reason: "this device cannot render it smoothly" };
+  }
+
+  // A dead context outranks everything except never running at all. It is also
+  // only meaningful for a scene that has actually started — a context lost
+  // elsewhere on the page says nothing about one that was never built.
+  if (i.started && i.contextLost) {
+    return { state: "recovering", reason: "the graphics context was lost, rebuilding" };
   }
 
   if (!i.started) {

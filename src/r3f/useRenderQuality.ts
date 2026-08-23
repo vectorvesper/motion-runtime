@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useThree } from "@react-three/fiber";
 import type { SceneState } from "../react/useSceneGate";
+import { getRendererHealth } from "../core/renderer-health/RendererHealth";
 
 /**
  * Renderer settings for one quality level.
@@ -52,7 +53,7 @@ export interface RenderProfiles {
  * </div>
  * ```
  *
- * Two jobs.
+ * Three jobs.
  *
  * **It applies the profile.** Pixel ratio and shadows follow the state, live,
  * without rebuilding the scene.
@@ -62,6 +63,13 @@ export interface RenderProfiles {
  * frame for nobody. On `"idle"` the loop is set to `"never"` and the context,
  * the textures and the geometry all stay exactly where they were — coming back
  * into view is instant, where a remount would pay for the whole upload again.
+ *
+ * **It notices when the graphics context dies.** A browser can take a WebGL
+ * context away at any time, and R3F has no handler for it — verified against
+ * 9.6.1, there is nothing in the bundle. What you get is a permanently black
+ * canvas and a clean console. This calls `preventDefault()` so a replacement
+ * context is possible at all, and reports the loss so the scene gate can hand
+ * back a new `generation` for the `<Canvas key>`.
  *
  * ## Why this is a separate import
  *
@@ -102,6 +110,25 @@ export function useRenderQuality(
       invalidate();
     }
   }, [state, running, setFrameloop, invalidate]);
+
+  // The context can go at any moment: a driver reset, a phone backgrounding
+  // the tab, too many live contexts. Without preventDefault the browser will
+  // not attempt a restore, and some drivers then refuse a new context on the
+  // page at all — so this runs whatever the scene's state is.
+  useEffect(() => {
+    const canvas = gl.domElement;
+    const onLost = (event: Event) => {
+      event.preventDefault();
+      getRendererHealth().reportLost();
+    };
+    canvas.addEventListener("webglcontextlost", onLost);
+
+    // Mounting at all means a working context. After a loss this is the
+    // replacement announcing itself, which is what ends the recovery.
+    getRendererHealth().reportHealthy();
+
+    return () => canvas.removeEventListener("webglcontextlost", onLost);
+  }, [gl]);
 
   useEffect(() => {
     if (!running || dpr === undefined) return;
