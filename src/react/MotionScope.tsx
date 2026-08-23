@@ -53,6 +53,25 @@ export interface MotionScopeProps {
  * This is the reason to prefer it over passing `scope` by hand — a name typed
  * in two places can disagree, and a scope that never matches fails silently
  * rather than loudly.
+ *
+ * ## How the lease tracks a drag
+ *
+ * Three details, all of which exist because the obvious version got them wrong:
+ *
+ * - **Pointer down is caught in the capture phase**, on the DOM node rather
+ *   than through a React prop. Drag code very often calls `stopPropagation()`
+ *   on pointerdown so an outer handler does not also react to the press. A
+ *   bubble-phase listener never runs when that happens, so the scope would
+ *   silently do nothing in the exact case it is for.
+ * - **The end of the drag is watched on `window`, not on the region.** A drag
+ *   routinely travels outside the element it started in, and that is still the
+ *   same drag. Releasing on pointer leave demotes the region at the moment the
+ *   user is dragging it.
+ * - **The lease is held until the last pointer lifts.** Pointers are counted by
+ *   id, so lifting a second finger does not end a one-finger drag.
+ *
+ * Pointer capture is deliberately not used here. Calling `setPointerCapture` on
+ * this wrapper would fight any child that captures the pointer for its own drag.
  */
 export function MotionScope({
   name,
@@ -62,35 +81,63 @@ export function MotionScope({
   style,
   children,
 }: MotionScopeProps): React.JSX.Element {
+  const hostRef = useRef<HTMLElement | null>(null);
   const releaseRef = useRef<(() => void) | null>(null);
+  const pointersRef = useRef<Set<number>>(new Set());
 
-  const claim = () => {
-    if (releaseRef.current) return; // already holding; claims must not stack
-    releaseRef.current = getConductor().claimScope(name);
-  };
-  const release = () => {
-    releaseRef.current?.();
-    releaseRef.current = null;
-  };
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!claimOnPointer || !host) return;
 
-  // A region unmounted mid-drag must not leave the rest of the page demoted.
-  useEffect(() => () => {
-    releaseRef.current?.();
-    releaseRef.current = null;
-  }, []);
+    const pointers = pointersRef.current;
 
-  const pointerProps = claimOnPointer
-    ? {
-        onPointerDown: claim,
-        onPointerUp: release,
-        onPointerCancel: release,
-        onPointerLeave: release,
-      }
-    : {};
+    const stopWatching = () => {
+      window.removeEventListener("pointerup", onPointerEnd, true);
+      window.removeEventListener("pointercancel", onPointerEnd, true);
+    };
+
+    const releaseNow = () => {
+      releaseRef.current?.();
+      releaseRef.current = null;
+      pointers.clear();
+      stopWatching();
+    };
+
+    function onPointerEnd(event: PointerEvent) {
+      if (!pointers.delete(event.pointerId)) return;
+      if (pointers.size > 0) return; // another finger is still down
+      releaseRef.current?.();
+      releaseRef.current = null;
+      stopWatching();
+    }
+
+    function onPointerDown(event: PointerEvent) {
+      const wasIdle = pointers.size === 0;
+      pointers.add(event.pointerId);
+      if (!wasIdle) return; // already holding; claims must not stack
+      releaseRef.current = getConductor().claimScope(name);
+      window.addEventListener("pointerup", onPointerEnd, true);
+      window.addEventListener("pointercancel", onPointerEnd, true);
+    }
+
+    host.addEventListener("pointerdown", onPointerDown, true);
+
+    // A region unmounted mid-drag must not leave the rest of the page demoted.
+    return () => {
+      host.removeEventListener("pointerdown", onPointerDown, true);
+      releaseNow();
+    };
+    // Tag is in the deps because changing it swaps the host element, and the
+    // listener has to move with it.
+  }, [claimOnPointer, name, Tag]);
 
   return (
     <ScopeContext.Provider value={name}>
-      <Tag className={className} style={style} {...pointerProps}>
+      <Tag
+        ref={hostRef as React.Ref<HTMLDivElement>}
+        className={className}
+        style={style}
+      >
         {children}
       </Tag>
     </ScopeContext.Provider>
