@@ -169,7 +169,15 @@ export class PressurePolicy {
   private longTasks = 0;
   private sinceEmit = 0;
   private source: PressureSource = "none";
-  private confidence = 0;
+  /**
+   * Starts at 1, matching what `classify()` reports for a healthy page.
+   *
+   * `confidence` describes how sure we are of the named cause. When the source
+   * is `"none"` there is no cause to be unsure about, so hedging it would make
+   * the same verdict mean two different things depending on whether a frame
+   * had been measured yet.
+   */
+  private confidence = 1;
 
   get state(): PressureState {
     const other = this.mainOther();
@@ -215,7 +223,7 @@ export class PressurePolicy {
     this.longTasks = 0;
     this.sinceEmit = 0;
     this.source = "none";
-    this.confidence = 0;
+    this.confidence = 1;
   }
 
   /** Feed one frame. Returns a state when it is worth emitting, else null. */

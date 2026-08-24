@@ -238,6 +238,18 @@ describe("PressurePolicy — housekeeping", () => {
     expect(emitted!.source).toBe("render");
   });
 
+  it("reports the same confidence for a healthy page before and after measuring", () => {
+    const fresh = new PressurePolicy();
+    const measured = run(new PressurePolicy(), { frameMs: BUDGET, runtimeMs: 1 });
+
+    // The same verdict must not mean two different things depending on whether
+    // a frame has been seen yet. There is no cause to be unsure about when
+    // there is no cause.
+    expect(fresh.state.source).toBe("none");
+    expect(measured!.source).toBe("none");
+    expect(fresh.state.confidence).toBe(measured!.confidence);
+  });
+
   it("clears its verdict on reset", () => {
     const p = new PressurePolicy();
     run(p, { frameMs: 40, ...otherAfter(1, 30) });
