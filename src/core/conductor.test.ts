@@ -90,4 +90,24 @@ describe("FrameConductor", () => {
     crank(16);
     expect(fn).toHaveBeenCalledTimes(1);
   });
+
+  it("does not carry frame debt across a stop", async () => {
+    const conductor = await freshConductor();
+
+    // Overload the loop so it builds up carried overrun.
+    const off = conductor.subscribe("render", () => {}, { priority: "decorative" });
+    crank(16);
+    for (let i = 1; i <= 20; i++) crank(16 + i * 60); // 60ms frames: deep debt
+    expect(conductor.getStats().carriedOverrunMs).toBeGreaterThan(0);
+
+    // Everything unmounts. The loop stops, so the debt cannot decay — it is
+    // frozen at whatever the worst moment was.
+    off();
+
+    // Something new mounts later. It must not inherit a grudge from a page
+    // state that no longer exists: the first frames would be shed for a reason
+    // that stopped being true, which reads as motion glitching for nothing.
+    conductor.subscribe("render", () => {});
+    expect(conductor.getStats().carriedOverrunMs).toBe(0);
+  });
 });

@@ -84,7 +84,10 @@ function row(label, s) {
 async function main() {
   const server = await serve({
     port: PORT,
-    routes: { "/": path.join(DIR, "page.html") },
+    routes: {
+      "/": path.join(DIR, "page.html"),
+      "/scenarios.mjs": path.join(DIR, "scenarios.mjs"),
+    },
     mounts: { "/dist/": path.join(PKG, "dist") },
   });
 

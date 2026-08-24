@@ -49,7 +49,7 @@ export function findChrome() {
  * `routes` maps a pathname to an absolute file. `mounts` maps a path prefix to
  * a directory.
  */
-export function serve({ port, routes = {}, mounts = {} }) {
+export function serve({ port, host = "127.0.0.1", routes = {}, mounts = {} }) {
   const server = createServer(async (req, res) => {
     try {
       const { pathname } = new URL(req.url, "http://localhost");
@@ -76,7 +76,7 @@ export function serve({ port, routes = {}, mounts = {} }) {
       res.writeHead(404).end("not found");
     }
   });
-  return new Promise((resolve) => server.listen(port, "127.0.0.1", () => resolve(server)));
+  return new Promise((resolve) => server.listen(port, host, () => resolve(server)));
 }
 
 /** Poll a URL until it answers, rather than sleeping a fixed guess. */

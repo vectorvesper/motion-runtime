@@ -493,6 +493,18 @@ class FrameConductor {
     if (this.rafId === null) return;
     cancelAnimationFrame(this.rafId);
     this.rafId = null;
+
+    // Everything describing the recent past stops being true the moment the
+    // loop stops, because a stopped loop has no recent past — and unlike a
+    // running one it cannot decay these back down.
+    //
+    // Left alone, a page that struggled, unmounted everything, and later
+    // mounted something new would hand the new work a full frame of inherited
+    // debt and shed it from the very first frame. That looks like motion
+    // glitching for no reason, and the reason stopped existing a while ago.
+    this.overrunEma = 0;
+    this.preRuntimeEma = 0;
+    this.shedLastFrame = 0;
   }
 
   private report(error: unknown, sub: Subscriber): void {

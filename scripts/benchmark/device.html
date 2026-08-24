@@ -1,0 +1,203 @@
+<!doctype html>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>VV device test</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #0d0d10; color: #e8e8ec;
+    font: 15px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+    padding: 16px 16px 64px; -webkit-text-size-adjust: 100%;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .sub { color: #8b8b95; font-size: 13px; margin-bottom: 20px; }
+  button {
+    font: inherit; font-size: 16px; width: 100%; padding: 16px;
+    margin-bottom: 10px; border-radius: 10px; border: 1px solid #33333c;
+    background: #1a1a20; color: #e8e8ec; -webkit-tap-highlight-color: transparent;
+  }
+  button:disabled { opacity: .45; }
+  button.primary { background: #7EACB5; color: #06131a; border-color: #7EACB5; font-weight: 700; }
+  #stage { position: relative; height: 240px; margin: 14px 0; overflow: hidden;
+           border: 1px solid #23232b; border-radius: 10px; }
+  .dot { position: absolute; width: 18px; height: 18px; border-radius: 50%;
+         background: linear-gradient(140deg, #7EACB5, #2b4d55); will-change: transform; }
+  .dot.lead { background: linear-gradient(140deg, #ffd479, #b07d21); width: 30px; height: 30px; }
+  pre { background: #15151a; border: 1px solid #23232b; border-radius: 10px;
+        padding: 12px; overflow-x: auto; font-size: 12.5px; white-space: pre; }
+  .status { color: #ffd479; min-height: 22px; margin: 8px 0; font-size: 13px; }
+  .note { color: #8b8b95; font-size: 12.5px; margin-top: 24px; }
+</style>
+
+<h1>Vector Vesper — device test</h1>
+<div class="sub">Runs the same benchmark the desktop harness runs. Keep this tab in the foreground the whole time, or the browser pauses animation and every number becomes meaningless.</div>
+
+<button id="run" class="primary">Run benchmark (~40s)</button>
+<button id="therm">Run thermal test (3 min)</button>
+<button id="copy" disabled>Copy results</button>
+
+<div class="status" id="status"></div>
+<div id="stage"></div>
+<pre id="out">Loading…</pre>
+
+<div class="note">
+The thermal test is the one a desktop cannot fake. A phone GPU is usually fine
+for twenty or thirty seconds and then is not. If the frame rate sags while the
+tier stays at 0, the device floor is not doing its job — which is worth knowing
+before anyone calls this production-ready.
+</div>
+
+<script type="module">
+  import { SCENARIOS, run, thermal, deviceInfo, setStage } from "./scenarios.mjs";
+
+  const $ = (id) => document.getElementById(id);
+  setStage($("stage"));
+
+  const status = (m) => { $("status").textContent = m; };
+  let results = null;
+
+  const pct = (v, p) => {
+    if (!v.length) return 0;
+    const s = [...v].sort((a, b) => a - b);
+    return s[Math.min(s.length - 1, Math.floor((p / 100) * s.length))];
+  };
+  const avg = (v) => (v.length ? v.reduce((a, b) => a + b, 0) / v.length : 0);
+
+  const info = deviceInfo();
+  $("out").textContent = render({ device: info });
+
+  function render(r) {
+    const lines = [];
+    const d = r.device;
+    lines.push("DEVICE");
+    lines.push(`  gpu       ${d.renderer}`);
+    lines.push(`  cores     ${d.cores ?? "?"}   memory ${d.memory ?? "?"}GB   dpr ${d.dpr}`);
+    lines.push(`  screen    ${d.screen}   display ${d.displayHz}Hz`);
+    lines.push(`  tier      ${d.tier} (device floor ${d.deviceTier})`);
+    lines.push(`  because   ${d.reasons.join(", ")}`);
+    lines.push(`  reduced   ${d.reducedMotion}`);
+
+    if (r.bench) {
+      for (const [name, arms] of Object.entries(r.bench)) {
+        lines.push("");
+        lines.push(name.toUpperCase() + `   load ${arms.__load}`);
+        lines.push("  arm             fps    p50    p95   work");
+        for (const [arm, s] of Object.entries(arms)) {
+          if (arm === "__load") continue;
+          lines.push(
+            `  ${arm.padEnd(14)}${String(s.fps).padStart(4)}  ${s.p50.toFixed(1).padStart(5)}  ` +
+            `${s.p95.toFixed(1).padStart(5)}  ${String(s.workDone).padStart(6)}` +
+            (s.lead ? `   lead ${s.lead.runs}` : ""),
+          );
+        }
+      }
+    }
+
+    if (r.thermal) {
+      lines.push("");
+      lines.push("THERMAL — fps and tier, every 10s");
+      lines.push("  sec    fps   tier");
+      for (const s of r.thermal.samples.filter((_, i) => i % 10 === 0)) {
+        lines.push(`  ${String(s.second).padStart(4)}  ${String(s.fps).padStart(4)}   ${s.tier}`);
+      }
+      const first = r.thermal.samples.slice(0, 10);
+      const last = r.thermal.samples.slice(-10);
+      const dropped = avg(first.map((s) => s.fps)) - avg(last.map((s) => s.fps));
+      const tierMoved = last.some((s) => s.tier > first[0]?.tier);
+      lines.push("");
+      lines.push(`  fps first 10s ${avg(first.map((s) => s.fps)).toFixed(1)} → last 10s ${avg(last.map((s) => s.fps)).toFixed(1)}`);
+      lines.push(
+        dropped > 8 && !tierMoved
+          ? "  ⚠ FRAME RATE SAGGED AND THE TIER DID NOT MOVE — the floor missed it"
+          : dropped > 8
+            ? "  ✓ throttled, and the tier followed"
+            : "  — no meaningful thermal sag in this run",
+      );
+    }
+    return lines.join("\n");
+  }
+
+  async function calibrate(name) {
+    // Same rule as the desktop harness: pick the load from what the BASELINE
+    // arm can take, not from what flatters the other one. A phone needs a much
+    // lower number than a laptop, which is the whole reason this is measured
+    // rather than hardcoded.
+    const baseline = Object.keys(SCENARIOS[name].arms)[0];
+    for (const step of [220, 700, 1800, 4000, 9000]) {
+      const probe = await run(name, baseline, 1200, step);
+      if (probe.error) throw new Error(probe.error);
+      if (pct(probe.intervals, 95) >= 26) return step;
+    }
+    return 9000;
+  }
+
+  function summarise(raw) {
+    return {
+      fps: raw.intervals.length ? Math.round(1000 / avg(raw.intervals)) : 0,
+      p50: pct(raw.intervals, 50),
+      p95: pct(raw.intervals, 95),
+      workDone: raw.workDone,
+      lead: raw.lead,
+    };
+  }
+
+  $("run").onclick = async () => {
+    $("run").disabled = $("therm").disabled = true;
+    const bench = {};
+    try {
+      for (const name of Object.keys(SCENARIOS)) {
+        status(`${name} — finding a load this device struggles with…`);
+        const load = await calibrate(name);
+        bench[name] = { __load: load };
+        for (const arm of Object.keys(SCENARIOS[name].arms)) {
+          status(`${name} — ${arm}…`);
+          const raw = await run(name, arm, 5000, load);
+          if (raw.error) throw new Error(raw.error);
+          bench[name][arm] = summarise(raw);
+          $("out").textContent = render({ device: info, bench });
+        }
+      }
+      results = { device: info, bench, ...(results?.thermal ? { thermal: results.thermal } : {}) };
+      $("out").textContent = render(results);
+      status("Benchmark done.");
+      $("copy").disabled = false;
+    } catch (err) {
+      status("Failed: " + err.message);
+    } finally {
+      $("run").disabled = $("therm").disabled = false;
+    }
+  };
+
+  $("therm").onclick = async () => {
+    $("run").disabled = $("therm").disabled = true;
+    try {
+      status("Thermal test running — keep this tab in front for 3 minutes.");
+      const t = await thermal();
+      if (t.error) throw new Error(t.error);
+      results = { device: info, ...(results?.bench ? { bench: results.bench } : {}), thermal: t };
+      $("out").textContent = render(results);
+      status("Thermal test done.");
+      $("copy").disabled = false;
+    } catch (err) {
+      status("Failed: " + err.message);
+    } finally {
+      $("run").disabled = $("therm").disabled = false;
+    }
+  };
+
+  $("copy").onclick = async () => {
+    try {
+      await navigator.clipboard.writeText($("out").textContent);
+      status("Copied.");
+    } catch {
+      // Clipboard needs a secure context, and a LAN address is not one on
+      // every browser. Selecting the text is the fallback that always works.
+      const range = document.createRange();
+      range.selectNodeContents($("out"));
+      getSelection().removeAllRanges();
+      getSelection().addRange(range);
+      status("Could not copy automatically — the results are selected, copy them by hand.");
+    }
+  };
+</script>
