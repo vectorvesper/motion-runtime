@@ -1,0 +1,202 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>VV benchmark</title>
+<style>
+  body { margin: 0; background: #0d0d10; color: #eee; font: 12px ui-monospace, monospace; overflow: hidden; }
+  #stage { position: fixed; inset: 0; }
+  .dot {
+    position: absolute; width: 26px; height: 26px; border-radius: 50%;
+    background: linear-gradient(140deg, #7EACB5, #2b4d55);
+    will-change: transform; top: 0; left: 0;
+  }
+  .dot.lead { background: linear-gradient(140deg, #ffd479, #b07d21); width: 40px; height: 40px; }
+  #log { position: fixed; left: 8px; bottom: 8px; z-index: 5; white-space: pre; }
+</style>
+<div id="stage"></div>
+<div id="log">booting…</div>
+
+<script type="module">
+  import { getConductor, damp } from "/dist/index.js";
+
+  const stage = document.getElementById("stage");
+  const log = (m) => { document.getElementById("log").textContent = m; };
+
+  /**
+   * The work being measured, identical in both arms.
+   *
+   * Deliberately a little expensive and deliberately touching layout-free
+   * properties only. If the two arms did different work the comparison would
+   * measure the work, not the coordination — which is the only thing under
+   * test here.
+   */
+  let LOAD = 220;
+  /**
+   * How many times the work actually ran.
+   *
+   * Reported alongside frame time because the shared arm reaches 60fps partly
+   * by choosing not to do everything. Publishing the frame win without this
+   * number would be hiding the trade the design is making.
+   */
+  let workCount = 0;
+
+  function work(el, i, t) {
+    workCount++;
+    let acc = 0;
+    for (let k = 0; k < LOAD; k++) acc += Math.sin(t * 0.001 + k + i) * Math.cos(k - i);
+    const x = 60 + (i % 8) * 130 + Math.sin(t * 0.0012 + i) * 40 + acc * 0.02;
+    const y = 60 + Math.floor(i / 8) * 90 + Math.cos(t * 0.0016 + i) * 30;
+    el.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+  }
+
+  function buildDots(count) {
+    stage.innerHTML = "";
+    const dots = [];
+    for (let i = 0; i < count; i++) {
+      const el = document.createElement("div");
+      el.className = i === 0 ? "dot lead" : "dot";
+      stage.appendChild(el);
+      dots.push(el);
+    }
+    return dots;
+  }
+
+  /**
+   * Frame intervals, collected by a private rAF loop.
+   *
+   * A private loop is exactly what the runtime tells components not to do, and
+   * exactly what an instrument must do: it has to sit outside the system it
+   * measures. A VV subscriber could be shed, which would mean the ruler
+   * shrinking whenever the thing being measured got heavy.
+   */
+  function recorder() {
+    const intervals = [];
+    let last = 0;
+    let alive = true;
+    const tick = (t) => {
+      if (!alive) return;
+      if (last) intervals.push(t - last);
+      last = t;
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    return { intervals, stop: () => { alive = false; } };
+  }
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // ── Arms ─────────────────────────────────────────────────────────────────
+
+  /** Every animation on its own rAF loop, which is what most pages look like. */
+  function armPrivateLoops(dots) {
+    let alive = true;
+    for (let i = 0; i < dots.length; i++) {
+      const tick = (t) => {
+        if (!alive) return;
+        work(dots[i], i, t);
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }
+    return () => { alive = false; };
+  }
+
+  /** All of it on the shared loop, with honest priorities. */
+  function armShared(dots, { shedding }) {
+    getConductor().configure({ shedding });
+    const offs = dots.map((el, i) =>
+      getConductor().subscribe(
+        "render",
+        (_dt, t) => work(el, i, t * 1000),
+        {
+          // The lead dot stands for the thing the visitor is using. Everything
+          // else is scenery.
+          priority: i === 0 ? "essential" : i < 8 ? "enhanced" : "decorative",
+          label: i === 0 ? "lead" : `dot-${i}`,
+        },
+      ),
+    );
+    return () => offs.forEach((off) => off());
+  }
+
+  // ── Runner ───────────────────────────────────────────────────────────────
+
+  async function measure(arm, { count, ms }) {
+    const dots = buildDots(count);
+    // One frame to let layout settle before the clock starts.
+    await new Promise((r) => requestAnimationFrame(() => r()));
+
+    workCount = 0;
+    const rec = recorder();
+    const stop = arm(dots);
+    await sleep(ms);
+
+    // Read the runtime's own accounting before tearing anything down.
+    const stats = getConductor().getStats();
+    const lead = stats.subscribers.find((s) => s.label === "lead") ?? null;
+    const shedTotal = stats.subscribers.reduce((n, s) => n + s.shed, 0);
+    const runTotal = stats.subscribers.reduce((n, s) => n + s.runs, 0);
+
+    stop();
+    rec.stop();
+    stage.innerHTML = "";
+    await sleep(400);
+
+    return {
+      intervals: rec.intervals,
+      workDone: workCount,
+      lead: lead ? { runs: lead.runs, shed: lead.shed, costMs: lead.costMs } : null,
+      shedTotal,
+      runTotal,
+    };
+  }
+
+  const SCENARIOS = {
+    /**
+     * The same 48 animations, coordinated versus not.
+     *
+     * The claim is that one scheduler that knows what everything costs can
+     * hold a frame rate that 48 independent loops cannot.
+     */
+    "many-animations": {
+      count: 48,
+      arms: {
+        "private loops": (dots) => armPrivateLoops(dots),
+        "shared loop": (dots) => armShared(dots, { shedding: true }),
+      },
+    },
+
+    /**
+     * Can one important animation keep running while the page is overloaded?
+     *
+     * Both arms use the shared loop; only shedding changes. That isolates the
+     * scheduling decision from the loop itself, which is the honest comparison
+     * — a shared rAF loop is not novel, and GSAP and Motion both have one.
+     */
+    "protect-the-lead": {
+      count: 90,
+      arms: {
+        "no shedding": (dots) => armShared(dots, { shedding: false }),
+        "shedding on": (dots) => armShared(dots, { shedding: true }),
+      },
+    },
+  };
+
+  window.__bench = {
+    scenarios: Object.keys(SCENARIOS),
+    arms: (name) => Object.keys(SCENARIOS[name].arms),
+
+    async run(name, armName, ms = 5000, load = 220) {
+      if (document.hidden) return { error: "document.hidden — rAF is paused" };
+      LOAD = load;
+      const scenario = SCENARIOS[name];
+      log(`${name} · ${armName} · load ${load}…`);
+      const out = await measure(scenario.arms[armName], { count: scenario.count, ms });
+      log(`${name} · ${armName} · ${out.intervals.length} frames`);
+      return out;
+    },
+
+    count: (name) => SCENARIOS[name].count,
+  };
+
+  log("ready");
+</script>

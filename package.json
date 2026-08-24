@@ -1,7 +1,7 @@
 {
   "name": "@vectorvesper/motion",
   "version": "1.2.0",
-  "description": "Motion primitives on one shared frame loop \u2014 a sensor layer, a frame-budget governor, and React hooks for fast, coordinated interactive sites. Zero dependencies.",
+  "description": "Motion primitives on one shared frame loop — a sensor layer, a frame-budget governor, and React hooks for fast, coordinated interactive sites. Zero dependencies.",
   "license": "MIT",
   "author": "Vector Vesper",
   "homepage": "https://vectorvesper.dev",
@@ -51,7 +51,8 @@
     "check:api": "node scripts/check-api.mjs",
     "prepublishOnly": "npm run build && npm run check:api",
     "test:pressure": "node scripts/pressure-probe/harness.mjs",
-    "test:scheduling": "node scripts/pressure-probe/scheduling-check.mjs"
+    "test:scheduling": "node scripts/pressure-probe/scheduling-check.mjs",
+    "bench": "node scripts/benchmark/run.mjs"
   },
   "peerDependencies": {
     "react": ">=18",
