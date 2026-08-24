@@ -71,13 +71,39 @@ export type SubscriberPriority = "essential" | "enhanced" | "decorative";
 export interface SubscribeOptions {
   /**
    * Shed order under load. Default `"enhanced"`.
+   *
    * `"essential"` is never shed — reserve it for sensors, governors and
    * direct manipulation (a scrub that stutters is a broken scrub).
+   *
+   * `"decorative"` sheds first, and under sustained load lands on the
+   * starvation floor of roughly 12fps. That is right for ambient work and
+   * wrong for anything whose position a viewer follows — pair it with `hz` in
+   * that case, and read the note there.
    */
   priority?: SubscriberPriority;
   /**
    * Cap this subscriber's cadence, in runs per second. Omit or `0` for every
    * frame. The dt passed in accumulates, so damping math stays correct.
+   *
+   * **Declare this for any decorative work whose motion the eye tracks.**
+   *
+   * Shedding does not stutter — the starvation guard forces a skipped
+   * subscriber through after four frames, so heavily shed work runs on a
+   * perfectly regular beat. The problem is which beat: every fifth frame is
+   * 12fps at 60Hz, and 12fps reads as broken for anything whose *position* is
+   * being followed, however even it is. Film is 24.
+   *
+   * Measured on the benchmark: one decorative element left to shedding ran on
+   * a 5-frame gap 59 times out of 59 — regular, and visibly bad. The same
+   * element with `hz: 30` ran on a 2-frame gap, looked fine, and did *less*
+   * total work than the shed version.
+   *
+   * So this is not a consolation prize for slow work. For tracked motion it is
+   * better looking and cheaper than the alternative.
+   *
+   * Work that degrades gracefully — a shader, a particle field, an ambient
+   * canvas — does not need it. Rendering that slightly less often is not
+   * something anyone can point at.
    */
   hz?: number;
   /** Name shown in devtools and in slow-subscriber warnings. */

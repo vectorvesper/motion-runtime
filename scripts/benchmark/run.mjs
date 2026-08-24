@@ -67,10 +67,26 @@ function summarise(result) {
     p95: percentile(iv, 95),
     worst: iv.length ? Math.max(...iv) : 0,
     workDone: result.workDone,
+    gaps: result.gaps ?? [],
     lead: result.lead,
     shedTotal: result.shedTotal,
     runTotal: result.runTotal,
   };
+}
+
+/**
+ * How uneven one decorative element's cadence was.
+ *
+ * `worstGap` is the longest stall in frames; `jitter` is the share of gaps that
+ * differ from the typical one. A steady 1-in-3 has jitter near zero and looks
+ * smooth. The same amount of work delivered irregularly has high jitter and is
+ * what a viewer calls glitchy.
+ */
+function cadence(gaps) {
+  if (gaps.length < 4) return { worstGap: 0, jitter: 0 };
+  const typical = percentile(gaps, 50);
+  const off = gaps.filter((g) => g !== typical).length;
+  return { worstGap: Math.max(...gaps), jitter: off / gaps.length };
 }
 
 function row(label, s) {
@@ -78,7 +94,8 @@ function row(label, s) {
   const leadPart = s.lead
     ? `${String(s.lead.runs).padStart(5)} ${String(s.lead.shed).padStart(5)}`
     : "    —     —";
-  return `  ${label.padEnd(14)}${String(s.fps).padStart(4)}  ${n(s.p50)}  ${n(s.p95)}  ${n(s.worst)}  ${leadPart}  ${String(s.workDone).padStart(8)}`;
+  const c = cadence(s.gaps);
+  return `  ${label.padEnd(14)}${String(s.fps).padStart(4)}  ${n(s.p50)}  ${n(s.p95)}  ${leadPart}  ${String(s.workDone).padStart(7)}  ${String(c.worstGap).padStart(4)}  ${(c.jitter * 100).toFixed(0).padStart(5)}%`;
 }
 
 async function main() {
@@ -110,7 +127,7 @@ async function main() {
         );
 
         console.log(`\n${name}`);
-        console.log("  arm             fps     p50     p95   worst   lead  shed  work done");
+        console.log("  arm             fps     p50     p95   lead  shed  work do  stall  jitter");
         console.log("  " + "─".repeat(70));
 
         // Calibrate on the BASELINE arm, so the load is chosen by what the
@@ -143,7 +160,8 @@ async function main() {
         }
 
         // The comparison, stated as a finding rather than left to the reader.
-        const [a, b] = arms;
+        const a = arms[0];
+        const b = arms[1];
         const A = measured[a];
         const B = measured[b];
         const p95Delta = A.p95 === 0 ? 0 : ((A.p95 - B.p95) / A.p95) * 100;
@@ -164,6 +182,22 @@ async function main() {
             `${better ? "lower" : "HIGHER"} than ${a} ` +
             `(${A.p95.toFixed(1)}ms → ${B.p95.toFixed(1)}ms)`,
         );
+        // The distribution, not a single derived number. A summary statistic
+        // that disagreed with what someone watched is a reason to print the
+        // raw shape, not to trust the statistic.
+        for (const arm of arms) {
+          const g = measured[arm].gaps;
+          if (!g.length) continue;
+          const hist = {};
+          for (const v of g) hist[v] = (hist[v] ?? 0) + 1;
+          const top = Object.entries(hist)
+            .sort((x, y) => y[1] - x[1])
+            .slice(0, 5)
+            .map(([gap, n]) => `${gap}f x${n}`)
+            .join("  ");
+          console.log(`    ${arm.padEnd(14)} tracked element gaps: ${top}`);
+        }
+
         if (A.lead && B.lead) {
           console.log(
             `    lead animation ran ${A.lead.runs} → ${B.lead.runs} times`,

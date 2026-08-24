@@ -19,6 +19,19 @@ let LOAD = 220;
  */
 let workCount = 0;
 
+/**
+ * Which frames one particular decorative element actually ran on.
+ *
+ * Page frame rate is not what a viewer looks at. They look at a thing moving,
+ * and a thing that runs on frames 1,2,7,8,9,14 is visibly worse than one that
+ * runs on every third frame — even though both "drop two thirds". Shedding is
+ * greedy per frame, so it produces the first pattern unless something makes it
+ * produce the second.
+ */
+let frameNo = 0;
+let tracked = [];
+const TRACKED_INDEX = 40;
+
 let stage = null;
 export function setStage(el) {
   stage = el;
@@ -33,6 +46,7 @@ export function setStage(el) {
  */
 function work(el, i, t) {
   workCount++;
+  if (i === TRACKED_INDEX) tracked.push(frameNo);
   let acc = 0;
   for (let k = 0; k < LOAD; k++) acc += Math.sin(t * 0.001 + k + i) * Math.cos(k - i);
   const x = 20 + (i % 8) * 90 + Math.sin(t * 0.0012 + i) * 30 + acc * 0.02;
@@ -66,6 +80,7 @@ function recorder() {
   let alive = true;
   const tick = (t) => {
     if (!alive) return;
+    frameNo++;
     if (last) intervals.push(t - last);
     last = t;
     requestAnimationFrame(tick);
@@ -90,17 +105,25 @@ function armPrivateLoops(dots) {
   return () => { alive = false; };
 }
 
-/** All of it on the shared loop, with honest priorities. */
-function armShared(dots, { shedding }) {
+/**
+ * All of it on the shared loop, with honest priorities.
+ *
+ * `hz` throttles the scenery to a fixed cadence instead of leaving it to be
+ * shed. Both end up doing less work; only one of them does it on a predictable
+ * beat, and predictability is what the eye is actually judging.
+ */
+function armShared(dots, { shedding, decorativeHz = 0 }) {
   getConductor().configure({ shedding });
-  const offs = dots.map((el, i) =>
-    getConductor().subscribe("render", (_dt, t) => work(el, i, t * 1000), {
+  const offs = dots.map((el, i) => {
+    const priority = i === 0 ? "essential" : i < 8 ? "enhanced" : "decorative";
+    return getConductor().subscribe("render", (_dt, t) => work(el, i, t * 1000), {
       // The lead dot stands for the thing the visitor is using. The rest is
       // scenery.
-      priority: i === 0 ? "essential" : i < 8 ? "enhanced" : "decorative",
+      priority,
+      ...(priority === "decorative" && decorativeHz ? { hz: decorativeHz } : {}),
       label: i === 0 ? "lead" : `dot-${i}`,
-    }),
-  );
+    });
+  });
   return () => offs.forEach((off) => off());
 }
 
@@ -131,6 +154,7 @@ export const SCENARIOS = {
     arms: {
       "no shedding": (dots) => armShared(dots, { shedding: false }),
       "shedding on": (dots) => armShared(dots, { shedding: true }),
+      "shed + 30Hz": (dots) => armShared(dots, { shedding: true, decorativeHz: 30 }),
     },
   },
 };
@@ -140,6 +164,8 @@ async function measure(arm, { count, ms }) {
   await new Promise((r) => requestAnimationFrame(() => r()));
 
   workCount = 0;
+  frameNo = 0;
+  tracked = [];
   const rec = recorder();
   const stop = arm(dots);
   await sleep(ms);
@@ -153,8 +179,13 @@ async function measure(arm, { count, ms }) {
   stage.innerHTML = "";
   await sleep(400);
 
+  // Gaps between the tracked element's runs, in frames.
+  const gaps = [];
+  for (let i = 1; i < tracked.length; i++) gaps.push(tracked[i] - tracked[i - 1]);
+
   return {
     intervals: rec.intervals,
+    gaps,
     workDone: workCount,
     lead: lead ? { runs: lead.runs, shed: lead.shed } : null,
     shedTotal,
