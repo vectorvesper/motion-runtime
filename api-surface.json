@@ -333,6 +333,7 @@
   "./react": {
     "values": [
       "InteractionScope",
+      "SAFE_TO_MOUNT_COST",
       "VERSION",
       "clamp01",
       "damp",
@@ -353,6 +354,7 @@
     "types": [
       "InteractionScopeProps",
       "MountCost",
+      "MountCostThresholds",
       "SceneGate",
       "SceneState",
       "UseSafeToMountOptions",
@@ -364,6 +366,21 @@
         "kind": "alias",
         "isType": true,
         "type": "\"light\" | \"normal\" | \"heavy\""
+      },
+      "MountCostThresholds": {
+        "kind": "object",
+        "isType": true,
+        "heritage": "",
+        "members": [
+          "readonly cleanFrames: number",
+          "readonly headroomMs: number",
+          "readonly minCores: number"
+        ]
+      },
+      "SAFE_TO_MOUNT_COST": {
+        "kind": "value",
+        "isType": false,
+        "type": "Readonly<Record<MountCost, MountCostThresholds>>"
       },
       "SceneGate": {
         "kind": "object",
@@ -697,6 +714,7 @@
   },
   "./effects": {
     "values": [
+      "POINTER_INTENT_SENSITIVITY",
       "useImageTrail",
       "useMagneticIntent",
       "useNumberTicker",
@@ -707,6 +725,7 @@
       "MagneticOptions",
       "PointerIntentOptions",
       "PointerIntentSensitivity",
+      "PointerIntentTuning",
       "ScrubDriver",
       "ScrubMapping",
       "UseImageTrailOptions",
@@ -730,6 +749,11 @@
           "strength?: number"
         ]
       },
+      "POINTER_INTENT_SENSITIVITY": {
+        "kind": "value",
+        "isType": false,
+        "type": "Readonly<Record<PointerIntentSensitivity, PointerIntentTuning>>"
+      },
       "PointerIntentOptions": {
         "kind": "object",
         "isType": true,
@@ -743,6 +767,18 @@
         "kind": "alias",
         "isType": true,
         "type": "\"low\" | \"normal\" | \"high\""
+      },
+      "PointerIntentTuning": {
+        "kind": "object",
+        "isType": true,
+        "heritage": "",
+        "members": [
+          "readonly enter: number",
+          "readonly exit: number",
+          "readonly extend: number",
+          "readonly horizon: number",
+          "readonly minSpeed: number"
+        ]
       },
       "ScrubDriver": {
         "kind": "alias",

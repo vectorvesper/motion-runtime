@@ -1,5 +1,154 @@
 # Changelog
 
+## 2.0.1
+
+Two fixes found by porting a real R3F gallery onto 2.0 rather than reading the
+types and assuming.
+
+### Fixed
+
+- **`useSceneGate` never started if its ref target was not in the DOM on the
+  first commit.** The observer effect read `ref.current` once, keyed on
+  `[preload]`, so a component that renders a spinner, a Suspense fallback or a
+  `next/dynamic` placeholder before its real tree attached no
+  `IntersectionObserver` at all — and nothing re-ran the effect when the
+  element finally arrived. The scene stayed `dormant` permanently, with no
+  error and no warning to explain it. Since almost every R3F component guards
+  SSR that way, this hit the common case rather than an edge one.
+
+  The ref is now a hybrid callback ref, the same one `usePointerIntent` has
+  always used, so it re-arms when the element attaches. `SceneGate.ref` is
+  still a `RefObject<T | null>` and `<div ref={gate.ref}>` is unchanged — this
+  is a fix, not an API change.
+
+- **A scene reduced by render pressure blamed the wrong thing.** `decide()`
+  tested `tier === 1` before the render-pressure branch, and rendering being
+  the bottleneck is precisely what drags the tier down — so both were true
+  together and the generic "the frame rate is not holding up" always won.
+  The sentence written for this exact case was unreachable in practice.
+  Render pressure is now tested first. The state was correct before and is
+  unchanged; only the reported reason improves.
+
+Four tests cover both, including the deferred-ref mount that the first bug
+made permanently dormant.
+
+## 2.0.0
+
+Phase 2 of the runtime. The package can now say **what** is costing a frame,
+decide whether a heavy scene should run at all, survive a lost graphics
+context, and its entry points finally match its layers:
+
+```
+@vectorvesper/motion            kernel + health
+@vectorvesper/motion/react      + scene policy
+@vectorvesper/motion/r3f        renderer adapter
+@vectorvesper/motion/effects    recipes
+@vectorvesper/motion/devtools   proof
+```
+
+Breaking, but mechanically so. Every change below is a rename or a moved
+import — nothing needs redesigning.
+
+### Migrating
+
+**Five effects hooks moved off `/react`.** Nothing was removed; the import
+path changed. Their option types moved with them.
+
+```diff
+- import { usePointerIntent, useImageTrail } from "@vectorvesper/motion/react";
++ import { usePointerIntent, useImageTrail } from "@vectorvesper/motion/effects";
+```
+
+Affects `usePointerIntent`, `useMagneticIntent`, `useImageTrail`,
+`useNumberTicker`, `useVideoScrubber`.
+
+**Three names changed.** They collided with the libraries this package sits
+next to — `useMotionFrame` stood beside Motion's `useAnimationFrame` and R3F's
+`useFrame`, three near-identical names for "run this every frame" in one file.
+
+| 1.2 | 2.0 |
+| --- | --- |
+| `MotionScope` | `InteractionScope` |
+| `useMotionFrame` | `useTick` |
+| `useMotionScope` | `useInteractionScope` |
+
+`InteractionScope`'s props changed with the rename. The common case is now
+zero props — ids are generated with `useId()` instead of a hand-written
+page-unique `name`.
+
+| 1.2 | 2.0 |
+| --- | --- |
+| `name` (required) | gone — generated |
+| — | `label` (optional, devtools only) |
+| `claimOnPointer={false}` + manual `claimScope` | `active` |
+| `as` | `asChild` |
+| `useMotionFrame(..., { scope: null })` | `useTick(..., { background: true })` |
+
+**`useLazyScene` is gone.** `useSceneGate` does everything it did. It takes the
+same options, and `ready` is now `mounted`:
+
+```diff
+- const { ref, ready } = useLazyScene({ preload: 300, cost: "heavy" });
++ const { ref, mounted } = useSceneGate({ preload: 300, cost: "heavy" });
+```
+
+Three hooks gated a mount, which was one too many — and `cost` meant two
+unrelated things depending on which one you passed it to. `useSceneGate` now
+owns the visibility observer directly and asks `useSafeToMount` whether the
+page can afford the work, so there is one definition of that instead of two
+that disagreed.
+
+**Option fields renamed.** No exports removed.
+
+| Hook | 1.2 | 2.0 |
+| --- | --- | --- |
+| `useSafeToMount` | `minHeadroomMs`, `requiredCleanFrames`, `minCores` | `cost: "light" \| "normal" \| "heavy"` |
+| `usePointerIntent` | `horizon`, `extend`, `minSpeed`, `enter`, `exit` | `sensitivity: "low" \| "normal" \| "high"` |
+| `useNumberTicker` | `k` | `speed` |
+| `useImageTrail` | `life` | `duration` |
+| `useVideoScrubber` | `smooth` | `speed` |
+| `MagneticOptions` | `damp` | `speed` |
+| `MagneticOptions` | `intent` | `anticipate` |
+
+`useVideoScrubber`'s `smooth` was inverted — a *lower* number produced *more*
+smoothing, and its own JSDoc stated the opposite of the truth. `speed` reads
+the way you would guess.
+
+### Added
+
+- **`getFramePressure` / `useFramePressure`** — names what is eating the frame:
+  this runtime, other main-thread work, or rendering. It reports a confidence
+  alongside the verdict, and refuses to claim a GPU reading it cannot take —
+  `offThreadMs` is a remainder, not a measurement.
+- **`useSceneGate`** — one policy for a heavy scene across seven states
+  (`dormant`, `warming`, `active`, `constrained`, `idle`, `recovering`,
+  `poster`): when to mount it, whether to run it, at what quality, and how to
+  bring it back from a lost context.
+- **`getRendererHealth`** — a lost graphics context leaves a permanently black
+  canvas and no console error, because R3F has no handler for it (verified
+  against 9.6.1). Recovery is a generation counter: put it on `<Canvas key>`
+  and React rebuilds the scene it already knows how to build.
+- **`@vectorvesper/motion/r3f`** — `useRenderQuality` applies a scene gate's
+  decision to the renderer: device pixel ratio and shadow maps, and nothing it
+  cannot genuinely apply.
+- **`SAFE_TO_MOUNT_COST`**, `MountCost`, `MountCostThresholds`,
+  `PointerIntentSensitivity` — exported so a component can name these types in
+  its own props.
+- **`SubscriberStat.scope`** — shows which work is protected while a region is
+  active.
+
+### Fixed
+
+- **The refresh-rate probe was wrong on an ordinary 60Hz laptop**, so the frame
+  budget it derived was wrong with it.
+- **A stopped loop remembered it was struggling.** Carried overrun survived a
+  stop, so the first frame after a restart began already in debt.
+- **`MagneticElement` read `anticipate` only in its constructor**, so toggling
+  it after mount silently did nothing — and `useMagneticIntent` never forwarded
+  the option at all.
+- **`SensorBus` reported movement it never saw**, and `dt` is now floored.
+
+
 ## 1.2.0
 
 **Priority shedding now actually fires.** It never had.

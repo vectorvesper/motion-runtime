@@ -6,35 +6,8 @@ import {
   type PointerIntentOptions,
 } from "../core/pointer-intent/PointerIntent";
 import { getConductor } from "../core/conductor";
+import { createHybridRef } from "../react/hybrid-ref";
 
-/**
- * A callback ref that also behaves like a RefObject, notifying React state
- * when the element attaches/detaches — so the mount effect re-arms for
- * conditionally rendered elements. Module-scope: the ref accesses here run
- * during commit (ref callback) or imperative reads, never during render.
- */
-function createHybridRef<T>(
-  store: { current: T | null },
-  notify: (node: T | null) => void,
-): RefObject<T | null> {
-  const fn = (node: T | null) => {
-    store.current = node;
-    notify(node);
-  };
-  return Object.defineProperties(fn, {
-    current: {
-      get() {
-        return store.current;
-      },
-      set(value: T | null) {
-        store.current = value;
-        notify(value);
-      },
-      configurable: true,
-      enumerable: true,
-    },
-  }) as unknown as RefObject<T | null>;
-}
 
 export interface UsePointerIntentOptions extends PointerIntentOptions {
   /**

@@ -40,19 +40,43 @@ export interface PointerIntentOptions {
   dynamic?: boolean;
 }
 
-interface Tuning {
-  horizon: number;
-  extend: number;
-  minSpeed: number;
-  enter: number;
-  exit: number;
+/**
+ * What one sensitivity setting actually resolves to.
+ *
+ * These five numbers were the public options before 2.0. They are tuning, not
+ * a control surface — "how far ahead do I look, in seconds" is not a question
+ * a developer can answer without reading the implementation, which is why they
+ * collapsed into three named presets.
+ *
+ * They are still readable, because something has to be able to show them: a
+ * devtools panel explaining why a preset fired, or a demo drawing the
+ * prediction geometry. The alternative is every such tool keeping its own copy
+ * of the table and drifting from the one the runtime uses.
+ */
+export interface PointerIntentTuning {
+  /** How far ahead the pointer's path is projected, in seconds. */
+  readonly horizon: number;
+  /** How far outside the element still counts as a hit, in px. */
+  readonly extend: number;
+  /** Below this speed the pointer is drifting, not heading somewhere, in px/s. */
+  readonly minSpeed: number;
+  /** Confidence needed to gain intent. */
+  readonly enter: number;
+  /** Confidence it must fall below to lose it. Lower than `enter` — hysteresis. */
+  readonly exit: number;
 }
 
-const SENSITIVITY: Record<PointerIntentSensitivity, Tuning> = {
-  low: { horizon: 0.3, extend: 8, minSpeed: 120, enter: 0.5, exit: 0.3 },
-  normal: { horizon: 0.5, extend: 12, minSpeed: 80, enter: 0.35, exit: 0.18 },
-  high: { horizon: 0.8, extend: 20, minSpeed: 50, enter: 0.25, exit: 0.12 },
-};
+/**
+ * The tuning each sensitivity resolves to. Frozen: this is the runtime's own
+ * table, not a template to copy and edit.
+ */
+export const POINTER_INTENT_SENSITIVITY: Readonly<
+  Record<PointerIntentSensitivity, PointerIntentTuning>
+> = Object.freeze({
+  low: Object.freeze({ horizon: 0.3, extend: 8, minSpeed: 120, enter: 0.5, exit: 0.3 }),
+  normal: Object.freeze({ horizon: 0.5, extend: 12, minSpeed: 80, enter: 0.35, exit: 0.18 }),
+  high: Object.freeze({ horizon: 0.8, extend: 20, minSpeed: 50, enter: 0.25, exit: 0.12 }),
+});
 
 const DEFAULTS: Required<PointerIntentOptions> = {
   sensitivity: "normal",
@@ -71,7 +95,7 @@ export class PointerIntent {
   readonly el: HTMLElement;
 
   private opts: Required<PointerIntentOptions>;
-  private tuning: Tuning;
+  private tuning: PointerIntentTuning;
   private onChange?: (intent: boolean) => void;
   private confidenceValue = 0;
   private intentValue = false;
@@ -92,7 +116,7 @@ export class PointerIntent {
   ) {
     this.el = el;
     this.opts = { ...DEFAULTS, ...options };
-    this.tuning = SENSITIVITY[this.opts.sensitivity];
+    this.tuning = POINTER_INTENT_SENSITIVITY[this.opts.sensitivity];
     this.onChange = onChange;
     this.releaseBus = getSensorBus().retain();
     // Update lane: runs after the bus's input-lane derivative pass.
@@ -125,7 +149,7 @@ export class PointerIntent {
         (this.opts as Record<string, unknown>)[key] = value;
       }
     }
-    this.tuning = SENSITIVITY[this.opts.sensitivity];
+    this.tuning = POINTER_INTENT_SENSITIVITY[this.opts.sensitivity];
   }
 
   destroy(): void {

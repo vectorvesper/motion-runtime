@@ -1,3 +1,5 @@
+"use client";
+
 /**
  * @vectorvesper/motion/effects — self-contained visual effects.
  *
@@ -27,7 +29,12 @@ export {
 export type {
   PointerIntentOptions,
   PointerIntentSensitivity,
+  PointerIntentTuning,
 } from "./core/pointer-intent/PointerIntent";
+// Read-only view of what each sensitivity resolves to, for anything that has
+// to explain a preset rather than just use one — devtools, a docs demo drawing
+// the prediction geometry. Exported so those do not keep their own copy.
+export { POINTER_INTENT_SENSITIVITY } from "./core/pointer-intent/PointerIntent";
 
 export { useImageTrail, type UseImageTrailOptions } from "./effects/useImageTrail";
 

@@ -105,7 +105,10 @@ describe("PointerIntent", () => {
     } as unknown as HTMLElement;
 
     conductorCallbacks = [];
-    const p = new PointerIntent(mockElement, { enter: 0.3 });
+    // Default sensitivity. This used to pass `{ enter: 0.3 }`, a field 2.0
+    // folded into the sensitivity presets — so the option was already being
+    // dropped and the test was already measuring the default. Saying so.
+    const p = new PointerIntent(mockElement);
 
     // Pointer is outside the box (at x=50, y=150) moving right (vx=400, vy=0) straight towards it
     sensorState.pointer = { seen: true, x: 50, y: 150, vx: 400, vy: 0, speed: 400, down: false };
@@ -186,28 +189,38 @@ describe("PointerIntent — edge cases", () => {
   };
 
   it("update() with partial options never clobbers the unspecified ones", () => {
-    // Regression: a naive { ...opts, ...partial } spread would set enter to
-    // undefined here, making `confidence > enter` always false so intent could
-    // never be gained. The fix ignores undefined fields.
+    // Regression: a naive { ...opts, ...partial } spread sets the unmentioned
+    // fields to undefined. The React adapter spreads possibly-undefined props
+    // whenever any option changes, so this is the normal case, not an edge one.
+    //
+    // In 2.0 the field that must survive is `sensitivity`, because the tuning
+    // is looked up by it — clobber it and `SENSITIVITY[undefined]` leaves
+    // `this.tuning` undefined, and the next frame throws reading `.enter`.
+    // Before 2.0 the same bug wiped the `enter` threshold and intent could
+    // never be gained. Different field, same spread, same test.
     conductorCallbacks = [];
     sensorState.pointer = { seen: true, x: 0, y: 0, vx: 0, vy: 0, speed: 0, down: false };
     sensorState.scroll = { x: 0, y: 0, vx: 0, vy: 0 };
     sensorState.viewport = { width: 1024, height: 768, dpr: 1 };
 
     const p = new PointerIntent(rectEl({ left: 100, top: 100, right: 200, bottom: 200 }), {
-      enter: 0.3,
-      exit: 0.1,
+      sensitivity: "high",
     });
 
-    // A partial update that omits enter/exit — exactly what the React adapter
-    // sends when a dev only passes { horizon }.
-    p.update({ horizon: 0.9 });
+    // The exact shape the React adapter sends: it destructures both options
+    // and passes both keys, so the one the dev did not set arrives as an
+    // explicit undefined rather than being absent. That distinction is the
+    // whole test — a naive spread survives a missing key and is destroyed by
+    // a present-but-undefined one, which is the case that actually ships.
+    p.update({ sensitivity: undefined, dynamic: true });
 
     sensorState.pointer = { seen: true, x: 150, y: 150, vx: 0, vy: 0, speed: 0, down: false };
     drive(conductorCallbacks[0]);
 
     expect(p.confidence).toBeGreaterThan(0.9);
-    expect(p.intent).toBe(true); // false if enter had been clobbered to undefined
+    // Throws on the first frame if sensitivity was clobbered: the tuning
+    // lookup returns undefined and the frame reads `.enter` off it.
+    expect(p.intent).toBe(true);
     p.destroy();
   });
 

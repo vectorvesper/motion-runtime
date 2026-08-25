@@ -121,6 +121,25 @@ describe("scene gate — responding to the right kind of slow", () => {
     expect(out.reason).toMatch(/rendering/);
   });
 
+  it("still blames rendering when the frame rate has sagged with it", () => {
+    // The realistic case, and the one that was wrong until 2.0.1. Rendering
+    // being the bottleneck is what drags the tier down, so both conditions are
+    // true together — nearly always. With the tier tested first, the specific
+    // reason was unreachable and every render-bound scene reported the generic
+    // one instead.
+    const out = decide({ ...base, tier: 1, pressure: "render", confidence: 0.6 });
+
+    expect(out.state).toBe("constrained");
+    expect(out.reason).toMatch(/rendering/);
+  });
+
+  it("blames the frame rate when there is no render verdict to blame", () => {
+    const out = decide({ ...base, tier: 1, pressure: "none", confidence: 0 });
+
+    expect(out.state).toBe("constrained");
+    expect(out.reason).toMatch(/frame rate/);
+  });
+
   it("does NOT reduce quality when someone else is blocking the main thread", () => {
     const out = decide({ ...base, pressure: "main-thread", confidence: 1 });
 

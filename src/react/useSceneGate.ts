@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { createHybridRef } from "./hybrid-ref";
 import { useAdaptiveQuality } from "./useAdaptiveQuality";
 import { useFramePressure } from "./useFramePressure";
 import { useSafeToMount, type MountCost } from "./useSafeToMount";
@@ -117,7 +118,18 @@ export function useSceneGate<T extends HTMLElement = HTMLDivElement>({
   cost = "heavy",
   preload = 200,
 }: UseSceneGateOptions = {}): SceneGate<T> {
-  const ref = useRef<T>(null);
+  // A hybrid ref, not a plain one. Reading `ref.current` from an effect keyed
+  // only on [preload] means the element is looked for exactly once, on the
+  // first commit — and any component that renders a spinner, a Suspense
+  // fallback or a `next/dynamic` placeholder before its real tree has no
+  // element there yet. The effect bailed, nothing re-ran it, and the gate sat
+  // in `dormant` forever with no error to explain why. See hybrid-ref.ts.
+  const elementRef = useRef<T | null>(null);
+  const [element, setElement] = useState<T | null>(null);
+  // eslint-disable-next-line react-hooks/refs -- the factory only wires deferred
+  // getters/setters; elementRef.current is never read during render.
+  const ref = useMemo(() => createHybridRef<T>(elementRef, setElement), []);
+
   const [near, setNear] = useState(false);
   const [settled, setSettled] = useState(false);
 
@@ -127,15 +139,14 @@ export function useSceneGate<T extends HTMLElement = HTMLDivElement>({
 
   // Close enough to be worth existing.
   useEffect(() => {
-    const el = ref.current;
-    if (!el || typeof IntersectionObserver === "undefined") return;
+    if (!element || typeof IntersectionObserver === "undefined") return;
     const io = new IntersectionObserver(
       (entries) => setNear(entries.some((e) => e.isIntersecting)),
       { rootMargin: `${preload}px` },
     );
-    io.observe(el);
+    io.observe(element);
     return () => io.disconnect();
-  }, [preload]);
+  }, [element, preload]);
 
   // Mounting a scene while the reader is mid-scroll is what they feel as a
   // stutter, whatever the frame numbers say. Only the first mount waits for
@@ -284,14 +295,23 @@ export function decide(i: Inputs): { state: SceneState; reason: string } {
     return { state: "idle", reason: "scrolled off screen, paused" };
   }
 
-  if (i.tier === 1) {
-    return { state: "constrained", reason: "the frame rate is not holding up" };
-  }
   // Only rendering pressure is worth reducing quality for. Main-thread
   // pressure is somebody else's script, and a smaller scene does not unblock
   // a blocked thread.
+  //
+  // This is tested BEFORE the tier check, and the order is the whole point.
+  // Both produce `constrained`, so the decision is identical either way — but
+  // rendering being the bottleneck is what *causes* the frame rate to sag, so
+  // whenever this branch is true the tier branch is true as well. Testing tier
+  // first meant the specific diagnosis was never the one reported: a scene
+  // downgraded by render pressure always explained itself with the generic
+  // "the frame rate is not holding up", and the sentence written for this
+  // exact case was unreachable in practice.
   if (i.pressure === "render" && i.confidence >= RENDER_CONFIDENCE_FLOOR) {
     return { state: "constrained", reason: "rendering is the bottleneck" };
+  }
+  if (i.tier === 1) {
+    return { state: "constrained", reason: "the frame rate is not holding up" };
   }
 
   return { state: "active", reason: "running at full quality" };

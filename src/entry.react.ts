@@ -76,8 +76,10 @@ export { useSensorBus } from "./react/useSensorBus";
 export { useAnimationBudget } from "./react/useAnimationBudget";
 export {
   useSafeToMount,
+  SAFE_TO_MOUNT_COST,
   type UseSafeToMountOptions,
   type MountCost,
+  type MountCostThresholds,
 } from "./react/useSafeToMount";
 export {
   InteractionScope,

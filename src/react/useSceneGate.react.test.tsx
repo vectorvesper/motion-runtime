@@ -180,3 +180,47 @@ describe("useSceneGate — letting go", () => {
     expect(getConductor().getStats().subscribers).toHaveLength(0);
   });
 });
+
+describe("useSceneGate — a ref target that is not there on the first commit", () => {
+  /**
+   * The shape that broke 2.0.0 in the field.
+   *
+   * A component renders a spinner, a Suspense fallback or a `next/dynamic`
+   * placeholder first, and only attaches the gate's ref on a later commit.
+   * The observer effect used to read `ref.current` once, keyed on [preload],
+   * so it found nothing and never ran again — no observer, never `near`, stuck
+   * in `dormant` with no error to explain it.
+   */
+  async function mountDeferredGate() {
+    vi.resetModules();
+    const { useSceneGate } = await import("./useSceneGate");
+    const seen: string[] = [];
+
+    function Scene() {
+      const gate = useSceneGate<HTMLDivElement>({ cost: "light" });
+      const [hydrated, setHydrated] = React.useState(false);
+      React.useEffect(() => setHydrated(true), []);
+      seen.push(gate.state);
+      if (!hydrated) return <div data-testid="spinner" />;
+      return <div ref={gate.ref} data-mounted={String(gate.mounted)} />;
+    }
+
+    const view = render(<Scene />);
+    return { view, seen, last: () => seen[seen.length - 1] };
+  }
+
+  it("observes the element once it finally arrives", async () => {
+    await mountDeferredGate();
+    expect(observers).toHaveLength(1);
+    expect(observers[0].observed[0]).toBeInstanceOf(HTMLElement);
+  });
+
+  it("reaches active instead of sitting in dormant forever", async () => {
+    const { last } = await mountDeferredGate();
+
+    await act(async () => intersect(true));
+    await act(async () => crankFrames(8));
+
+    expect(last()).toBe("active");
+  });
+});

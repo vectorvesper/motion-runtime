@@ -1,0 +1,6 @@
+{
+  "main": "../dist/r3f.cjs",
+  "module": "../dist/r3f.js",
+  "types": "../dist/r3f.d.ts",
+  "sideEffects": false
+}

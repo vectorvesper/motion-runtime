@@ -56,26 +56,40 @@ function Hero() {
 
 ## What's inside
 
-**Foundation** — the shared loop and the primitives that sense, govern, and predict.
+**Core** — `@vectorvesper/motion`. Zero dependencies, no framework.
 
 | Primitive | React hook | What it does |
 | --- | --- | --- |
-| FrameConductor | — | One `rAF` loop for the page, three ordered lanes (`input → update → render`), zero idle cost. |
+| FrameConductor | `useTick` | One `rAF` loop for the page, three ordered lanes (`input → update → render`), zero idle cost. |
 | SensorBus | `useSensorBus` | One set of pointer / scroll / viewport listeners, with damped velocity, shared by every reader. |
 | AnimationBudget | `useAnimationBudget` | Live frame-headroom governor → a stable quality tier (`high` / `medium` / `low`). |
 | AdaptiveQuality | `useAdaptiveQuality` | A device floor fused with the live budget — consume the worse of the two. |
-| — | `useSafeToMount` | Mount an expensive subtree only once there's real frame headroom. |
-| — | `useLazyScene` | Defer a heavy scene until it's in view and the page is idle. |
-| PointerIntent | `usePointerIntent` | Predicts the pointer is heading for an element before it hovers — for pre-fetching on desktop. |
-| MagneticElement | `useMagneticIntent` | A magnetic pull toward the cursor. |
+| FramePressure | `useFramePressure` | Names what is costing the frame: this runtime, other main-thread work, or rendering. |
+| RendererHealth | — | Notices a lost graphics context and counts a recovery generation to remount on. |
 
-**Creative hooks** — self-contained effects. Reach for one when you want the specific thing it does.
+**Scene policy** — `@vectorvesper/motion/react`. Decide whether expensive work runs at all.
 
 | React hook | What it does |
 | --- | --- |
+| `useSafeToMount` | Mount an expensive subtree only once there's real frame headroom. |
+| `useSceneGate` | One policy for a heavy scene — when to mount it, whether to run it, at what quality, and how to bring it back from a lost context. |
+| `InteractionScope` | Mark the region the visitor is working in. While a pointer is down inside it, non-essential work *outside* the region yields earlier. |
+
+**Effects** — `@vectorvesper/motion/effects`. Self-contained. Reach for one when you want the specific thing it does.
+
+| React hook | What it does |
+| --- | --- |
+| `usePointerIntent` | Predicts the pointer is heading for an element before it hovers — for pre-fetching on desktop. |
+| `useMagneticIntent` | A magnetic pull toward the cursor. |
 | `useVideoScrubber` | Drive a video timeline from scroll or pointer. |
 | `useNumberTicker` | Animate a number to its target, written straight to the DOM. |
 | `useImageTrail` | A trail of images that follows the pointer. |
+
+**React Three Fiber** — `@vectorvesper/motion/r3f`.
+
+| React hook | What it does |
+| --- | --- |
+| `useRenderQuality` | Apply a scene gate's decision to the renderer — device pixel ratio and shadow maps. |
 
 Plus math utilities: `damp`, `clamp01`, `rayRectIntersect`.
 
@@ -133,9 +147,18 @@ import { getConductor, getSensorBus, damp } from "@vectorvesper/motion";
 // react — hooks (react + react-dom peers)
 import { useSensorBus, useAdaptiveQuality } from "@vectorvesper/motion/react";
 
+// effects — self-contained visual effects, not runtime
+import { useImageTrail, useNumberTicker } from "@vectorvesper/motion/effects";
+
+// r3f — the React Three Fiber adapter (three + @react-three/fiber optional peers)
+import { useRenderQuality } from "@vectorvesper/motion/r3f";
+
 // devtools — the live inspector
 import { mountDevtools } from "@vectorvesper/motion/devtools";
 ```
+
+The core entry is framework-agnostic and safe to import from a server. Every
+other entry declares `"use client"`.
 
 Ships ESM + CJS + TypeScript types, resolving under modern and classic module resolution — Vite, esbuild, Next.js, and Framer's code editor.
 

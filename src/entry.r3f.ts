@@ -1,3 +1,5 @@
+"use client";
+
 /**
  * @vectorvesper/motion/r3f — the React Three Fiber adapter.
  *

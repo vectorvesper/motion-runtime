@@ -8,7 +8,7 @@ import { getAnimationBudget } from "../core/animation-budget/AnimationBudget";
  * How expensive the thing you are about to mount is.
  *
  * The heavier it is, the more free frame time the page has to show before it
- * is worth starting. Shared by {@link useSafeToMount} and `useLazyScene`.
+ * is worth starting. Shared by {@link useSafeToMount} and `useSceneGate`.
  */
 export type MountCost = "light" | "normal" | "heavy";
 
@@ -22,14 +22,29 @@ export type MountCost = "light" | "normal" | "heavy";
  * it is people working around a default. "How expensive is this?" is a
  * question the person writing the component can actually answer.
  */
-const COST: Record<
-  MountCost,
-  { headroomMs: number; cleanFrames: number; minCores: number }
-> = {
-  light: { headroomMs: 1, cleanFrames: 1, minCores: 2 },
-  normal: { headroomMs: 2, cleanFrames: 2, minCores: 4 },
-  heavy: { headroomMs: 6, cleanFrames: 3, minCores: 4 },
-};
+export interface MountCostThresholds {
+  /** Spare frame time a frame must show to count as clean, in ms. */
+  readonly headroomMs: number;
+  /** How many clean frames in a row before the gate opens. */
+  readonly cleanFrames: number;
+  /** Below this core count the gate never opens. */
+  readonly minCores: number;
+}
+
+/**
+ * What each cost resolves to. Frozen, and readable for the same reason
+ * `POINTER_INTENT_SENSITIVITY` is: a devtools panel or a docs demo
+ * explaining why a gate is still closed needs the actual numbers, and the
+ * alternative is every such surface keeping a copy that drifts.
+ */
+export const SAFE_TO_MOUNT_COST: Readonly<Record<MountCost, MountCostThresholds>> =
+  Object.freeze({
+    light: Object.freeze({ headroomMs: 1, cleanFrames: 1, minCores: 2 }),
+    normal: Object.freeze({ headroomMs: 2, cleanFrames: 2, minCores: 4 }),
+    heavy: Object.freeze({ headroomMs: 6, cleanFrames: 3, minCores: 4 }),
+  });
+
+const COST = SAFE_TO_MOUNT_COST;
 
 export interface UseSafeToMountOptions {
   /**

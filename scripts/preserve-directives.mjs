@@ -37,16 +37,50 @@ const DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(DIR, "..");
 
 /**
- * Source entry → built basename, mirroring tsup.config.ts's `entry` map.
- * Kept explicit because `index` breaks the entry.<name> convention. A missing
- * source is a hard error rather than a silent skip: that would mean the build
- * config and this script have diverged.
+ * Source entry → built basename, read straight out of tsup.config.ts.
+ *
+ * This used to be a hand-written list, and it silently rotted the moment the
+ * build grew an entry. The effects and r3f entries were added to the build in
+ * the 2.0 work and never added here, so four bundles full of React hooks
+ * shipped with no client boundary — the exact bug this file exists to prevent,
+ * reintroduced by the one change the file could not see.
+ *
+ * A list that has to be kept in step with another file will eventually not be.
+ * So there is no list: the config is parsed, and anything it builds is covered
+ * automatically. A shape this script cannot parse is a hard error, because
+ * silently covering nothing is how the first version failed.
  */
-const ENTRIES = {
-  "src/entry.core.ts": "index",
-  "src/entry.react.ts": "react",
-  "src/entry.devtools.ts": "devtools",
-};
+function readTsupEntries() {
+  const configPath = path.join(ROOT, "tsup.config.ts");
+  const config = fs.readFileSync(configPath, "utf8");
+
+  const block = /entry:\s*\{([\s\S]*?)\}/.exec(config);
+  if (!block) {
+    console.error(
+      "✗ preserve-directives: could not find the `entry` map in tsup.config.ts. " +
+        "The config shape changed; update this parser rather than leaving it silent.",
+    );
+    process.exit(1);
+  }
+
+  const entries = {};
+  for (const [, base, src] of block[1].matchAll(
+    /([A-Za-z0-9_$]+)\s*:\s*["']([^"']+)["']/g,
+  )) {
+    entries[src] = base;
+  }
+
+  if (Object.keys(entries).length === 0) {
+    console.error(
+      "✗ preserve-directives: parsed tsup.config.ts's `entry` map and found no entries.",
+    );
+    process.exit(1);
+  }
+
+  return entries;
+}
+
+const ENTRIES = readTsupEntries();
 
 /** Matches a leading "use client" / 'use strict' style directive. */
 const DIRECTIVE_RE = /^\s*(["'])(use [a-z]+)\1\s*;?/;

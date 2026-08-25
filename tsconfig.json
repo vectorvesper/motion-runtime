@@ -14,5 +14,11 @@
     "noEmit": false
   },
   "include": ["src"],
-  "exclude": ["node_modules", "dist"]
+  // src/index.ts is the lab app's `@/motion` barrel, not part of the published
+  // package — it is not a tsup entry, and it re-exports premium components
+  // through the app's `@/*` aliases, which only exist in the root tsconfig.
+  // Checking it from here would mean either teaching the package about the
+  // app's paths or living with permanent phantom errors. The root tsconfig
+  // covers it with the aliases it actually needs.
+  "exclude": ["node_modules", "dist", "src/index.ts"]
 }
