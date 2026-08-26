@@ -68,7 +68,7 @@ describe("PressurePolicy — saying nothing", () => {
     const p = new PressurePolicy();
     const out = run(p, { frameMs: BUDGET, runtimeMs: 0.5, probeDelayMs: 1 });
 
-    expect(out!.offThreadMs).toBeGreaterThan(10);
+    expect(out!.unattributedMs).toBeGreaterThan(10);
     expect(out!.source).toBe("none");
   });
 });
@@ -112,7 +112,7 @@ describe("PressurePolicy — naming the cause", () => {
     });
 
     expect(out!.source).toBe("render");
-    expect(out!.offThreadMs).toBeGreaterThan(35);
+    expect(out!.unattributedMs).toBeGreaterThan(35);
   });
 
   it("is the case AnimationBudget alone gets wrong", () => {

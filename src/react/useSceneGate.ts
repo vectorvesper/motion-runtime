@@ -46,6 +46,24 @@ export interface UseSceneGateOptions {
   preload?: number;
 }
 
+/**
+ * Why the gate is in its current state, in one machine-readable word.
+ *
+ * Branch on this. `reason` is the same fact written for a human and is not
+ * stable enough to switch on, which up to 2.x the docs had to say out loud
+ * because there was nothing else to offer.
+ */
+export type SceneCause =
+  | "ok"
+  | "not-near"
+  | "waiting-for-headroom"
+  | "off-screen"
+  | "render-bound"
+  | "frame-rate"
+  | "device-floor"
+  | "reduced-motion"
+  | "context-lost";
+
 export interface SceneGate<T extends HTMLElement> {
   /** Attach to the element that holds the scene. */
   ref: RefObject<T | null>;
@@ -56,17 +74,26 @@ export interface SceneGate<T extends HTMLElement> {
    * paused, not torn down.
    */
   mounted: boolean;
-  /** How much scene to build. Only meaningful while `mounted`. */
-  quality: "full" | "reduced";
+  /**
+   * How much scene to build, or `null` when there is no scene.
+   *
+   * Up to 2.x this read `"reduced"` in `dormant` and `warming`, not because
+   * quality was reduced but because nothing was running, and the docs carried
+   * a rule telling you to check `mounted` first. A value that needs a rule to
+   * read correctly is a defect, so it is `null` when it does not apply.
+   */
+  quality: "full" | "reduced" | null;
   /**
    * Put this on the `<Canvas key>`. It changes when the graphics context is
    * lost, which is what makes React throw away the dead tree and build a
    * working one — the rebuild React is already good at.
    */
   generation: number;
+  /** Machine-readable counterpart to `reason`. Branch on this one. */
+  cause: SceneCause;
   /**
-   * Why it is in this state, in a sentence. Written for a support thread and
-   * a devtools row, not for a machine — do not branch on it.
+   * Why it is in this state, in a sentence. Written for a support thread and a
+   * devtools row. Branch on `cause` instead; this text is free to change.
    */
   reason: string;
 }
@@ -198,8 +225,7 @@ export function useSceneGate<T extends HTMLElement = HTMLDivElement>({
     tier: quality.tier,
     reducedMotion: quality.reducedMotion,
     deviceTier: quality.deviceTier,
-    pressure: pressure.source,
-    confidence: pressure.confidence,
+    qualityCause: quality.cause,
     contextLost: health.lost,
   });
 
@@ -224,17 +250,17 @@ export function useSceneGate<T extends HTMLElement = HTMLDivElement>({
   }, [state, verdict.state]);
 
   const reason = state === verdict.state ? verdict.reason : "recently reduced, holding steady";
+  const cause: SceneCause = state === verdict.state ? verdict.cause : "frame-rate";
+  const mounted =
+    state === "active" || state === "constrained" || state === "idle" || state === "recovering";
 
   return {
     ref,
     state,
-    mounted:
-      state === "active" ||
-      state === "constrained" ||
-      state === "idle" ||
-      state === "recovering",
+    mounted,
     generation: health.generation,
-    quality: state === "active" ? "full" : "reduced",
+    quality: mounted ? (state === "active" ? "full" : "reduced") : null,
+    cause,
     reason: label ? `${label}: ${reason}` : reason,
   };
 }
@@ -260,59 +286,59 @@ interface Inputs {
   started: boolean;
   /** Has the graphics context been taken away? */
   contextLost: boolean;
+  /**
+   * The FUSED tier from AdaptiveQuality, which since 3.0 already accounts for
+   * what is actually costing the frame. The gate used to read the classifier
+   * itself and apply the "only rendering is worth degrading for" rule here,
+   * which meant the rule was reachable from this hook and nowhere else.
+   */
   tier: 0 | 1 | 2;
   deviceTier: 0 | 1 | 2;
   reducedMotion: boolean;
-  pressure: string;
-  confidence: number;
+  /** Why the governor arrived at that tier, passed through for reporting. */
+  qualityCause: "ok" | "device" | "reduced-motion" | "render" | "frame-rate" | "held";
 }
 
 /** The decision, with no React in it, so it can be tested directly. */
-export function decide(i: Inputs): { state: SceneState; reason: string } {
+export function decide(i: Inputs): { state: SceneState; reason: string; cause: SceneCause } {
   // Both of these outrank position and timing: there is no point warming a
   // scene that is never going to be allowed to run.
   if (i.reducedMotion) {
-    return { state: "poster", reason: "reduced motion is turned on" };
+    return { state: "poster", reason: "reduced motion is turned on", cause: "reduced-motion" };
   }
   if (i.deviceTier === 2) {
-    return { state: "poster", reason: "this device cannot render it smoothly" };
+    return { state: "poster", reason: "this device cannot render it smoothly", cause: "device-floor" };
   }
 
   // A dead context outranks everything except never running at all. It is also
   // only meaningful for a scene that has actually started — a context lost
   // elsewhere on the page says nothing about one that was never built.
   if (i.started && i.contextLost) {
-    return { state: "recovering", reason: "the graphics context was lost, rebuilding" };
+    return { state: "recovering", reason: "the graphics context was lost, rebuilding", cause: "context-lost" };
   }
 
   if (!i.started) {
-    if (!i.near) return { state: "dormant", reason: "not near the viewport yet" };
-    if (!i.ready) return { state: "warming", reason: "waiting for a free moment" };
+    if (!i.near) return { state: "dormant", reason: "not near the viewport yet", cause: "not-near" };
+    if (!i.ready) return { state: "warming", reason: "waiting for a free moment", cause: "waiting-for-headroom" };
   } else if (!i.near) {
     // Alive but off screen. The renderer adapter stops the render loop here;
     // unmounting instead would throw away the WebGL context and every texture
     // on it, to save nothing.
-    return { state: "idle", reason: "scrolled off screen, paused" };
+    return { state: "idle", reason: "scrolled off screen, paused", cause: "off-screen" };
   }
 
-  // Only rendering pressure is worth reducing quality for. Main-thread
-  // pressure is somebody else's script, and a smaller scene does not unblock
-  // a blocked thread.
+  // One input now, where 2.x read three.
   //
-  // This is tested BEFORE the tier check, and the order is the whole point.
-  // Both produce `constrained`, so the decision is identical either way — but
-  // rendering being the bottleneck is what *causes* the frame rate to sag, so
-  // whenever this branch is true the tier branch is true as well. Testing tier
-  // first meant the specific diagnosis was never the one reported: a scene
-  // downgraded by render pressure always explained itself with the generic
-  // "the frame rate is not holding up", and the sentence written for this
-  // exact case was unreachable in practice.
-  if (i.pressure === "render" && i.confidence >= RENDER_CONFIDENCE_FLOOR) {
-    return { state: "constrained", reason: "rendering is the bottleneck" };
-  }
+  // The "only rendering is worth degrading for" rule used to live here, which
+  // meant it was reachable from this hook and nowhere else. It is in
+  // AdaptiveQuality now, so `tier` arrives already knowing whether reducing
+  // quality would help, and the governor tells us why so this can report it
+  // rather than re-derive it.
   if (i.tier === 1) {
-    return { state: "constrained", reason: "the frame rate is not holding up" };
+    return i.qualityCause === "render"
+      ? { state: "constrained", reason: "rendering is the bottleneck", cause: "render-bound" }
+      : { state: "constrained", reason: "the frame rate is not holding up", cause: "frame-rate" };
   }
 
-  return { state: "active", reason: "running at full quality" };
+  return { state: "active", reason: "running at full quality", cause: "ok" };
 }

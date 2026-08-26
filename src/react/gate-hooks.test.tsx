@@ -194,7 +194,7 @@ describe("useSafeToMount", () => {
 
     expect(safe).toBe(false);
     // And it must not have left the governor running to find that out.
-    expect(getConductor().getStats().subscribers).toHaveLength(0);
+    expect(getConductor().state.subscribers).toHaveLength(0);
   });
 
   it("lets a light mount through on hardware that blocks a heavy one", async () => {
@@ -234,10 +234,10 @@ describe("useSafeToMount", () => {
     await act(async () => {
       crankFrames(2);
     });
-    expect(getConductor().getStats().subscribers.length).toBeGreaterThan(0);
+    expect(getConductor().state.subscribers.length).toBeGreaterThan(0);
 
     view.unmount();
-    expect(getConductor().getStats().subscribers).toHaveLength(0);
+    expect(getConductor().state.subscribers).toHaveLength(0);
   });
 });
 

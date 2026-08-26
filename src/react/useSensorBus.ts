@@ -7,6 +7,22 @@ import { getSensorBus, type SensorBus } from "../core/sensor-bus/SensorBus";
  * A React hook that retains the unified `SensorBus` instance for the lifetime
  * of the component, automatically managing event-listener attachments and reference counting.
  *
+ * ### Why this one returns the bus and its siblings return state
+ *
+ * `useAdaptiveQuality`, `useAnimationBudget` and `useFramePressure` all hand
+ * back a state object directly, and the extra `.state` hop here looks like an
+ * oversight. It is load-bearing.
+ *
+ * Those three change rarely: a tier flips, pressure emits at about 2Hz, and
+ * re-rendering on that is cheap. Sensor state changes EVERY FRAME. Returning it
+ * from a hook would mean either a snapshot that is stale the moment you hold
+ * it, or a re-render per frame, which is the layout thrashing this whole
+ * runtime exists to prevent.
+ *
+ * So the bus is the return value and `.state` is read fresh inside the frame
+ * loop. This was queued for "consistency" in the 3.0 cleanup and reverted once
+ * the contract below was read. Please do not flatten it.
+ *
  * ### ⚡ Performance Optimization Contract
  * `useSensorBus` deliberately returns a **stable reference** to the bus object and **does not trigger React state re-renders**
  * when mouse moves, scroll offsets change, or window resizes. This is to avoid severe rendering bottlenecks (60 FPS layout thrashing).

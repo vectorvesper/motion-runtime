@@ -170,7 +170,7 @@ async function measure(arm, { count, ms }) {
   const stop = arm(dots);
   await sleep(ms);
 
-  const stats = getConductor().getStats();
+  const stats = getConductor().state;
   const lead = stats.subscribers.find((s) => s.label === "lead") ?? null;
   const shedTotal = stats.subscribers.reduce((n, s) => n + s.shed, 0);
 
@@ -263,7 +263,7 @@ export function deviceInfo() {
     memory: navigator.deviceMemory ?? null,
     dpr: devicePixelRatio,
     screen: `${screen.width}x${screen.height}`,
-    displayHz: getConductor().getStats().displayHz,
+    displayHz: getConductor().state.displayHz,
     tier: q.tier,
     deviceTier: q.deviceTier,
     reasons: q.reasons,

@@ -60,17 +60,17 @@ describe("SensorBus lifecycle", () => {
     const bus = await freshBus();
     const { getConductor } = await import("../conductor");
 
-    expect(getConductor().getStats().subscribers).toHaveLength(0);
+    expect(getConductor().state.subscribers).toHaveLength(0);
 
     const releaseA = bus.retain();
     const releaseB = bus.retain();
-    expect(getConductor().getStats().subscribers).toHaveLength(1);
+    expect(getConductor().state.subscribers).toHaveLength(1);
 
     releaseA();
-    expect(getConductor().getStats().subscribers).toHaveLength(1);
+    expect(getConductor().state.subscribers).toHaveLength(1);
 
     releaseB();
-    expect(getConductor().getStats().subscribers).toHaveLength(0);
+    expect(getConductor().state.subscribers).toHaveLength(0);
   });
 
   it("ignores a release called twice, so one consumer cannot stop another's sensors", async () => {
@@ -84,9 +84,9 @@ describe("SensorBus lifecycle", () => {
     releaseA();
     releaseA();
 
-    expect(getConductor().getStats().subscribers).toHaveLength(1);
+    expect(getConductor().state.subscribers).toHaveLength(1);
     releaseB();
-    expect(getConductor().getStats().subscribers).toHaveLength(0);
+    expect(getConductor().state.subscribers).toHaveLength(0);
   });
 
   it("subscribes as essential on the input lane", async () => {
@@ -94,7 +94,7 @@ describe("SensorBus lifecycle", () => {
     const { getConductor } = await import("../conductor");
 
     bus.retain();
-    const sub = getConductor().getStats().subscribers[0];
+    const sub = getConductor().state.subscribers[0];
 
     // Shedding the sensors would feed the whole page stale input.
     expect(sub.label).toBe("SensorBus");

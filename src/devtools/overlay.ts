@@ -279,7 +279,7 @@ export function mountDevtools(options: DevtoolsOptions = {}): () => void {
   });
 
   const paint = () => {
-    const stats = getConductor().getStats();
+    const stats = getConductor().state;
 
     headFps.textContent = `${Math.round(stats.fps)}fps`;
     dot.setAttribute("data-tier", String(budget.tier));

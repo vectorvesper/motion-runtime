@@ -17,10 +17,21 @@ const base = {
   tier: 0 as const,
   deviceTier: 0 as const,
   reducedMotion: false,
-  pressure: "none",
-  confidence: 1,
+  qualityCause: "ok" as const,
   contextLost: false,
 };
+
+/**
+ * Since 3.0 the gate reads the FUSED tier. The "only rendering is worth
+ * degrading for" rule moved into AdaptiveQuality, so the cases that used to be
+ * expressed here as pressure verdicts now live in `fuse()` and are tested in
+ * AdaptiveQuality.test.ts. What arrives here is the decision already made,
+ * plus the reason it was made, and the gate's job is to report it faithfully.
+ */
+const renderBound = { tier: 1 as const, qualityCause: "render" as const };
+const frameRate = { tier: 1 as const, qualityCause: "frame-rate" as const };
+/** The governor already refused to degrade, so the gate must not either. */
+const heldBack = { tier: 0 as const, qualityCause: "held" as const };
 
 describe("scene gate — before it can run at all", () => {
   it("shows a poster under reduced motion, wherever it is on the page", () => {
@@ -78,7 +89,7 @@ describe("scene gate — a lost graphics context", () => {
   it("outranks a quality problem", () => {
     // No point reducing detail on a canvas that is not drawing anything.
     const out = decide({
-      ...base, contextLost: true, tier: 1, pressure: "render", confidence: 1,
+      ...base, contextLost: true, ...renderBound,
     });
 
     expect(out.state).toBe("recovering");
@@ -115,7 +126,7 @@ describe("scene gate — while running", () => {
 
 describe("scene gate — responding to the right kind of slow", () => {
   it("reduces quality when rendering is the bottleneck", () => {
-    const out = decide({ ...base, pressure: "render", confidence: 0.6 });
+    const out = decide({ ...base, ...renderBound });
 
     expect(out.state).toBe("constrained");
     expect(out.reason).toMatch(/rendering/);
@@ -127,21 +138,21 @@ describe("scene gate — responding to the right kind of slow", () => {
     // true together — nearly always. With the tier tested first, the specific
     // reason was unreachable and every render-bound scene reported the generic
     // one instead.
-    const out = decide({ ...base, tier: 1, pressure: "render", confidence: 0.6 });
+    const out = decide({ ...base, ...renderBound });
 
     expect(out.state).toBe("constrained");
     expect(out.reason).toMatch(/rendering/);
   });
 
   it("blames the frame rate when there is no render verdict to blame", () => {
-    const out = decide({ ...base, tier: 1, pressure: "none", confidence: 0 });
+    const out = decide({ ...base, ...frameRate });
 
     expect(out.state).toBe("constrained");
     expect(out.reason).toMatch(/frame rate/);
   });
 
   it("does NOT reduce quality when someone else is blocking the main thread", () => {
-    const out = decide({ ...base, pressure: "main-thread", confidence: 1 });
+    const out = decide({ ...base, ...heldBack });
 
     // A smaller scene does not unblock a blocked thread. Degrading here makes
     // the page uglier and exactly as slow, which is the whole reason the
@@ -152,28 +163,28 @@ describe("scene gate — responding to the right kind of slow", () => {
   it("does not reduce quality when our own work is the cause", () => {
     // The conductor's own shedding is the response to this. Rebuilding the
     // scene smaller would be a second, slower answer to a solved problem.
-    expect(decide({ ...base, pressure: "runtime", confidence: 1 }).state).toBe("active");
+    expect(decide({ ...base, ...heldBack }).state).toBe("active");
   });
 
   it("ignores a render verdict it is not confident about", () => {
     // A realistic heavy scene measures about 0.52 in a real browser, and a
     // bare long-task hint is 0.3. Acting on the latter would be a guess.
-    const weak = decide({ ...base, pressure: "render", confidence: 0.3 });
-    const real = decide({ ...base, pressure: "render", confidence: 0.52 });
+    const weak = decide({ ...base, ...heldBack });
+    const real = decide({ ...base, ...renderBound });
 
     expect(weak.state).toBe("active");
     expect(real.state).toBe("constrained");
   });
 
   it("does nothing on an unknown verdict", () => {
-    expect(decide({ ...base, pressure: "unknown", confidence: 0 }).state).toBe("active");
+    expect(decide({ ...base }).state).toBe("active");
   });
 });
 
 describe("scene gate — ordering of the rules", () => {
   it("prefers a poster over reducing, on a device that cannot cope", () => {
     const out = decide({
-      ...base, deviceTier: 2, tier: 2, pressure: "render", confidence: 1,
+      ...base, deviceTier: 2, tier: 2, qualityCause: "device",
     });
 
     expect(out.state).toBe("poster");
@@ -181,7 +192,7 @@ describe("scene gate — ordering of the rules", () => {
 
   it("does not report render pressure while it is still warming", () => {
     const out = decide({
-      ...base, started: false, ready: false, pressure: "render", confidence: 1,
+      ...base, started: false, ready: false, ...renderBound,
     });
 
     // Nothing is rendering yet, so whatever is loading the frame is not us.
@@ -196,7 +207,7 @@ describe("scene gate — ordering of the rules", () => {
       decide({ ...base, started: false, ready: false }),
       decide({ ...base, near: false }),
       decide({ ...base, tier: 1 }),
-      decide({ ...base, pressure: "render", confidence: 0.9 }),
+      decide({ ...base, ...renderBound }),
       decide(base),
     ];
 
@@ -205,5 +216,26 @@ describe("scene gate — ordering of the rules", () => {
       // A reason a support thread can read, not a code.
       expect(s.reason).not.toMatch(/[_A-Z]{3,}/);
     }
+  });
+});
+
+describe("scene gate — cause is the field you branch on", () => {
+  it("names every state it can reach", () => {
+    expect(decide({ ...base }).cause).toBe("ok");
+    expect(decide({ ...base, reducedMotion: true }).cause).toBe("reduced-motion");
+    expect(decide({ ...base, deviceTier: 2, tier: 2 }).cause).toBe("device-floor");
+    expect(decide({ ...base, started: true, contextLost: true }).cause).toBe("context-lost");
+    expect(decide({ ...base, started: false, near: false }).cause).toBe("not-near");
+    expect(decide({ ...base, started: false, ready: false }).cause).toBe("waiting-for-headroom");
+    expect(decide({ ...base, near: false }).cause).toBe("off-screen");
+    expect(decide({ ...base, ...renderBound }).cause).toBe("render-bound");
+    expect(decide({ ...base, ...frameRate }).cause).toBe("frame-rate");
+  });
+
+  it("distinguishes the two ways of arriving at constrained", () => {
+    // Both read "constrained". Only cause says which, and up to 2.x the
+    // generic one always won because tier was tested before pressure.
+    expect(decide({ ...base, ...renderBound }).cause).toBe("render-bound");
+    expect(decide({ ...base, ...frameRate }).cause).toBe("frame-rate");
   });
 });

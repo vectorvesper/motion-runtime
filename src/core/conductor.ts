@@ -456,10 +456,13 @@ class FrameConductor {
   }
 
   /**
-   * A snapshot for devtools and HUDs. Allocates — call it at a human refresh
-   * rate (a few times a second), never inside a frame loop.
+   * A snapshot for devtools and HUDs. Allocates, so call it at a human refresh
+   * rate (a few times a second) and never inside a frame loop.
+   *
+   * Named `state` since 3.0 to match the other five singletons. This was the
+   * only one exposing a method, and it is the one people reach for most.
    */
-  getStats(): ConductorStats {
+  get state(): ConductorStats {
     const subscribers: SubscriberStat[] = [];
     for (const lane of LANE_ORDER) {
       for (const s of this.lanes[lane]) {

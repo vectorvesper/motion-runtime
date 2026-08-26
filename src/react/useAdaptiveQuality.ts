@@ -11,12 +11,13 @@ const INITIAL: AdaptiveState = {
   label: "high",
   deviceTier: 0,
   budgetTier: 0,
+  cause: "ok",
   reasons: [],
   reducedMotion: false,
 };
 
 /**
- * The complete quality signal — device floor fused with the live budget.
+ * The complete quality signal: device floor, live budget, and what is
  *
  *   const quality = useAdaptiveQuality();
  *   {quality.tier === 0 && <VolumetricLayer />}

@@ -76,10 +76,10 @@ describe("useFramePressure", () => {
     await act(async () => crankFrames(2));
     // It only measures while something is subscribed — reading `.state`
     // without holding it open shows a permanently healthy page.
-    expect(getConductor().getStats().subscribers.length).toBeGreaterThan(0);
+    expect(getConductor().state.subscribers.length).toBeGreaterThan(0);
 
     view.unmount();
-    expect(getConductor().getStats().subscribers).toHaveLength(0);
+    expect(getConductor().state.subscribers).toHaveLength(0);
   });
 
   it("shares one classifier between consumers", async () => {
@@ -99,17 +99,17 @@ describe("useFramePressure", () => {
     // The probe posts a task and the classifier reads the clock. Doing that
     // once per consumer would be measuring a cost it was creating.
     const mine = getConductor()
-      .getStats()
+      .state
       .subscribers.filter((s) => s.label === "FramePressure");
     expect(mine).toHaveLength(1);
 
     a.unmount();
     expect(
-      getConductor().getStats().subscribers.filter((s) => s.label === "FramePressure"),
+      getConductor().state.subscribers.filter((s) => s.label === "FramePressure"),
     ).toHaveLength(1);
 
     b.unmount();
-    expect(getConductor().getStats().subscribers).toHaveLength(0);
+    expect(getConductor().state.subscribers).toHaveLength(0);
   });
 
   it("measures as essential, so it does not go quiet under load", async () => {
@@ -126,7 +126,7 @@ describe("useFramePressure", () => {
     await act(async () => crankFrames(2));
 
     const me = getConductor()
-      .getStats()
+      .state
       .subscribers.find((s) => s.label === "FramePressure");
 
     // A classifier that gets shed exactly when the page is struggling would

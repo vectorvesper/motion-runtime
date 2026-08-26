@@ -177,7 +177,7 @@ describe("useSceneGate — letting go", () => {
 
     view.unmount();
     expect(observers.every((o) => o.disconnected)).toBe(true);
-    expect(getConductor().getStats().subscribers).toHaveLength(0);
+    expect(getConductor().state.subscribers).toHaveLength(0);
   });
 });
 

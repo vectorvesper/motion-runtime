@@ -16,8 +16,15 @@ export interface UseVideoScrubberReturn<TTrack extends HTMLElement> {
   /**
    * Ref to attach to the element whose scroll geometry or pointer boundaries drive the progress.
    * Defaults to the video's parent element if not specified.
+   *
+   * Named `ref` since 3.0. Every other effect hook hands back its primary
+   * element as `ref`, and this was the one shape you could not guess from
+   * having used another. The remaining three keep their `Ref` suffix because
+   * they genuinely are refs: reading progress through a ref rather than state
+   * is the same frame-accurate, no-re-render contract as usePointerIntent's
+   * confidenceRef.
    */
-  trackRef: RefObject<TTrack | null>;
+  ref: RefObject<TTrack | null>;
   /**
    * Ref containing the smoothed progress (0 to 1). Updated frame-accurately in the background
    * WITHOUT triggering component re-renders. Read from this inside loop callbacks.
@@ -111,5 +118,5 @@ export function useVideoScrubber<TTrack extends HTMLElement = HTMLDivElement>(
     scrubberRef.current?.update({ speed, mapping, pointerAxis });
   }, [speed, mapping, pointerAxis]);
 
-  return { videoRef, trackRef, progressRef, scrubberRef };
+  return { videoRef, ref: trackRef, progressRef, scrubberRef };
 }

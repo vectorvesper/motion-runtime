@@ -69,10 +69,10 @@ describe("useSensorBus", () => {
     }
 
     const view = render(<Consumer />);
-    expect(getConductor().getStats().subscribers).toHaveLength(1);
+    expect(getConductor().state.subscribers).toHaveLength(1);
 
     view.unmount();
-    expect(getConductor().getStats().subscribers).toHaveLength(0);
+    expect(getConductor().state.subscribers).toHaveLength(0);
   });
 
   it("keeps the sensors up while any consumer is still mounted", async () => {
@@ -88,12 +88,12 @@ describe("useSensorBus", () => {
     const a = render(<Consumer />);
     const b = render(<Consumer />);
     // Ref-counted, so one set of listeners serves both.
-    expect(getConductor().getStats().subscribers).toHaveLength(1);
+    expect(getConductor().state.subscribers).toHaveLength(1);
 
     a.unmount();
-    expect(getConductor().getStats().subscribers).toHaveLength(1);
+    expect(getConductor().state.subscribers).toHaveLength(1);
     b.unmount();
-    expect(getConductor().getStats().subscribers).toHaveLength(0);
+    expect(getConductor().state.subscribers).toHaveLength(0);
   });
 
   it("survives the StrictMode double mount without leaking a retain", async () => {
@@ -111,12 +111,12 @@ describe("useSensorBus", () => {
         <Consumer />
       </StrictMode>,
     );
-    expect(getConductor().getStats().subscribers).toHaveLength(1);
+    expect(getConductor().state.subscribers).toHaveLength(1);
 
     // A leaked retain leaves the sensors running with nothing consuming them,
     // which stays invisible until something profiles the loop.
     view.unmount();
-    expect(getConductor().getStats().subscribers).toHaveLength(0);
+    expect(getConductor().state.subscribers).toHaveLength(0);
   });
 });
 
@@ -148,10 +148,10 @@ describe("useAnimationBudget", () => {
     }
 
     const view = render(<Consumer />);
-    expect(getConductor().getStats().subscribers.length).toBeGreaterThan(0);
+    expect(getConductor().state.subscribers.length).toBeGreaterThan(0);
 
     view.unmount();
-    expect(getConductor().getStats().subscribers).toHaveLength(0);
+    expect(getConductor().state.subscribers).toHaveLength(0);
   });
 });
 
@@ -206,6 +206,6 @@ describe("useAdaptiveQuality", () => {
 
     const view = render(<Consumer />);
     view.unmount();
-    expect(getConductor().getStats().subscribers).toHaveLength(0);
+    expect(getConductor().state.subscribers).toHaveLength(0);
   });
 });

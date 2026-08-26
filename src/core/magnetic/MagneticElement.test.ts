@@ -95,7 +95,7 @@ describe("MagneticElement — lifecycle", () => {
 
     const magnet = new MagneticElement(el);
     crankFrames(2);
-    const labels = getConductor().getStats().subscribers.map((s) => s.label);
+    const labels = getConductor().state.subscribers.map((s) => s.label);
 
     // Reads on input, writes on render. Doing both in one pass is what makes
     // ten of these on a page thrash layout.
@@ -103,7 +103,7 @@ describe("MagneticElement — lifecycle", () => {
     expect(labels).toContain("MagneticElement");
 
     magnet.destroy();
-    expect(getConductor().getStats().subscribers).toHaveLength(0);
+    expect(getConductor().state.subscribers).toHaveLength(0);
   });
 
   it("survives being destroyed twice", async () => {
@@ -122,10 +122,10 @@ describe("MagneticElement — lifecycle", () => {
 
     a.destroy();
     // Ref-counted, so one of two letting go must not stop the sensors.
-    expect(getConductor().getStats().subscribers.length).toBeGreaterThan(0);
+    expect(getConductor().state.subscribers.length).toBeGreaterThan(0);
 
     b.destroy();
-    expect(getConductor().getStats().subscribers).toHaveLength(0);
+    expect(getConductor().state.subscribers).toHaveLength(0);
   });
 });
 
@@ -135,12 +135,12 @@ describe("MagneticElement — anticipation", () => {
     const magnet = new MagneticElement(target());
     crankFrames(2);
 
-    const count = getConductor().getStats().subscribers.length;
+    const count = getConductor().state.subscribers.length;
     magnet.destroy();
 
     const bare = new MagneticElement(target(), { anticipate: false });
     crankFrames(2);
-    const bareCount = getConductor().getStats().subscribers.length;
+    const bareCount = getConductor().state.subscribers.length;
     bare.destroy();
 
     // The detector is its own subscriber, so turning it off costs less.
@@ -151,19 +151,19 @@ describe("MagneticElement — anticipation", () => {
     const { MagneticElement, getConductor } = await fresh();
     const magnet = new MagneticElement(target(), { anticipate: false });
     crankFrames(2);
-    const off = getConductor().getStats().subscribers.length;
+    const off = getConductor().state.subscribers.length;
 
     // This used to be read only in the constructor, so changing it later
     // silently did nothing.
     magnet.update({ anticipate: true });
     crankFrames(2);
-    expect(getConductor().getStats().subscribers.length).toBeGreaterThan(off);
+    expect(getConductor().state.subscribers.length).toBeGreaterThan(off);
 
     magnet.update({ anticipate: false });
     crankFrames(2);
-    expect(getConductor().getStats().subscribers.length).toBe(off);
+    expect(getConductor().state.subscribers.length).toBe(off);
 
     magnet.destroy();
-    expect(getConductor().getStats().subscribers).toHaveLength(0);
+    expect(getConductor().state.subscribers).toHaveLength(0);
   });
 });

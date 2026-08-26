@@ -12,18 +12,18 @@ import { getConductor } from "../conductor";
  *
  * One frame is split three ways:
  *
- *     frameMs = runtimeMs + mainOtherMs + offThreadMs
+ *     frameMs = runtimeMs + mainOtherMs + unattributedMs
  *
  * - `runtimeMs`   — our own subscribers. The conductor already measures this,
  *                   because it has to read the clock between subscribers
  *                   anyway to know how much of the frame is left.
  * - `mainOtherMs` — main-thread work that is not ours, on both sides of our
  *                   tick: another library's rAF loop, style, layout, paint.
- * - `offThreadMs` — the remainder. Compositing, the GPU, and on a healthy
+ * - `unattributedMs` — the remainder. Compositing, the GPU, and on a healthy
  *                   page, simply waiting for the next vsync.
  *
  * That last point is why this only classifies when a frame is over budget. On
- * a page hitting 60fps, `offThreadMs` is mostly idle, and reading idle as
+ * a page hitting 60fps, `unattributedMs` is mostly idle, and reading idle as
  * "render pressure" would be worse than saying nothing.
  *
  * ## How the main-thread share is measured
@@ -41,7 +41,7 @@ import { getConductor } from "../conductor";
  * **Before us:** `ConductorStats.preRuntimeMs`. Every rAF callback in a frame
  * receives the same start timestamp, so the gap between it and the moment our
  * tick runs is whatever ran first. Without this, a third-party loop registered
- * ahead of ours is invisible to the probe and lands in `offThreadMs` — which
+ * ahead of ours is invisible to the probe and lands in `unattributedMs` — which
  * made a pure main-thread load report as `"render"` at 97% confidence on the
  * first real-browser run.
  *
@@ -63,12 +63,12 @@ import { getConductor } from "../conductor";
  *
  * **The decomposition is serial; the pipeline is not.** Frame time is closer to
  * the longer of the CPU and GPU paths than to their sum, so when the main
- * thread is the bottleneck, GPU time hides inside it and `offThreadMs` shrinks.
+ * thread is the bottleneck, GPU time hides inside it and `unattributedMs` shrinks.
  * Measured under 6x CPU throttling, a GPU load that read as `"render"` at
  * normal speed correctly read as `"main-thread"` — the CPU could no longer feed
  * the GPU fast enough, so the CPU genuinely was the bottleneck. The verdict
  * stays actionable, because the answer in that case really is "fix the main
- * thread, do not reduce quality". But do not read `offThreadMs` as a measure of
+ * thread, do not reduce quality". But do not read `unattributedMs` as a measure of
  * how much GPU work exists; it measures how much of the frame the GPU was the
  * thing being waited on.
  *
@@ -107,7 +107,7 @@ export interface PressureState {
    */
   mainOtherMs: number | null;
   /** Smoothed remainder — compositing, GPU, and vsync wait, ms. */
-  offThreadMs: number;
+  unattributedMs: number;
   /** One presented frame at the detected display rate, ms. */
   budgetMs: number;
   /** Long tasks seen since the last emit. */
@@ -220,7 +220,7 @@ export class PressurePolicy {
       frameMs: this.frameEma,
       runtimeMs: this.runtimeEma,
       mainOtherMs: other,
-      offThreadMs: off,
+      unattributedMs: off,
       budgetMs: this.budgetMs,
       longTasks: this.longTasks,
     };
@@ -286,7 +286,7 @@ export class PressurePolicy {
   }
 
   private classify(): void {
-    // Healthy frames are not a mystery worth solving. `offThreadMs` on a page
+    // Healthy frames are not a mystery worth solving. `unattributedMs` on a page
     // hitting its target is mostly waiting for vsync, and reading idle time as
     // render pressure would be worse than saying nothing.
     if (this.frameEma <= this.budgetMs * SLOW_FACTOR) {
@@ -431,7 +431,7 @@ class FramePressure {
 
   private frame = (): void => {
     const conductor = getConductor();
-    const stats = conductor.getStats();
+    const stats = conductor.state;
 
     const longTasks = this.longTasksSinceFrame;
     this.longTasksSinceFrame = 0;

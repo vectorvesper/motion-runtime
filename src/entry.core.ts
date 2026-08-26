@@ -9,10 +9,13 @@
  * The whole public core API. It is small on purpose: four singleton getters,
  * a few pure helpers, and the types you need to use them.
  *
- * The classes behind those singletons (PointerIntent, MagneticElement,
- * VideoScrubber, SensorBus, BudgetPolicy) are not exported. Use the React
- * hooks instead. They handle setup and teardown for you. Refresh-rate
- * detection and the device-tier heuristic are internal.
+ * The three effect engines (PointerIntent, MagneticElement, VideoScrubber)
+ * ARE exported as of 3.0. Prefer the React hooks, which handle setup and
+ * teardown for you; reach for the classes when there is no React, which is the
+ * case this entry has advertised support for since 1.0 while shipping no way to
+ * act on it. SensorBus and BudgetPolicy stay internal because you get their
+ * instances from a getter. Refresh-rate detection and the device-tier
+ * heuristic are internal.
  *
  * This surface can still change while 2.0 is in progress. Once 2.0 ships,
  * removing anything from it is a breaking change. `scripts/check-api.mjs`
@@ -89,3 +92,25 @@ export type {
   PressureState,
   PressureSource,
 } from "./core/frame-pressure/FramePressure";
+
+// ── Effect engines ──────────────────────────────────────────────────
+// New in 3.0. The README has claimed vanilla / Vue / Svelte support since 1.0,
+// and until now a non-React consumer got the conductor, the sensors, the
+// governors and the maths, and could not use a single effect: these classes
+// were internal while their option types were public, so you could name the
+// options and not construct the thing.
+export { PointerIntent } from "./core/pointer-intent/PointerIntent";
+export { MagneticElement } from "./core/magnetic/MagneticElement";
+export { VideoScrubber, VIDEO_SCRUBBER_DEFAULTS, scrollProgress } from "./core/video-scrubber/VideoScrubber";
+export type {
+  PointerIntentOptions,
+  PointerIntentSensitivity,
+  PointerIntentTuning,
+} from "./core/pointer-intent/PointerIntent";
+export { POINTER_INTENT_SENSITIVITY } from "./core/pointer-intent/PointerIntent";
+export type { MagneticOptions } from "./core/magnetic/MagneticElement";
+export type {
+  VideoScrubberOptions,
+  ScrubDriver,
+  ScrubMapping,
+} from "./core/video-scrubber/VideoScrubber";

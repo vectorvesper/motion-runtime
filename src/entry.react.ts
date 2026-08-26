@@ -59,8 +59,11 @@ import {
   getAdaptiveQuality as _getAdaptiveQuality,
   getAnimationBudget as _getAnimationBudget,
   getConductor as _getConductor,
+  getFramePressure as _getFramePressure,
+  getRendererHealth as _getRendererHealth,
   getSensorBus as _getSensorBus,
   rayRectIntersect as _rayRectIntersect,
+  POINTER_INTENT_SENSITIVITY as _POINTER_INTENT_SENSITIVITY,
 } from "./entry.core";
 
 export const VERSION = _VERSION;
@@ -71,6 +74,14 @@ export const getAnimationBudget = _getAnimationBudget;
 export const getConductor = _getConductor;
 export const getSensorBus = _getSensorBus;
 export const rayRectIntersect = _rayRectIntersect;
+// Closing two of the three gaps 2.x left here. A React app importing
+// everything else from this entry had to reach into the core entry for these,
+// and only these.
+export const getFramePressure = _getFramePressure;
+export const getRendererHealth = _getRendererHealth;
+// Read-only view of what each sensitivity band resolves to, for anything that
+// has to explain a preset rather than just use one.
+export const POINTER_INTENT_SENSITIVITY = _POINTER_INTENT_SENSITIVITY;
 
 export { useSensorBus } from "./react/useSensorBus";
 export { useAnimationBudget } from "./react/useAnimationBudget";
@@ -96,3 +107,29 @@ export {
   type SceneGate,
   type SceneState,
 } from "./react/useSceneGate";
+
+// ── Effects ─────────────────────────────────────────────────────────
+// Merged back from "./effects" in 3.0. The split was argued as "the entries
+// match the layers", and the layering was real, but an entry has to earn its
+// place by protecting the consumer from a dependency they do not have.
+// `sideEffects: false` already tree-shakes an unused hook, so this one
+// protected nobody from anything, and both of our own apps immediately wrote
+// the same shim collapsing it back.
+//
+// These forward from ./effects/*, which after the merge belong to this entry
+// alone, so tsup inlines them rather than emitting the chunk-forwarding shape
+// Framer rejects. The core OPTION types they reference deliberately stay on
+// the core entry, for the same reason core types are not mirrored here.
+export { useMagneticIntent } from "./effects/useMagneticIntent";
+export {
+  usePointerIntent,
+  type UsePointerIntentOptions,
+  type UsePointerIntentReturn,
+} from "./effects/usePointerIntent";
+export { useImageTrail, type UseImageTrailOptions } from "./effects/useImageTrail";
+export { useNumberTicker, type UseNumberTickerOptions } from "./effects/useNumberTicker";
+export {
+  useVideoScrubber,
+  type UseVideoScrubberOptions,
+  type UseVideoScrubberReturn,
+} from "./effects/useVideoScrubber";

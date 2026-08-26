@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { deviceTierFromSignals, type DeviceSignals } from "./AdaptiveQuality";
+import { deviceTierFromSignals, fuse, type DeviceSignals } from "./AdaptiveQuality";
 
 const capable: DeviceSignals = {
   webgl2: true,
@@ -58,5 +58,73 @@ describe("deviceTierFromSignals", () => {
       cores: null,
     });
     expect(tier).toBe(0);
+  });
+});
+
+/**
+ * The rule the whole runtime is built around.
+ *
+ * Up to 2.x it lived inside useSceneGate, so the twenty-one components reading
+ * the governor directly got `max(deviceTier, budgetTier)` and degraded whenever
+ * the frame rate sagged, including when the cause was a third-party script.
+ * These tests exist because the fusion landed with 250 tests green and none of
+ * them noticed, which is the same coverage shape that let useSceneGate ship
+ * broken in 2.0.0.
+ */
+describe("fuse: would reducing quality actually help", () => {
+  const quiet = { source: "none" as const, confidence: 1 };
+
+  it("leaves a healthy page alone", () => {
+    expect(fuse(0, 0, false, quiet)).toEqual({ effective: 0, cause: "ok" });
+  });
+
+  it("treats reduced motion as an absolute floor", () => {
+    expect(fuse(0, 0, true, quiet)).toEqual({ effective: 2, cause: "reduced-motion" });
+  });
+
+  it("treats a weak device as a floor no measurement can lift", () => {
+    const out = fuse(2, 0, false, { source: "render", confidence: 1 });
+    expect(out).toEqual({ effective: 2, cause: "device" });
+  });
+
+  it("degrades when rendering is confidently the bottleneck", () => {
+    const out = fuse(0, 1, false, { source: "render", confidence: 0.6 });
+    expect(out).toEqual({ effective: 1, cause: "render" });
+  });
+
+  it("REFUSES to degrade for a blocked main thread", () => {
+    // The headline of 3.0. A smaller scene does not unblock a blocked thread,
+    // so the budget tier is overruled and the refusal is reported.
+    const out = fuse(0, 1, false, { source: "main-thread", confidence: 1 });
+    expect(out).toEqual({ effective: 0, cause: "held" });
+  });
+
+  it("refuses for our own runtime work too, since shedding already answers it", () => {
+    const out = fuse(0, 1, false, { source: "runtime", confidence: 1 });
+    expect(out).toEqual({ effective: 0, cause: "held" });
+  });
+
+  it("trusts the frame rate when the classifier has no verdict", () => {
+    // Silence from the classifier means the frame is under its attribution
+    // line, not that nothing is wrong. Between roughly 54 and 48fps this is
+    // the only signal there is.
+    const out = fuse(0, 1, false, { source: "none", confidence: 1 });
+    expect(out).toEqual({ effective: 1, cause: "frame-rate" });
+  });
+
+  it("trusts the frame rate when a blaming verdict is not confident enough", () => {
+    // A coin-flip main-thread guess must not stop a real degradation.
+    const out = fuse(0, 1, false, { source: "main-thread", confidence: 0.2 });
+    expect(out).toEqual({ effective: 1, cause: "frame-rate" });
+  });
+
+  it("ignores a render verdict it is not confident about", () => {
+    const out = fuse(0, 0, false, { source: "render", confidence: 0.2 });
+    expect(out).toEqual({ effective: 0, cause: "ok" });
+  });
+
+  it("keeps the device floor when the budget is healthier than the device", () => {
+    const out = fuse(1, 0, false, quiet);
+    expect(out).toEqual({ effective: 1, cause: "device" });
   });
 });

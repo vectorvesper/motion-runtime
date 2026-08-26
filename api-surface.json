@@ -1,8 +1,13 @@
 {
   ".": {
     "values": [
+      "MagneticElement",
+      "POINTER_INTENT_SENSITIVITY",
+      "PointerIntent",
       "SensorBus",
       "VERSION",
+      "VIDEO_SCRUBBER_DEFAULTS",
+      "VideoScrubber",
       "clamp01",
       "damp",
       "getAdaptiveQuality",
@@ -11,7 +16,8 @@
       "getFramePressure",
       "getRendererHealth",
       "getSensorBus",
-      "rayRectIntersect"
+      "rayRectIntersect",
+      "scrollProgress"
     ],
     "types": [
       "AdaptiveState",
@@ -22,16 +28,23 @@
       "ConductorStats",
       "DeviceSignals",
       "FrameFn",
+      "MagneticOptions",
+      "PointerIntentOptions",
+      "PointerIntentSensitivity",
+      "PointerIntentTuning",
       "PointerSensor",
       "PressureSource",
       "PressureState",
       "RectLike",
       "RendererHealthState",
       "ScrollSensor",
+      "ScrubDriver",
+      "ScrubMapping",
       "SensorState",
       "SubscribeOptions",
       "SubscriberPriority",
       "SubscriberStat",
+      "VideoScrubberOptions",
       "ViewportSensor"
     ],
     "shapes": {
@@ -121,6 +134,7 @@
         "heritage": "",
         "members": [
           "budgetTier: BudgetTier",
+          "cause: \"ok\" | \"device\" | \"reduced-motion\" | \"render\" | \"frame-rate\" | \"held\"",
           "deviceTier: BudgetTier",
           "label: \"high\" | \"medium\" | \"low\"",
           "reasons: string[]",
@@ -159,6 +173,73 @@
           "webgl2: boolean"
         ]
       },
+      "MagneticElement": {
+        "kind": "object",
+        "isType": false,
+        "heritage": "",
+        "members": [
+          "constructor(el: HTMLElement, options?: MagneticOptions)",
+          "destroy(): void",
+          "readonly el: HTMLElement",
+          "update(options: MagneticOptions): void"
+        ]
+      },
+      "MagneticOptions": {
+        "kind": "object",
+        "isType": true,
+        "heritage": "",
+        "members": [
+          "anticipate?: boolean",
+          "reach?: number",
+          "scale?: number",
+          "speed?: number",
+          "strength?: number"
+        ]
+      },
+      "POINTER_INTENT_SENSITIVITY": {
+        "kind": "value",
+        "isType": false,
+        "type": "Readonly<Record<PointerIntentSensitivity, PointerIntentTuning>>"
+      },
+      "PointerIntent": {
+        "kind": "object",
+        "isType": false,
+        "heritage": "",
+        "members": [
+          "constructor(el: HTMLElement, options?: PointerIntentOptions, onChange?: (intent: boolean) => void)",
+          "destroy(): void",
+          "get confidence(): number",
+          "get intent(): boolean",
+          "readonly el: HTMLElement",
+          "update(options: PointerIntentOptions): void"
+        ]
+      },
+      "PointerIntentOptions": {
+        "kind": "object",
+        "isType": true,
+        "heritage": "",
+        "members": [
+          "dynamic?: boolean",
+          "sensitivity?: PointerIntentSensitivity"
+        ]
+      },
+      "PointerIntentSensitivity": {
+        "kind": "alias",
+        "isType": true,
+        "type": "\"low\" | \"normal\" | \"high\""
+      },
+      "PointerIntentTuning": {
+        "kind": "object",
+        "isType": true,
+        "heritage": "",
+        "members": [
+          "readonly enter: number",
+          "readonly exit: number",
+          "readonly extend: number",
+          "readonly horizon: number",
+          "readonly minSpeed: number"
+        ]
+      },
       "PointerSensor": {
         "kind": "object",
         "isType": true,
@@ -188,9 +269,9 @@
           "frameMs: number",
           "longTasks: number",
           "mainOtherMs: number | null",
-          "offThreadMs: number",
           "runtimeMs: number",
-          "source: PressureSource"
+          "source: PressureSource",
+          "unattributedMs: number"
         ]
       },
       "RectLike": {
@@ -204,6 +285,16 @@
           "top: number"
         ]
       },
+      "RendererHealthState": {
+        "kind": "object",
+        "isType": true,
+        "heritage": "",
+        "members": [
+          "generation: number",
+          "lastLostAt: number | null",
+          "lost: boolean"
+        ]
+      },
       "ScrollSensor": {
         "kind": "object",
         "isType": true,
@@ -214,6 +305,16 @@
           "x: number",
           "y: number"
         ]
+      },
+      "ScrubDriver": {
+        "kind": "alias",
+        "isType": true,
+        "type": "\"scroll\" | \"pointer\" | \"manual\""
+      },
+      "ScrubMapping": {
+        "kind": "alias",
+        "isType": true,
+        "type": "\"auto\" | \"pin\" | \"cross\""
       },
       "SensorBus": {
         "kind": "object",
@@ -232,6 +333,39 @@
           "pointer: PointerSensor",
           "scroll: ScrollSensor",
           "viewport: ViewportSensor"
+        ]
+      },
+      "VIDEO_SCRUBBER_DEFAULTS": {
+        "kind": "value",
+        "isType": false,
+        "type": "{ readonly driver: \"scroll\"; readonly mapping: \"auto\"; readonly speed: 8; readonly pointerAxis: \"x\"; }"
+      },
+      "VideoScrubber": {
+        "kind": "object",
+        "isType": false,
+        "heritage": "",
+        "members": [
+          "constructor(video: HTMLVideoElement, options?: VideoScrubberOptions)",
+          "destroy(): void",
+          "get progress(): number",
+          "get targetProgress(): number",
+          "readonly track: HTMLElement",
+          "readonly video: HTMLVideoElement",
+          "set(progress: number): void",
+          "update(options: Pick<VideoScrubberOptions, \"speed\" | \"mapping\" | \"pointerAxis\" | \"onProgress\">): void"
+        ]
+      },
+      "VideoScrubberOptions": {
+        "kind": "object",
+        "isType": true,
+        "heritage": "",
+        "members": [
+          "driver?: ScrubDriver",
+          "mapping?: ScrubMapping",
+          "onProgress?: (progress: number, time: number) => void",
+          "pointerAxis?: \"x\" | \"y\"",
+          "speed?: number",
+          "track?: HTMLElement"
         ]
       },
       "ViewportSensor": {
@@ -286,6 +420,13 @@
         "params": [],
         "returns": "FramePressure"
       },
+      "getRendererHealth": {
+        "kind": "function",
+        "isType": false,
+        "generics": [],
+        "params": [],
+        "returns": "RendererHealth"
+      },
       "getSensorBus": {
         "kind": "function",
         "isType": false,
@@ -306,33 +447,29 @@
         ],
         "returns": "number | null"
       },
-      "RendererHealthState": {
-        "kind": "object",
-        "isType": true,
-        "heritage": "",
-        "members": [
-          "generation: number",
-          "lastLostAt: number | null",
-          "lost: boolean"
-        ]
+      "scrollProgress": {
+        "kind": "function",
+        "isType": false,
+        "generics": [],
+        "params": [
+          "top: number",
+          "height: number",
+          "viewportHeight: number",
+          "mapping: ScrubMapping"
+        ],
+        "returns": "number"
       },
       "VERSION": {
         "kind": "value",
         "isType": false,
         "type": "string"
-      },
-      "getRendererHealth": {
-        "kind": "function",
-        "isType": false,
-        "generics": [],
-        "params": [],
-        "returns": "RendererHealth"
       }
     }
   },
   "./react": {
     "values": [
       "InteractionScope",
+      "POINTER_INTENT_SENSITIVITY",
       "SAFE_TO_MOUNT_COST",
       "VERSION",
       "clamp01",
@@ -340,16 +477,23 @@
       "getAdaptiveQuality",
       "getAnimationBudget",
       "getConductor",
+      "getFramePressure",
+      "getRendererHealth",
       "getSensorBus",
       "rayRectIntersect",
       "useAdaptiveQuality",
       "useAnimationBudget",
       "useFramePressure",
+      "useImageTrail",
       "useInteractionScope",
+      "useMagneticIntent",
+      "useNumberTicker",
+      "usePointerIntent",
       "useSafeToMount",
       "useSceneGate",
       "useSensorBus",
-      "useTick"
+      "useTick",
+      "useVideoScrubber"
     ],
     "types": [
       "InteractionScopeProps",
@@ -357,9 +501,15 @@
       "MountCostThresholds",
       "SceneGate",
       "SceneState",
+      "UseImageTrailOptions",
+      "UseNumberTickerOptions",
+      "UsePointerIntentOptions",
+      "UsePointerIntentReturn",
       "UseSafeToMountOptions",
       "UseSceneGateOptions",
-      "UseTickOptions"
+      "UseTickOptions",
+      "UseVideoScrubberOptions",
+      "UseVideoScrubberReturn"
     ],
     "shapes": {
       "MountCost": {
@@ -387,9 +537,10 @@
         "isType": true,
         "heritage": "",
         "members": [
+          "cause: SceneCause",
           "generation: number",
           "mounted: boolean",
-          "quality: \"full\" | \"reduced\"",
+          "quality: \"full\" | \"reduced\" | null",
           "reason: string",
           "ref: RefObject<T | null>",
           "state: SceneState"
@@ -452,12 +603,59 @@
         "isType": true,
         "heritage": "",
         "members": [
-          "active?: boolean",
+          "active?: boolean | \"pointer\"",
           "asChild?: boolean",
           "children?: React.ReactNode",
           "className?: string",
           "label?: string",
           "style?: React.CSSProperties"
+        ]
+      },
+      "POINTER_INTENT_SENSITIVITY": {
+        "kind": "value",
+        "isType": false,
+        "type": "Readonly<Record<PointerIntentSensitivity, PointerIntentTuning>>"
+      },
+      "UseImageTrailOptions": {
+        "kind": "object",
+        "isType": true,
+        "heritage": "",
+        "members": [
+          "duration?: number",
+          "images: string[]",
+          "maxActive?: number",
+          "size?: number",
+          "spacing?: number"
+        ]
+      },
+      "UseNumberTickerOptions": {
+        "kind": "object",
+        "isType": true,
+        "heritage": "",
+        "members": [
+          "format?: Intl.NumberFormatOptions",
+          "locale?: string",
+          "prefix?: string",
+          "speed?: number",
+          "suffix?: string"
+        ]
+      },
+      "UsePointerIntentOptions": {
+        "kind": "object",
+        "isType": true,
+        "heritage": "extends PointerIntentOptions",
+        "members": [
+          "onIntentChange?: (intent: boolean) => void"
+        ]
+      },
+      "UsePointerIntentReturn": {
+        "kind": "object",
+        "isType": true,
+        "heritage": "",
+        "members": [
+          "confidenceRef: RefObject<number>",
+          "intent: boolean",
+          "ref: RefObject<T | null>"
         ]
       },
       "UseTickOptions": {
@@ -467,6 +665,22 @@
         "members": [
           "background?: boolean",
           "enabled?: boolean"
+        ]
+      },
+      "UseVideoScrubberOptions": {
+        "kind": "alias",
+        "isType": true,
+        "type": "Omit<VideoScrubberOptions, \"track\">"
+      },
+      "UseVideoScrubberReturn": {
+        "kind": "object",
+        "isType": true,
+        "heritage": "",
+        "members": [
+          "progressRef: RefObject<number>",
+          "ref: RefObject<TTrack | null>",
+          "scrubberRef: RefObject<VideoScrubber | null>",
+          "videoRef: RefObject<HTMLVideoElement | null>"
         ]
       },
       "VERSION": {
@@ -516,6 +730,20 @@
         "params": [],
         "returns": "FrameConductor"
       },
+      "getFramePressure": {
+        "kind": "function",
+        "isType": false,
+        "generics": [],
+        "params": [],
+        "returns": "FramePressure"
+      },
+      "getRendererHealth": {
+        "kind": "function",
+        "isType": false,
+        "generics": [],
+        "params": [],
+        "returns": "RendererHealth"
+      },
       "getSensorBus": {
         "kind": "function",
         "isType": false,
@@ -557,12 +785,57 @@
         "params": [],
         "returns": "PressureState"
       },
+      "useImageTrail": {
+        "kind": "function",
+        "isType": false,
+        "generics": [
+          "T extends HTMLElement = HTMLDivElement"
+        ],
+        "params": [
+          "options: UseImageTrailOptions"
+        ],
+        "returns": "{ ref: RefObject<T | null>; }"
+      },
       "useInteractionScope": {
         "kind": "function",
         "isType": false,
         "generics": [],
         "params": [],
         "returns": "string | null"
+      },
+      "useMagneticIntent": {
+        "kind": "function",
+        "isType": false,
+        "generics": [
+          "T extends HTMLElement = HTMLElement"
+        ],
+        "params": [
+          "options?: MagneticOptions"
+        ],
+        "returns": "{ ref: RefObject<T | null>; active: boolean; }"
+      },
+      "useNumberTicker": {
+        "kind": "function",
+        "isType": false,
+        "generics": [
+          "T extends HTMLElement = HTMLSpanElement"
+        ],
+        "params": [
+          "value: number",
+          "options?: UseNumberTickerOptions"
+        ],
+        "returns": "{ ref: RefObject<T | null>; }"
+      },
+      "usePointerIntent": {
+        "kind": "function",
+        "isType": false,
+        "generics": [
+          "T extends HTMLElement = HTMLElement"
+        ],
+        "params": [
+          "options?: UsePointerIntentOptions"
+        ],
+        "returns": "UsePointerIntentReturn<T>"
       },
       "useSensorBus": {
         "kind": "function",
@@ -581,6 +854,17 @@
           "options?: UseTickOptions"
         ],
         "returns": "void"
+      },
+      "useVideoScrubber": {
+        "kind": "function",
+        "isType": false,
+        "generics": [
+          "TTrack extends HTMLElement = HTMLDivElement"
+        ],
+        "params": [
+          "options?: UseVideoScrubberOptions"
+        ],
+        "returns": "UseVideoScrubberReturn<TTrack>"
       }
     }
   },
@@ -709,213 +993,6 @@
           "profiles: RenderProfiles"
         ],
         "returns": "void"
-      }
-    }
-  },
-  "./effects": {
-    "values": [
-      "POINTER_INTENT_SENSITIVITY",
-      "useImageTrail",
-      "useMagneticIntent",
-      "useNumberTicker",
-      "usePointerIntent",
-      "useVideoScrubber"
-    ],
-    "types": [
-      "MagneticOptions",
-      "PointerIntentOptions",
-      "PointerIntentSensitivity",
-      "PointerIntentTuning",
-      "ScrubDriver",
-      "ScrubMapping",
-      "UseImageTrailOptions",
-      "UseNumberTickerOptions",
-      "UsePointerIntentOptions",
-      "UsePointerIntentReturn",
-      "UseVideoScrubberOptions",
-      "UseVideoScrubberReturn",
-      "VideoScrubberOptions"
-    ],
-    "shapes": {
-      "MagneticOptions": {
-        "kind": "object",
-        "isType": true,
-        "heritage": "",
-        "members": [
-          "anticipate?: boolean",
-          "reach?: number",
-          "scale?: number",
-          "speed?: number",
-          "strength?: number"
-        ]
-      },
-      "POINTER_INTENT_SENSITIVITY": {
-        "kind": "value",
-        "isType": false,
-        "type": "Readonly<Record<PointerIntentSensitivity, PointerIntentTuning>>"
-      },
-      "PointerIntentOptions": {
-        "kind": "object",
-        "isType": true,
-        "heritage": "",
-        "members": [
-          "dynamic?: boolean",
-          "sensitivity?: PointerIntentSensitivity"
-        ]
-      },
-      "PointerIntentSensitivity": {
-        "kind": "alias",
-        "isType": true,
-        "type": "\"low\" | \"normal\" | \"high\""
-      },
-      "PointerIntentTuning": {
-        "kind": "object",
-        "isType": true,
-        "heritage": "",
-        "members": [
-          "readonly enter: number",
-          "readonly exit: number",
-          "readonly extend: number",
-          "readonly horizon: number",
-          "readonly minSpeed: number"
-        ]
-      },
-      "ScrubDriver": {
-        "kind": "alias",
-        "isType": true,
-        "type": "\"scroll\" | \"pointer\" | \"manual\""
-      },
-      "ScrubMapping": {
-        "kind": "alias",
-        "isType": true,
-        "type": "\"auto\" | \"pin\" | \"cross\""
-      },
-      "UseImageTrailOptions": {
-        "kind": "object",
-        "isType": true,
-        "heritage": "",
-        "members": [
-          "duration?: number",
-          "images: string[]",
-          "maxActive?: number",
-          "size?: number",
-          "spacing?: number"
-        ]
-      },
-      "UseNumberTickerOptions": {
-        "kind": "object",
-        "isType": true,
-        "heritage": "",
-        "members": [
-          "format?: Intl.NumberFormatOptions",
-          "locale?: string",
-          "prefix?: string",
-          "speed?: number",
-          "suffix?: string"
-        ]
-      },
-      "UsePointerIntentOptions": {
-        "kind": "object",
-        "isType": true,
-        "heritage": "extends PointerIntentOptions",
-        "members": [
-          "onIntentChange?: (intent: boolean) => void"
-        ]
-      },
-      "UsePointerIntentReturn": {
-        "kind": "object",
-        "isType": true,
-        "heritage": "",
-        "members": [
-          "confidenceRef: RefObject<number>",
-          "intent: boolean",
-          "ref: RefObject<T | null>"
-        ]
-      },
-      "UseVideoScrubberOptions": {
-        "kind": "alias",
-        "isType": true,
-        "type": "Omit<VideoScrubberOptions, \"track\">"
-      },
-      "UseVideoScrubberReturn": {
-        "kind": "object",
-        "isType": true,
-        "heritage": "",
-        "members": [
-          "progressRef: RefObject<number>",
-          "scrubberRef: RefObject<VideoScrubber | null>",
-          "trackRef: RefObject<TTrack | null>",
-          "videoRef: RefObject<HTMLVideoElement | null>"
-        ]
-      },
-      "VideoScrubberOptions": {
-        "kind": "object",
-        "isType": true,
-        "heritage": "",
-        "members": [
-          "driver?: ScrubDriver",
-          "mapping?: ScrubMapping",
-          "onProgress?: (progress: number, time: number) => void",
-          "pointerAxis?: \"x\" | \"y\"",
-          "speed?: number",
-          "track?: HTMLElement"
-        ]
-      },
-      "useImageTrail": {
-        "kind": "function",
-        "isType": false,
-        "generics": [
-          "T extends HTMLElement = HTMLDivElement"
-        ],
-        "params": [
-          "options: UseImageTrailOptions"
-        ],
-        "returns": "{ ref: RefObject<T | null>; }"
-      },
-      "useMagneticIntent": {
-        "kind": "function",
-        "isType": false,
-        "generics": [
-          "T extends HTMLElement = HTMLElement"
-        ],
-        "params": [
-          "options?: MagneticOptions"
-        ],
-        "returns": "{ ref: RefObject<T | null>; active: boolean; }"
-      },
-      "useNumberTicker": {
-        "kind": "function",
-        "isType": false,
-        "generics": [
-          "T extends HTMLElement = HTMLSpanElement"
-        ],
-        "params": [
-          "value: number",
-          "options?: UseNumberTickerOptions"
-        ],
-        "returns": "{ ref: RefObject<T | null>; }"
-      },
-      "usePointerIntent": {
-        "kind": "function",
-        "isType": false,
-        "generics": [
-          "T extends HTMLElement = HTMLElement"
-        ],
-        "params": [
-          "options?: UsePointerIntentOptions"
-        ],
-        "returns": "UsePointerIntentReturn<T>"
-      },
-      "useVideoScrubber": {
-        "kind": "function",
-        "isType": false,
-        "generics": [
-          "TTrack extends HTMLElement = HTMLDivElement"
-        ],
-        "params": [
-          "options?: UseVideoScrubberOptions"
-        ],
-        "returns": "UseVideoScrubberReturn<TTrack>"
       }
     }
   }

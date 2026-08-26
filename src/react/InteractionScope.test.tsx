@@ -64,7 +64,7 @@ describe("useTick", () => {
     view.unmount();
     act(() => crank(32));
     expect(spy).toHaveBeenCalledTimes(1);
-    expect(getConductor().getStats().subscribers).toHaveLength(0);
+    expect(getConductor().state.subscribers).toHaveLength(0);
   });
 
   it("does not subscribe while enabled is false", async () => {
@@ -99,7 +99,7 @@ describe("useTick", () => {
     view.rerender(<Ticker value={2} />);
     view.rerender(<Ticker value={3} />);
 
-    expect(getConductor().getStats().subscribers).toHaveLength(1);
+    expect(getConductor().state.subscribers).toHaveLength(1);
   });
 
   it("calls the latest callback, not the one from the first render", async () => {
@@ -134,7 +134,7 @@ describe("useTick", () => {
     );
     act(() => crank(16));
 
-    const sub = getConductor().getStats().subscribers[0];
+    const sub = getConductor().state.subscribers[0];
     expect(sub).toBeDefined();
   });
 
@@ -164,7 +164,7 @@ describe("useTick", () => {
       pointerId: 1,
     });
 
-    const stats = getConductor().getStats();
+    const stats = getConductor().state;
     const byLabel = Object.fromEntries(
       stats.subscribers.map((s) => [s.label, s.scope]),
     );
@@ -190,11 +190,11 @@ describe("InteractionScope activation", () => {
     );
     const region = container.firstElementChild as HTMLElement;
 
-    expect(getConductor().getStats().activeScope).toBeNull();
+    expect(getConductor().state.activeScope).toBeNull();
     fireEvent.pointerDown(region);
-    expect(getConductor().getStats().activeScope).not.toBeNull();
+    expect(getConductor().state.activeScope).not.toBeNull();
     fireEvent.pointerUp(region);
-    expect(getConductor().getStats().activeScope).toBeNull();
+    expect(getConductor().state.activeScope).toBeNull();
   });
 
   it("gives two regions different identities without being told", async () => {
@@ -213,11 +213,11 @@ describe("InteractionScope activation", () => {
     const [a, b] = [...container.children] as HTMLElement[];
 
     fireEvent.pointerDown(a);
-    const first = getConductor().getStats().activeScope;
+    const first = getConductor().state.activeScope;
     fireEvent.pointerUp(a);
 
     fireEvent.pointerDown(b);
-    const second = getConductor().getStats().activeScope;
+    const second = getConductor().state.activeScope;
     fireEvent.pointerUp(b);
 
     // Two hand-written names that collided would silently share one claim.
@@ -237,7 +237,7 @@ describe("InteractionScope activation", () => {
     fireEvent.pointerDown(container.firstElementChild as HTMLElement);
 
     // A readout showing ":r1:" would be useless.
-    expect(getConductor().getStats().activeScopeLabel).toBe("Product gallery");
+    expect(getConductor().state.activeScopeLabel).toBe("Product gallery");
   });
 
   it("releases if the region unmounts mid-drag", async () => {
@@ -249,10 +249,10 @@ describe("InteractionScope activation", () => {
       </InteractionScope>,
     );
     fireEvent.pointerDown(view.container.firstElementChild as HTMLElement);
-    expect(getConductor().getStats().activeScope).not.toBeNull();
+    expect(getConductor().state.activeScope).not.toBeNull();
 
     view.unmount();
-    expect(getConductor().getStats().activeScope).toBeNull();
+    expect(getConductor().state.activeScope).toBeNull();
   });
 });
 
@@ -269,14 +269,14 @@ describe("InteractionScope controlled activation", () => {
     }
 
     const view = render(<Viewer on={false} />);
-    expect(getConductor().getStats().activeScope).toBeNull();
+    expect(getConductor().state.activeScope).toBeNull();
 
     view.rerender(<Viewer on={true} />);
-    expect(getConductor().getStats().activeScope).not.toBeNull();
-    expect(getConductor().getStats().activeScopeLabel).toBe("Camera");
+    expect(getConductor().state.activeScope).not.toBeNull();
+    expect(getConductor().state.activeScopeLabel).toBe("Camera");
 
     view.rerender(<Viewer on={false} />);
-    expect(getConductor().getStats().activeScope).toBeNull();
+    expect(getConductor().state.activeScope).toBeNull();
   });
 
   it("ignores pointer input once active is being controlled", async () => {
@@ -290,7 +290,7 @@ describe("InteractionScope controlled activation", () => {
 
     fireEvent.pointerDown(container.firstElementChild as HTMLElement);
     // Two sources of truth for one claim would fight.
-    expect(getConductor().getStats().activeScope).toBeNull();
+    expect(getConductor().state.activeScope).toBeNull();
   });
 
   it("releases on unmount while still active", async () => {
@@ -301,10 +301,10 @@ describe("InteractionScope controlled activation", () => {
         <button>camera</button>
       </InteractionScope>,
     );
-    expect(getConductor().getStats().activeScope).not.toBeNull();
+    expect(getConductor().state.activeScope).not.toBeNull();
 
     view.unmount();
-    expect(getConductor().getStats().activeScope).toBeNull();
+    expect(getConductor().state.activeScope).toBeNull();
   });
 });
 
@@ -338,7 +338,7 @@ describe("InteractionScope asChild", () => {
     );
 
     fireEvent.pointerDown(container.firstElementChild as HTMLElement);
-    expect(getConductor().getStats().activeScope).not.toBeNull();
+    expect(getConductor().state.activeScope).not.toBeNull();
   });
 
   it("keeps a ref the child already had", async () => {
@@ -378,16 +378,16 @@ describe("InteractionScope — drags that leave, multi-touch, and stopPropagatio
     const region = container.firstElementChild as HTMLElement;
 
     fireEvent.pointerDown(region, { pointerId: 1 });
-    expect(getConductor().getStats().activeScope).not.toBeNull();
+    expect(getConductor().state.activeScope).not.toBeNull();
 
     // Fired as pointerout with an outside relatedTarget, because that is what
     // React synthesises onPointerLeave from. A plain pointerleave event never
     // reaches a handler, so asserting against one passes for the wrong reason.
     fireEvent.pointerOut(region, { pointerId: 1, relatedTarget: document.body });
-    expect(getConductor().getStats().activeScope).not.toBeNull();
+    expect(getConductor().state.activeScope).not.toBeNull();
 
     fireEvent.pointerUp(region, { pointerId: 1 });
-    expect(getConductor().getStats().activeScope).toBeNull();
+    expect(getConductor().state.activeScope).toBeNull();
   });
 
   it("stays active until the last pointer lifts", async () => {
@@ -402,13 +402,13 @@ describe("InteractionScope — drags that leave, multi-touch, and stopPropagatio
 
     fireEvent.pointerDown(region, { pointerId: 1 });
     fireEvent.pointerDown(region, { pointerId: 2 });
-    expect(getConductor().getStats().activeScope).not.toBeNull();
+    expect(getConductor().state.activeScope).not.toBeNull();
 
     fireEvent.pointerUp(region, { pointerId: 2 });
-    expect(getConductor().getStats().activeScope).not.toBeNull();
+    expect(getConductor().state.activeScope).not.toBeNull();
 
     fireEvent.pointerUp(region, { pointerId: 1 });
-    expect(getConductor().getStats().activeScope).toBeNull();
+    expect(getConductor().state.activeScope).toBeNull();
   });
 
   it("activates even when a child stops pointerdown from bubbling", async () => {
@@ -427,6 +427,66 @@ describe("InteractionScope — drags that leave, multi-touch, and stopPropagatio
     );
 
     fireEvent.pointerDown(getByText("drag me"), { pointerId: 1 });
-    expect(getConductor().getStats().activeScope).not.toBeNull();
+    expect(getConductor().state.activeScope).not.toBeNull();
+  });
+});
+
+describe("InteractionScope — active as three named values", () => {
+  it('accepts an explicit "pointer" and behaves exactly like omitting the prop', async () => {
+    const { InteractionScope, getConductor } = await freshModule();
+    // The point of the 3.0 shape. In 2.x, opting back into pointer activation
+    // meant passing `undefined`, so an A/B toggle read
+    // `active={on ? undefined : false}`. Now the on-state has a name.
+    const view = render(
+      <InteractionScope active="pointer" label="explicit">
+        <div data-testid="region" />
+      </InteractionScope>,
+    );
+
+    const region = view.getByTestId("region");
+    expect(getConductor().state.activeScope).toBeNull();
+
+    await act(async () => {
+      fireEvent.pointerDown(region, { pointerId: 1 });
+    });
+    expect(getConductor().state.activeScope).not.toBeNull();
+
+    await act(async () => {
+      fireEvent.pointerUp(window, { pointerId: 1 });
+    });
+    expect(getConductor().state.activeScope).toBeNull();
+  });
+
+  it("can be toggled between pointer-driven and off without passing undefined", async () => {
+    const { InteractionScope, getConductor } = await freshModule();
+    function Toggle({ on }: { on: boolean }) {
+      return (
+        <InteractionScope active={on ? "pointer" : false} label="ab">
+          <div data-testid="region" />
+        </InteractionScope>
+      );
+    }
+
+    const view = render(<Toggle on={false} />);
+    const region = view.getByTestId("region");
+
+    await act(async () => {
+      fireEvent.pointerDown(region, { pointerId: 2 });
+    });
+    expect(getConductor().state.activeScope).toBeNull();
+
+    await act(async () => {
+      fireEvent.pointerUp(window, { pointerId: 2 });
+    });
+    view.rerender(<Toggle on />);
+
+    await act(async () => {
+      fireEvent.pointerDown(region, { pointerId: 3 });
+    });
+    expect(getConductor().state.activeScope).not.toBeNull();
+
+    await act(async () => {
+      fireEvent.pointerUp(window, { pointerId: 3 });
+    });
   });
 });

@@ -242,7 +242,7 @@ async function main() {
       console.log(
         `${String(rate) + "x"} ${ok ? "✓" : "✗"} ${name.padEnd(12)}${expected.padEnd(21)}${s.source.padEnd(14)}` +
           `${String(Math.round(s.confidence * 100)).padStart(3)}%  ` +
-          `${f(s.frameMs)}  ${f(s.runtimeMs)}   ${f(s.mainOtherMs)}  ${f(s.offThreadMs)}  ` +
+          `${f(s.frameMs)}  ${f(s.runtimeMs)}   ${f(s.mainOtherMs)}  ${f(s.unattributedMs)}  ` +
           `${s.frameMs > 0 ? Math.round(1000 / s.frameMs) : 0}   ${s.displayHz}Hz/${s.probeBudget?.toFixed(1)}ms`,
       );
     }

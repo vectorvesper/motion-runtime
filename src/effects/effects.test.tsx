@@ -167,7 +167,7 @@ describe("usePointerIntent", () => {
     });
 
     view.unmount();
-    expect(getConductor().getStats().subscribers).toHaveLength(0);
+    expect(getConductor().state.subscribers).toHaveLength(0);
   });
 });
 
@@ -212,7 +212,7 @@ describe("useNumberTicker", () => {
     });
 
     view.unmount();
-    expect(getConductor().getStats().subscribers).toHaveLength(0);
+    expect(getConductor().state.subscribers).toHaveLength(0);
   });
 });
 
@@ -235,7 +235,7 @@ describe("useImageTrail", () => {
     });
 
     view.unmount();
-    expect(getConductor().getStats().subscribers).toHaveLength(0);
+    expect(getConductor().state.subscribers).toHaveLength(0);
   });
 });
 
@@ -249,7 +249,7 @@ describe("useVideoScrubber", () => {
       const scrub = useVideoScrubber<HTMLDivElement>();
       progress = scrub.progressRef;
       return (
-        <div ref={scrub.trackRef}>
+        <div ref={scrub.ref}>
           <video ref={scrub.videoRef} />
         </div>
       );
@@ -271,7 +271,7 @@ describe("useVideoScrubber", () => {
     function Scrubber() {
       const scrub = useVideoScrubber<HTMLDivElement>();
       return (
-        <div ref={scrub.trackRef}>
+        <div ref={scrub.ref}>
           <video ref={scrub.videoRef} />
         </div>
       );
@@ -283,7 +283,7 @@ describe("useVideoScrubber", () => {
     });
 
     view.unmount();
-    expect(getConductor().getStats().subscribers).toHaveLength(0);
+    expect(getConductor().state.subscribers).toHaveLength(0);
   });
 });
 
@@ -404,6 +404,6 @@ describe("useMagneticIntent", () => {
     const view = render(<Target />);
     act(() => crank(16));
     view.unmount();
-    expect(getConductor().getStats().subscribers).toHaveLength(0);
+    expect(getConductor().state.subscribers).toHaveLength(0);
   });
 });

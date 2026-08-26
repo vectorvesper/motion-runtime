@@ -115,7 +115,7 @@ describe("mountDevtools — never outranking what it measures", () => {
     crankFrames(2);
 
     const me = getConductor()
-      .getStats()
+      .state
       .subscribers.find((s) => s.label === "devtools overlay");
 
     // It ran as `essential` once. Measured under 6x CPU throttling it was the
@@ -131,7 +131,7 @@ describe("mountDevtools — never outranking what it measures", () => {
     crankFrames(2);
 
     const me = getConductor()
-      .getStats()
+      .state
       .subscribers.find((s) => s.label === "devtools overlay");
 
     // Numbers a human reads five times a second do not need 120 repaints.
@@ -143,7 +143,7 @@ describe("mountDevtools — never outranking what it measures", () => {
     mountDevtools();
     crankFrames(2);
 
-    const labels = getConductor().getStats().subscribers.map((s) => s.label);
+    const labels = getConductor().state.subscribers.map((s) => s.label);
     // A profiler that hides its own cost is lying about the page.
     expect(labels).toContain("devtools overlay");
   });
@@ -157,10 +157,10 @@ describe("mountDevtools — letting go", () => {
     crankFrames(4);
     // Both only measure while something is subscribed, so the overlay holds
     // them open — otherwise every reading would be a frozen default.
-    expect(getConductor().getStats().subscribers.length).toBeGreaterThan(1);
+    expect(getConductor().state.subscribers.length).toBeGreaterThan(1);
 
     unmount();
-    expect(getConductor().getStats().subscribers).toHaveLength(0);
+    expect(getConductor().state.subscribers).toHaveLength(0);
   });
 
   it("survives being unmounted twice", async () => {
@@ -179,7 +179,7 @@ describe("mountDevtools — letting go", () => {
     // Nothing left subscribed means nothing left to run, which is the only
     // way a removed overlay cannot keep costing frames.
     crankFrames(10);
-    expect(getConductor().getStats().subscribers).toHaveLength(0);
+    expect(getConductor().state.subscribers).toHaveLength(0);
   });
 });
 

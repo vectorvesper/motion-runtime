@@ -98,7 +98,7 @@ describe("FrameConductor", () => {
     const off = conductor.subscribe("render", () => {}, { priority: "decorative" });
     crank(16);
     for (let i = 1; i <= 20; i++) crank(16 + i * 60); // 60ms frames: deep debt
-    expect(conductor.getStats().carriedOverrunMs).toBeGreaterThan(0);
+    expect(conductor.state.carriedOverrunMs).toBeGreaterThan(0);
 
     // Everything unmounts. The loop stops, so the debt cannot decay — it is
     // frozen at whatever the worst moment was.
@@ -108,6 +108,6 @@ describe("FrameConductor", () => {
     // state that no longer exists: the first frames would be shed for a reason
     // that stopped being true, which reads as motion glitching for nothing.
     conductor.subscribe("render", () => {});
-    expect(conductor.getStats().carriedOverrunMs).toBe(0);
+    expect(conductor.state.carriedOverrunMs).toBe(0);
   });
 });

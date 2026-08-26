@@ -151,7 +151,7 @@ describe("budget shedding", () => {
     conductor.subscribe("update", () => burn(13), { priority: "essential" });
     conductor.subscribe("update", () => {}, { priority: "decorative", label: "garnish" });
     crank();
-    const stats = conductor.getStats();
+    const stats = conductor.state;
     expect(stats.shedLastFrame).toBe(1);
     expect(stats.subscribers.find((s) => s.label === "garnish")?.shed).toBe(1);
   });
@@ -228,7 +228,7 @@ describe("attribution", () => {
     conductor.subscribe("update", () => burn(4), { priority: "essential", label: "cheap" });
     conductor.subscribe("update", () => burn(1), { priority: "essential", label: "cheaper" });
     crank();
-    const stats = conductor.getStats();
+    const stats = conductor.state;
     expect(stats.subscribers.find((s) => s.label === "cheap")?.lastCostMs).toBeCloseTo(4, 1);
     expect(stats.subscribers.find((s) => s.label === "cheaper")?.lastCostMs).toBeCloseTo(1, 1);
   });
@@ -239,7 +239,7 @@ describe("attribution", () => {
     conductor.subscribe("update", () => burn(6), { priority: "essential", label: "big" });
     conductor.subscribe("update", () => burn(3), { priority: "essential", label: "mid" });
     crank();
-    expect(conductor.getStats().subscribers.map((s) => s.label)).toEqual([
+    expect(conductor.state.subscribers.map((s) => s.label)).toEqual([
       "big",
       "mid",
       "small",
@@ -262,7 +262,7 @@ describe("attribution", () => {
     conductor.subscribe("update", () => burn(13), { priority: "essential" });
     conductor.subscribe("update", () => {}, { priority: "decorative", label: "garnish" });
     crank();
-    const garnish = conductor.getStats().subscribers.find((s) => s.label === "garnish");
+    const garnish = conductor.state.subscribers.find((s) => s.label === "garnish");
     expect(garnish?.runs).toBe(0);
     expect(garnish?.shed).toBe(1);
   });
@@ -313,7 +313,7 @@ describe("diagnostics", () => {
     const conductor = await freshConductor();
     conductor.subscribe("update", () => {});
     for (let i = 0; i < 20; i++) crank(1000 / 120);
-    const stats = conductor.getStats();
+    const stats = conductor.state;
     expect(stats.displayHz).toBe(120);
     expect(stats.frameBudgetMs).toBeCloseTo(8.33, 1);
   });
@@ -458,11 +458,11 @@ describe("motion scopes (interaction lease)", () => {
     const conductor = await freshConductor();
     conductor.subscribe("update", () => {}, { priority: "enhanced" });
 
-    expect(conductor.getStats().activeScope).toBeNull();
+    expect(conductor.state.activeScope).toBeNull();
     const release = conductor.claimScope("hero");
-    expect(conductor.getStats().activeScope).toBe("hero");
+    expect(conductor.state.activeScope).toBe("hero");
     release();
-    expect(conductor.getStats().activeScope).toBeNull();
+    expect(conductor.state.activeScope).toBeNull();
   });
 });
 

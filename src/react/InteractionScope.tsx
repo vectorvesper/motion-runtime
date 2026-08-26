@@ -25,18 +25,25 @@ export interface InteractionScopeProps {
    */
   label?: string;
   /**
-   * Control activation yourself instead of using pointer input. Pass `true`
-   * while the visitor is working in this region — a camera engaged by keyboard,
-   * an open modal.
+   * When this region counts as the one the visitor is working in.
    *
-   * Setting this at all turns pointer activation off. Leave it out for the
-   * normal case.
+   * - `"pointer"` (default) activates while a pointer is down inside it.
+   * - `true` holds it active. For a camera engaged by keyboard, an open modal.
+   * - `false` never activates.
    *
-   * Worth knowing: this runs through React state, so it arrives a render later
-   * than pointer activation, which is a direct DOM listener. That is fine for
-   * a modal or a keyboard mode. It is not a drop-in replacement for a drag.
+   * Up to 2.x this was `boolean | undefined`, where `undefined` and `false`
+   * meant different things: leaving it off gave you pointer activation, and
+   * setting it to anything at all turned pointer activation off. Opting back
+   * in therefore meant passing `undefined`, and an A/B toggle came out as
+   * `active={on ? undefined : false}`, which is a shape no reader can guess.
+   *
+   * Three named values, no hidden state in the absence of a prop.
+   *
+   * Worth knowing: `true` and `false` run through React state, so they arrive a
+   * render later than `"pointer"` does, which is a direct DOM listener. Fine
+   * for a modal. Not a drop-in for a drag.
    */
-  active?: boolean;
+  active?: boolean | "pointer";
   /**
    * Use the single child element instead of rendering a wrapper `div`. Use it
    * when an extra element would break a flex or grid layout.
@@ -88,7 +95,7 @@ export interface InteractionScopeProps {
 export function InteractionScope({
   children,
   label,
-  active,
+  active = "pointer",
   asChild = false,
   className,
   style,
@@ -101,12 +108,14 @@ export function InteractionScope({
   const releaseRef = useRef<(() => void) | null>(null);
   const pointersRef = useRef<Set<number>>(new Set());
 
-  const controlled = active !== undefined;
+  // "pointer" is the uncontrolled mode: the DOM listener below drives it.
+  // Anything else is the caller holding the switch.
+  const controlled = active !== "pointer";
 
   // Controlled: the boolean is the whole story.
   useEffect(() => {
     if (!controlled) return;
-    if (active) {
+    if (active === true) {
       releaseRef.current ??= getConductor().claimScope(id, label);
     } else {
       releaseRef.current?.();
