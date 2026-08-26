@@ -1,37 +1,150 @@
 # Changelog
 
-## Unreleased
+## 3.0.1
 
-No change to the published package — `dist` is byte-identical to 2.0.1. This is
-a test and documentation correction.
+Packaging only. The runtime code is byte-identical to 3.0.0.
+
+Two files were wrong in the 3.0.0 tarball:
+
+- **`LICENSE.fsl-draft.md` was published by accident.** npm always includes
+  anything matching `LICENSE.*`, regardless of the `files` array, so a
+  source-available licence draft that has not been decided on shipped inside a
+  package that declares MIT. The authoritative signals were both correct, the
+  `license` field and the `LICENSE` file, so nothing was mislicensed, but two
+  licence files in one tarball is not something to leave standing. Renamed so
+  npm stops treating it as one.
+
+- **`MIGRATION-3.0.md` was missing.** 3.0 is a breaking release and the guide
+  was in the repo rather than the package, which is no use to anyone consuming
+  it from npm. Added to `files`.
+
+If you already installed 3.0.0, upgrading is optional: the code is the same.
+Take 3.0.1 if you want the migration guide alongside it.
+
+## 3.0.0
+
+Quality decisions now know **why** the frame is slow.
+
+Full migration guide: `MIGRATION-3.0.md`, shipped in this package.
+
+### The one change with no compile error
+
+Up to 2.x, `AdaptiveQuality` was `max(deviceTier, budgetTier)` and never looked
+at what was actually costing the frame. The rule this runtime is built around,
+that reducing quality only helps when *rendering* is the bottleneck, lived
+inside `useSceneGate` and nowhere else.
+
+So every component reading `useAdaptiveQuality()` directly degraded on frame
+rate alone, which means it degraded while a third-party script blocked the main
+thread. A smaller scene does nothing for that. It makes the page uglier and
+exactly as slow. Twenty-one of our own thirty components were on that path.
+
+3.0 folds the pressure classifier into the governor:
+
+```
+2.x   tier = max(deviceTier, budgetTier)
+3.0   tier = max(deviceTier, budgetTier), except the budget half is ignored
+            when the classifier can prove the frame is blocked by something
+            a smaller scene cannot fix
+```
+
+The device floor stays absolute. When the classifier has no verdict, which is
+any frame under 25% over budget, the budget tier is trusted exactly as before.
+
+**What you will notice:** components stop dipping to low quality while a heavy
+third-party script runs. **What to check:** anything expecting `tier` to track
+frame rate one for one. It tracks *actionable* slowness now. For raw frame rate,
+`useAnimationBudget().tier` is unchanged.
+
+`AdaptiveState` gains `cause`, so the reason is readable rather than inferred:
+`"ok" | "device" | "reduced-motion" | "render" | "frame-rate" | "held"`.
+`"held"` is the new one: the budget wanted to degrade and was overruled.
+
+### Breaking
+
+- **`/effects` merged into `/react`.** `usePointerIntent`, `useMagneticIntent`,
+  `useImageTrail`, `useNumberTicker`, `useVideoScrubber` and
+  `POINTER_INTENT_SENSITIVITY` all move. Their option types stay on the core
+  entry. The 2.0 split was argued as "the entries match the layers", but
+  `sideEffects: false` already tree-shakes an unused hook, so it bought zero
+  bytes and both of our own apps immediately wrote a shim collapsing it back.
+
+  An entry point now has to pass one test: does it protect you from a
+  dependency you do not have? `.` protects from React, `/r3f` from three,
+  `/devtools` from overlay weight. `/effects` protected from nothing.
+
+- **`getConductor().getStats()` is now `.state`.** Five of the six singletons
+  already exposed `.state`. The conductor was the outlier and the one you reach
+  for most.
+
+- **`PressureState.offThreadMs` is now `unattributedMs`.** It is the frame time
+  left after our own work and sampled main-thread work are subtracted, so it
+  also absorbs compositing, decode, and anything the probe missed. The old name
+  read as a GPU measurement and needed a disclaimer in the docs.
+
+- **`useVideoScrubber().trackRef` is now `.ref`.** Every other effect hook hands
+  its primary element back as `ref`. The other three keep their `Ref` suffix
+  because they genuinely are refs.
+
+- **`SceneGate.quality` is `"full" | "reduced" | null`.** It used to read
+  `"reduced"` in `dormant` and `warming`, not because quality was reduced but
+  because nothing was running, and the docs carried a rule telling you to check
+  `mounted` first. A value needing a rule to read correctly is a defect.
+
+- **`InteractionScope`'s `active` is `boolean | "pointer"`,** default
+  `"pointer"`. It used to be `boolean | undefined` where `undefined` and
+  `false` meant different things, so opting back into pointer activation meant
+  passing `undefined` and an A/B toggle came out as
+  `active={on ? undefined : false}`.
+
+### Added
+
+- **`SceneGate.cause`**, a typed counterpart to `reason`:
+  `"ok" | "not-near" | "waiting-for-headroom" | "off-screen" | "render-bound" |
+  "frame-rate" | "device-floor" | "reduced-motion" | "context-lost"`. `reason`
+  stays prose for a support thread. Branch on `cause`.
+
+- **The three effect engines are exported**: `PointerIntent`,
+  `MagneticElement`, `VideoScrubber`, with `VIDEO_SCRUBBER_DEFAULTS` and
+  `scrollProgress`. This README has claimed vanilla, Vue and Svelte support
+  since 1.0, and until now a non-React consumer got the conductor, the sensors,
+  the governors and the maths, and could not use a single effect, because these
+  classes were internal while their option types were public. You could name
+  the options and not construct the thing.
+
+- **`getFramePressure` and `getRendererHealth` on `/react`.** They were
+  reachable only from the core entry, so a React app crossed to a second entry
+  for those two names alone.
+
+- **`fuse()` exported from the adaptive-quality module** so the rule above is
+  testable on its own. Ten tests cover it.
 
 ### Fixed
 
-- **The pressure probe's render scenario had rotted into a no-op.** It drove the
-  GPU with a fixed 420 shader iterations, chosen because that produced 30-40ms
-  frames on the machine it was written on. Faster hardware turned the same load
-  into 17-19ms frames — a real dip to 52-58fps, but inside the classifier's slow
-  line, which only speaks for frames more than 25% over budget. So the
-  classifier answered `"none"`, correctly, and three of twelve rows failed for a
-  load that had quietly stopped being one.
+- **`useSceneGate` never started when its ref target was absent on the first
+  commit.** The observer effect read `ref.current` once, keyed on `[preload]`,
+  so any component rendering a spinner, a Suspense fallback or a
+  `next/dynamic` placeholder before its real tree attached no
+  `IntersectionObserver` at all, and nothing re-ran the effect when the element
+  arrived. The scene stayed `dormant` permanently with no error. Shipped in
+  2.0.0, fixed in 2.0.1, repeated here because it is the defect most likely to
+  have bitten you.
 
-  The scenario now steers itself into 2x-3.2x the *measured* frame budget, with
-  an emergency backoff before the driver's watchdog. A fixed millisecond target
-  would rot the same way; a budget-relative one cannot.
+- **The pressure probe's render scenario had stopped being a load.** It drove a
+  fixed 420 shader iterations, chosen when that produced 30-40ms frames. Faster
+  hardware turned the same load into 17-19ms, under the classifier's
+  attribution line, so it correctly answered `"none"` and the test failed for
+  being right. The scenario now steers itself into 2x to 3.2x the measured
+  frame budget.
 
 ### Documented
 
-- **`SLOW_FACTOR` now explains why it is later than AnimationBudget's.**
-  1.25 (≈48fps) against the budget's 1.11 (≈54fps), and the gap is deliberate:
-  the budget answers *is the page struggling*, this answers *which subsystem is
-  to blame once it clearly is*. Between 54 and 48fps `useSceneGate` is already
-  constraining on tier, so lowering this line would put a second, faster,
-  un-damped signal onto a decision tier already owns — and tighten the
-  quality feedback loop rather than improve it.
-
-  Stated plainly in the docblock and on the docs page: **this is not a general
-  render-pressure detector.** A page dropping to 55fps on the GPU reads
-  `"none"`.
+`SLOW_FACTOR` now explains why it sits at 1.25, roughly 48fps, against
+`AnimationBudget`'s 1.11, roughly 54fps. The gap is deliberate: the budget
+answers "is the page struggling", pressure answers "which subsystem is to blame
+once it clearly is". Stated plainly, and worth repeating here: **this is not a
+general render-pressure detector.** A page dropping to 55fps on the GPU reads
+`"none"`, and the budget tier is what covers that band.
 
 ## 2.0.1
 
