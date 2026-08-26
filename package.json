@@ -4,7 +4,7 @@
   "description": "Motion primitives on one shared frame loop — a sensor layer, a frame-budget governor, and React hooks for fast, coordinated interactive sites. Zero dependencies.",
   "license": "MIT",
   "author": "Vector Vesper",
-  "homepage": "https://vectorvesper.dev",
+  "homepage": "https://vectorvesper.dev/runtime",
   "type": "module",
   "sideEffects": false,
   "files": [
@@ -52,7 +52,7 @@
     "build": "tsup && node scripts/sanitize-dts.mjs && node scripts/preserve-directives.mjs",
     "check:api": "node scripts/check-api.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --root ../..",
+    "test": "vitest run",
     "prepublishOnly": "npm run typecheck && npm run test && npm run build && npm run check:api",
     "test:pressure": "node scripts/pressure-probe/harness.mjs",
     "test:scheduling": "node scripts/pressure-probe/scheduling-check.mjs",
@@ -80,12 +80,19 @@
     }
   },
   "devDependencies": {
+    "@react-three/fiber": "^9.6.1",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/three": "^0.184.1",
+    "jsdom": "^30.0.1",
     "react": "^19",
     "react-dom": "^19",
+    "three": "^0.184.0",
     "tsup": "^8.5.0",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.10"
   },
   "keywords": [
     "animation",
@@ -110,5 +117,12 @@
   },
   "engines": {
     "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vectorvesper/motion.git"
+  },
+  "bugs": {
+    "url": "https://github.com/vectorvesper/motion/issues"
   }
 }

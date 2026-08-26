@@ -1,0 +1,38 @@
+name: Bug report
+description: Something in the runtime behaves differently than documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Most problems here are timing problems, and timing does not survive
+        prose. Something runnable is worth more than a careful description.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: "@vectorvesper/motion 2.0.1"
+    validations: { required: true }
+  - type: input
+    id: env
+    attributes:
+      label: Browser and OS
+      placeholder: "Chrome 140, Windows 11 / Safari 18, macOS 15"
+    validations: { required: true }
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected instead
+    validations: { required: true }
+  - type: input
+    id: repro
+    attributes:
+      label: Reproduction
+      description: A StackBlitz, a repo, or a minimal component.
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: |
+        If it is a performance problem, `mountDevtools()` output helps a lot —
+        it shows per-subscriber cost, what got shed, and carried overrun.

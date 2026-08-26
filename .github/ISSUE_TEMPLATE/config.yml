@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Question about a paid component
+    url: https://vectorvesper.dev
+    about: The component catalogue is a separate product and is not in this repo.
+  - name: Security vulnerability
+    url: https://github.com/vectorvesper/motion/security/policy
+    about: Please report privately rather than opening an issue.

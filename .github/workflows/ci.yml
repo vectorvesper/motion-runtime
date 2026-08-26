@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      # check:api reads the BUILT declarations, so the build has to come first.
+      - name: Build
+        run: npm run build
+
+      - name: Public API surface unchanged
+        run: npm run check:api
+
+      # A packaging bug does not show up in any of the above: the export map,
+      # the dual ESM/CJS resolution and the "use client" directives are only
+      # exercised by actually installing the tarball.
+      - name: Pack and resolve as a consumer
+        run: |
+          npm pack --pack-destination /tmp
+          mkdir -p /tmp/consume && cd /tmp/consume
+          npm init -y >/dev/null
+          npm pkg set type=module
+          npm install /tmp/vectorvesper-motion-*.tgz react react-dom --silent
+          node --input-type=module -e '
+            const core = await import("@vectorvesper/motion");
+            const react = await import("@vectorvesper/motion/react");
+            const fx = await import("@vectorvesper/motion/effects");
+            const dt = await import("@vectorvesper/motion/devtools");
+            if (typeof core.getConductor !== "function") throw new Error("core entry broken");
+            if (typeof react.useSceneGate !== "function") throw new Error("react entry broken");
+            if (typeof fx.usePointerIntent !== "function") throw new Error("effects entry broken");
+            if (typeof dt.mountDevtools !== "function") throw new Error("devtools entry broken");
+            if (!core.getConductor()) throw new Error("conductor will not construct without a DOM");
+            console.log("entries resolve, core constructs in node:", core.VERSION);
+          '
+
+      - name: No sourcemaps or source in the tarball
+        run: |
+          tar -tzf /tmp/vectorvesper-motion-*.tgz > /tmp/files.txt
+          if grep -qE '\.map$|^package/src/' /tmp/files.txt; then
+            echo "::error::tarball contains sourcemaps or source"; cat /tmp/files.txt; exit 1
+          fi
+          echo "tarball is clean ($(wc -l < /tmp/files.txt) files)"
