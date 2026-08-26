@@ -120,9 +120,9 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/vectorvesper/motion.git"
+    "url": "git+https://github.com/vectorvesper/motion-runtime.git"
   },
   "bugs": {
-    "url": "https://github.com/vectorvesper/motion/issues"
+    "url": "https://github.com/vectorvesper/motion-runtime/issues"
   }
 }
