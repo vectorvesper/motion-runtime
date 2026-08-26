@@ -1,5 +1,38 @@
 # Changelog
 
+## Unreleased
+
+No change to the published package — `dist` is byte-identical to 2.0.1. This is
+a test and documentation correction.
+
+### Fixed
+
+- **The pressure probe's render scenario had rotted into a no-op.** It drove the
+  GPU with a fixed 420 shader iterations, chosen because that produced 30-40ms
+  frames on the machine it was written on. Faster hardware turned the same load
+  into 17-19ms frames — a real dip to 52-58fps, but inside the classifier's slow
+  line, which only speaks for frames more than 25% over budget. So the
+  classifier answered `"none"`, correctly, and three of twelve rows failed for a
+  load that had quietly stopped being one.
+
+  The scenario now steers itself into 2x-3.2x the *measured* frame budget, with
+  an emergency backoff before the driver's watchdog. A fixed millisecond target
+  would rot the same way; a budget-relative one cannot.
+
+### Documented
+
+- **`SLOW_FACTOR` now explains why it is later than AnimationBudget's.**
+  1.25 (≈48fps) against the budget's 1.11 (≈54fps), and the gap is deliberate:
+  the budget answers *is the page struggling*, this answers *which subsystem is
+  to blame once it clearly is*. Between 54 and 48fps `useSceneGate` is already
+  constraining on tier, so lowering this line would put a second, faster,
+  un-damped signal onto a decision tier already owns — and tighten the
+  quality feedback loop rather than improve it.
+
+  Stated plainly in the docblock and on the docs page: **this is not a general
+  render-pressure detector.** A page dropping to 55fps on the GPU reads
+  `"none"`.
+
 ## 2.0.1
 
 Two fixes found by porting a real R3F gallery onto 2.0 rather than reading the

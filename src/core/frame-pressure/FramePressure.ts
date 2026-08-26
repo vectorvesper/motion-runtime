@@ -114,7 +114,39 @@ export interface PressureState {
   longTasks: number;
 }
 
-/** A frame this much over budget is worth explaining. */
+/**
+ * A frame this much over budget is worth explaining. 20.8ms at 60Hz, ~48fps.
+ *
+ * ## Why this is later than AnimationBudget's line
+ *
+ * AnimationBudget uses 1.11 — 18.5ms, ~54fps — and the gap between the two is
+ * deliberate, not an oversight. They answer different questions:
+ *
+ * - **AnimationBudget**: is the page struggling? It degrades to tier 1 at 54fps,
+ *   with real hysteresis behind it (30% of a 90-frame window, a 1.5s cooldown
+ *   before degrading again, 8s of calm before recovering).
+ * - **FramePressure**: once the frame is properly blown, *which* subsystem is
+ *   to blame? That question is only worth asking when there is enough overrun
+ *   to attribute confidently. Three roughly equal thirds of a mildly late frame
+ *   is not a finding.
+ *
+ * So 54fps → 48fps is a real band where this reports `"none"`, and that is
+ * correct: `useSceneGate` is already constraining there, on tier. Lowering this
+ * to meet AnimationBudget's line would put a second, faster, un-damped signal
+ * onto a decision tier already owns — two subsystems with two beliefs about the
+ * same frame, which is the failure the 1.2.0 carried-overrun work existed to
+ * remove. It would also tighten the quality feedback loop: reduce quality →
+ * rendering gets cheap → the signal clears → quality returns → slow again.
+ *
+ * **Consequence worth stating plainly:** this is not a general render-pressure
+ * detector. A page dropping to 55fps because of the GPU will read `"none"`.
+ *
+ * The browser harness (`scripts/pressure-probe/page.html`) drives its render
+ * scenario to 2x-3.2x budget so it clears this line unambiguously. It used a
+ * fixed shader iteration count until GPUs outgrew it, at which point the load
+ * produced 17-19ms frames, this threshold correctly said `"none"`, and the test
+ * failed for being right. If you change this constant, that band moves with it.
+ */
 const SLOW_FACTOR = 1.25;
 /**
  * Frames to observe before saying anything at all.

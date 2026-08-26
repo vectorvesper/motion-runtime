@@ -37,7 +37,7 @@
       void main(){
         vec2 uv = gl_FragCoord.xy * 0.002;
         float a = 0.0;
-        for (int i = 0; i < 4096; i++) {
+        for (int i = 0; i < 16384; i++) {
           if (i >= uIter) break;
           a += sin(uv.x * float(i) + uTime) * cos(uv.y * float(i) - uTime);
         }
@@ -84,9 +84,6 @@
   }
 
   // ── Scenarios ────────────────────────────────────────────────────────────
-  // Tuned for roughly 30-40ms frames: a heavy scene, not a hang. A frame
-  // that never completes gives the classifier nothing to measure.
-  const RENDER_ITER = 420;
 
   const scenarios = {
     /** Nothing but the classifier. Frames should be clean. */
@@ -112,13 +109,81 @@
       return () => { alive = false; };
     },
 
-    /** Heavy fragment shader, one draw call. Almost no main-thread cost. */
+    /**
+     * Heavy fragment shader, one draw call. Almost no main-thread cost.
+     *
+     * The iteration count STEERS ITSELF, and that is the whole point.
+     *
+     * This was a fixed 420, chosen because it produced 30-40ms frames on the
+     * machine it was written on. GPUs got faster; the same 420 iterations
+     * later produced 17-19ms frames — a real dip to 52-58fps, but comfortably
+     * inside the classifier's slow line, which only speaks for frames 25% over
+     * budget. So the classifier correctly answered "none", the harness
+     * asserted "render", and three rows failed for a load that had quietly
+     * stopped being a load. A hard-coded number cannot survive the hardware
+     * moving underneath it.
+     *
+     * The band is derived from the measured frame budget rather than from
+     * FramePressure's SLOW_FACTOR directly: the test should demand a frame
+     * that is *unambiguously* blown, not one that sits a hair over whatever
+     * the current threshold happens to be. 2x-3.2x budget clears any plausible
+     * slow line with margin, and stops well short of the point where the
+     * driver starts taking the context away.
+     */
     render: () => {
       if (!hasGL) throw new Error("no webgl2");
+
+      const budgetMs = getConductor().frameBudgetMs || 16.7;
+      const TARGET_LOW = budgetMs * 2.0;
+      const TARGET_HIGH = budgetMs * 3.2;
+
+      // Must match the fragment shader's loop bound. A JS cap above it is
+      // silently clamped and the controller would keep "raising" a load that
+      // had already stopped rising.
+      const MAX_ITER = 16384;
+      // Far enough past the band that the driver's watchdog becomes a real
+      // risk. One 1.6x overshoot is recoverable; sitting here is not.
+      const DANGER = budgetMs * 8;
+
       let alive = true;
+      let iterations = 256;
+      let inBand = 0;
+      let lastAdjust = 0;
+      let prev = performance.now();
+
       const tick = (t) => {
         if (!alive) return;
-        gl.uniform1i(uIter, RENDER_ITER);
+        const frameMs = t - prev;
+        prev = t;
+
+        // Seek fast, then correct slowly. The scenario is only measured for
+        // four seconds, so a leisurely ramp would spend the window climbing
+        // instead of sitting in the band being classified.
+        // An overshoot is cut immediately rather than at the next interval:
+        // waiting 120ms at 200ms/frame is how a context gets taken away.
+        if (frameMs > DANGER) {
+          iterations = Math.max(64, Math.round(iterations * 0.5));
+          inBand = 0;
+          lastAdjust = t;
+        }
+
+        const interval = inBand >= 2 ? 400 : 120;
+        if (t - lastAdjust > interval) {
+          if (frameMs > TARGET_HIGH) {
+            iterations = Math.max(64, Math.round(iterations * 0.7));
+            inBand = 0;
+            lastAdjust = t;
+          } else if (frameMs < TARGET_LOW) {
+            iterations = Math.min(MAX_ITER, Math.round(iterations * 1.6));
+            inBand = 0;
+            lastAdjust = t;
+          } else {
+            inBand++;
+            lastAdjust = t;
+          }
+        }
+
+        gl.uniform1i(uIter, iterations);
         gl.uniform1f(uTime, t * 0.001);
         gl.drawArrays(gl.TRIANGLES, 0, 3);
         requestAnimationFrame(tick);
