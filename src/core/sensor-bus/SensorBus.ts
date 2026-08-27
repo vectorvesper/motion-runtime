@@ -121,6 +121,21 @@ export class SensorBus {
   }
 
   private start(): void {
+    /**
+     * Nothing to listen to on a server.
+     *
+     * `retain()` still succeeds and still returns a working release, so a Vue
+     * `setup()` or a SvelteKit load can hold the bus without a branch; the
+     * sensors simply report their zeroed defaults until the client hydrates and
+     * retains for real.
+     *
+     * Without this, `retain()` threw "window is not defined" during SSR. React
+     * consumers never hit it because `useSensorBus` retains from an effect, but
+     * this entry carries no "use client" and is advertised as
+     * framework-agnostic.
+     */
+    if (typeof window === "undefined") return;
+
     const onPointerMove = (e: PointerEvent) => {
       if (!this.pointer.seen) {
         // First contact: snap history so the first frame reads zero velocity.

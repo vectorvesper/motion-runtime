@@ -152,6 +152,33 @@ export function deviceTierFromSignals(s: DeviceSignals): {
   return { tier, reasons };
 }
 
+/**
+ * What the server reports, and why it is optimistic.
+ *
+ * There is no device to probe during SSR. The tempting default is the honest
+ * one, "we know nothing, assume the worst", but `deviceTierFromSignals` maps
+ * `webgl2: false` to tier 2, which is the poster tier. A Nuxt or SvelteKit page
+ * would render the static fallback, hydrate, probe a perfectly capable GPU and
+ * swap to a full scene: a flash and a layout shift on every good machine.
+ *
+ * So the server reports tier 0, which is exactly what `useAdaptiveQuality`'s
+ * INITIAL already renders on the React side. Server output and first client
+ * render agree, and the real probe corrects it a frame later if the device
+ * deserves it. Same reasoning as `useSafeToMount` starting `false`.
+ */
+const SERVER_SIGNALS: DeviceSignals = {
+  webgl2: false,
+  renderer: "",
+  deviceMemory: null,
+  cores: null,
+  reducedMotion: false,
+};
+
+/** Whether there is a DOM to interrogate at all. */
+function isBrowser(): boolean {
+  return typeof window !== "undefined" && typeof navigator !== "undefined";
+}
+
 function probeDeviceSignals(): DeviceSignals {
   let webgl2 = false;
   let renderer = "";
@@ -236,6 +263,19 @@ class AdaptiveQuality {
 
   private ensureProbe(): void {
     if (this.device !== null) return;
+
+    // Reading `.state` during SSR used to throw "window is not defined": the
+    // canvas probe was inside a try/catch but `navigator.hardwareConcurrency`
+    // and `window.matchMedia` were not. This entry carries no "use client" and
+    // is advertised as framework-agnostic, so a Vue or Svelte page reading the
+    // governor on the server crashed the render. React consumers never saw it,
+    // because the hook sits behind a client boundary.
+    if (!isBrowser()) {
+      this.signals = SERVER_SIGNALS;
+      this.device = { tier: 0, reasons: ["not probed: no browser environment"] };
+      return;
+    }
+
     this.signals = probeDeviceSignals();
     this.device = deviceTierFromSignals(this.signals);
   }

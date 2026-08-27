@@ -60,12 +60,44 @@ nothing, and you also lose the context-loss recovery that did work before. That
 silence is why this is a major bump rather than a patch: there is no way for
 the compiler to tell you.
 
-### Also
-
 - The module no longer imports any React Three Fiber value, only React. The
   peers stay declared because the props it returns are only meaningful to an
   R3F canvas.
 - New exported type `RenderQualityProps`.
+### Three SSR crashes in the core entry
+
+Found by calling the public surface in Node with no DOM, which nothing had ever
+done. All three threw on a server:
+
+```
+getAdaptiveQuality().state        window is not defined
+getAdaptiveQuality().subscribe()  requestAnimationFrame is not defined
+getSensorBus().retain()           window is not defined
+```
+
+None of them ever surfaced in React, because every React hook touches the
+runtime from an effect and effects do not run on the server. But the core entry
+ships without a `"use client"` directive specifically so Nuxt, SvelteKit and
+Astro can import it, and any of those reading a governor or holding the bus
+during SSR crashed the render.
+
+The device probe now short-circuits when there is no browser, the conductor does
+not try to start a loop without `requestAnimationFrame`, and the sensor bus does
+not try to attach listeners to a window that is not there. Subscribing and
+retaining both still succeed and still return working releases; they simply have
+no frames to deliver until the client hydrates.
+
+**The server reports quality tier 0, deliberately.** The signals classifier maps
+"no WebGL2" to tier 2, the poster tier, so the naive default would render the
+static fallback and then flash to a full scene the moment a capable device
+hydrated. Tier 0 is what `useAdaptiveQuality`'s INITIAL already renders, so both
+entries produce the same server markup.
+
+New `src/ssr.test.ts` walks the whole public surface in a node environment, so a
+future export that touches a browser global at call time fails there.
+
+### Also
+
 - New `npm run test:vanilla`: a plain HTML page with no React, no bundler and
   no framework, importing the built ESM core and constructing `PointerIntent`,
   `MagneticElement` and `VideoScrubber` by hand. The package has advertised

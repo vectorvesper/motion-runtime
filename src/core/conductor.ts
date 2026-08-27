@@ -514,6 +514,23 @@ class FrameConductor {
 
   private start(): void {
     if (this.rafId !== null) return;
+
+    /**
+     * No frames on a server, so there is no loop to start.
+     *
+     * Subscribing still succeeds and still returns a working unsubscribe: the
+     * callback simply never fires, which is the truthful outcome when no frame
+     * will ever be presented. The loop starts for real when the client
+     * hydrates and subscribes again.
+     *
+     * Without this, `subscribe()` threw "requestAnimationFrame is not defined"
+     * during SSR. React consumers never hit it because their hooks subscribe
+     * from an effect, but this entry carries no "use client" and is advertised
+     * as framework-agnostic, so a Vue `setup()` or a SvelteKit load crashed the
+     * render.
+     */
+    if (typeof requestAnimationFrame === "undefined") return;
+
     this.last = performance.now();
     this.rafId = requestAnimationFrame(this.tick);
   }

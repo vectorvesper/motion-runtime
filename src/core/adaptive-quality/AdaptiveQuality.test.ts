@@ -128,3 +128,46 @@ describe("fuse: would reducing quality actually help", () => {
     expect(out).toEqual({ effective: 1, cause: "device" });
   });
 });
+
+/**
+ * Server-side rendering.
+ *
+ * This file runs in a node environment, so `window` and `navigator` are genuinely
+ * absent, which is the same situation Nuxt or SvelteKit put the core entry in.
+ * The core carries no "use client" and the README advertises it as
+ * framework-agnostic, so reading the governor on the server has to work.
+ */
+describe("AdaptiveQuality without a DOM", () => {
+  it("reports a tier instead of throwing", async () => {
+    const { getAdaptiveQuality } = await import("./AdaptiveQuality");
+    expect(typeof window).toBe("undefined");
+    expect(() => getAdaptiveQuality().state).not.toThrow();
+  });
+
+  it("reports the optimistic tier, so SSR markup matches the first client render", async () => {
+    const { getAdaptiveQuality } = await import("./AdaptiveQuality");
+    const state = getAdaptiveQuality().state;
+    // Not tier 2. The signals-based classifier maps "no WebGL2" to the poster
+    // tier, and using that on the server would render the fallback and then
+    // flash to a full scene the moment a capable device hydrated.
+    expect(state.tier).toBe(0);
+    expect(state.deviceTier).toBe(0);
+    expect(state.reducedMotion).toBe(false);
+  });
+
+  it("says why it did not probe", async () => {
+    const { getAdaptiveQuality } = await import("./AdaptiveQuality");
+    expect(getAdaptiveQuality().state.reasons.join(" ")).toMatch(/no browser environment/);
+  });
+
+  it("subscribing on the server does not throw either", async () => {
+    const { getAdaptiveQuality } = await import("./AdaptiveQuality");
+    // A property rather than a `let`: control-flow analysis cannot see the
+    // assignment inside the callback, so a local narrows to `never`.
+    const held: { off?: () => void } = {};
+    expect(() => {
+      held.off = getAdaptiveQuality().subscribe(() => {});
+    }).not.toThrow();
+    held.off?.();
+  });
+});
