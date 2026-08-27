@@ -78,8 +78,10 @@ export {
 } from "./core/animation-budget/AnimationBudget";
 export {
   getAdaptiveQuality,
+  fuse,
   type AdaptiveState,
   type DeviceSignals,
+  type QualityCause,
 } from "./core/adaptive-quality/AdaptiveQuality";
 
 // ── Option types ────────────────────────────────────────────────────

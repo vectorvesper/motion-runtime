@@ -59,6 +59,38 @@ recalculating layout up to ten times a frame with no library aware of the rest.
 **Core.** `@vectorvesper/motion`. Zero dependencies, no framework. Works from
 vanilla JS, Vue, Svelte, or anything else.
 
+### Using it outside React
+
+The core entry has no React import and no `"use client"` directive, so it can be
+imported anywhere, including on a server. Reading a governor or holding the
+sensor bus during SSR is safe: Nuxt, SvelteKit and Astro all render without a
+DOM, and the runtime returns its defaults rather than throwing.
+
+What you write is the same code React writes, in your framework's lifecycle
+hooks. In Vue that is `onMounted` and `onUnmounted`; in Svelte, `onMount` and
+its returned cleanup.
+
+```js
+import { getConductor, getSensorBus, damp } from "@vectorvesper/motion";
+
+// Vue
+onMounted(() => {
+  const release = getSensorBus().retain();
+  const off = getConductor().subscribe("render", () => {
+    const { x } = getSensorBus().state.pointer;
+    el.value.style.transform = `translate3d(${x * 0.05}px, 0, 0)`;
+  });
+  onUnmounted(() => { off(); release(); });
+});
+```
+
+**The React hooks are React only.** `useSceneGate`, `useSafeToMount`,
+`usePointerIntent` and the rest live in `@vectorvesper/motion/react` and depend
+on React. Outside React you get the engine and wire the lifecycle yourself,
+which is roughly fifteen lines per effect. The scheduling, the shared sensors,
+the governors and the effect classes are all available; the convenience layer is
+not.
+
 | Primitive | React hook | What it does |
 | --- | --- | --- |
 | FrameConductor | `useTick` | One `rAF` loop for the page, three ordered lanes (`input → update → render`), zero idle cost. |

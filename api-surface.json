@@ -10,6 +10,7 @@
       "VideoScrubber",
       "clamp01",
       "damp",
+      "fuse",
       "getAdaptiveQuality",
       "getAnimationBudget",
       "getConductor",
@@ -35,6 +36,7 @@
       "PointerSensor",
       "PressureSource",
       "PressureState",
+      "QualityCause",
       "RectLike",
       "RendererHealthState",
       "ScrollSensor",
@@ -134,7 +136,7 @@
         "heritage": "",
         "members": [
           "budgetTier: BudgetTier",
-          "cause: \"ok\" | \"device\" | \"reduced-motion\" | \"render\" | \"frame-rate\" | \"held\"",
+          "cause: QualityCause",
           "deviceTier: BudgetTier",
           "label: \"high\" | \"medium\" | \"low\"",
           "reasons: string[]",
@@ -274,6 +276,11 @@
           "unattributedMs: number"
         ]
       },
+      "QualityCause": {
+        "kind": "alias",
+        "isType": true,
+        "type": "\"ok\" | \"device\" | \"reduced-motion\" | \"render\" | \"frame-rate\" | \"held\""
+      },
       "RectLike": {
         "kind": "object",
         "isType": true,
@@ -398,6 +405,18 @@
           "dt: number"
         ],
         "returns": "number"
+      },
+      "fuse": {
+        "kind": "function",
+        "isType": false,
+        "generics": [],
+        "params": [
+          "deviceTier: BudgetTier",
+          "budgetTier: BudgetTier",
+          "reducedMotion: boolean",
+          "pressure: { source: PressureSource; confidence: number; }"
+        ],
+        "returns": "{ effective: BudgetTier; cause: QualityCause; }"
       },
       "getAdaptiveQuality": {
         "kind": "function",

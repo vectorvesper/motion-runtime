@@ -98,6 +98,15 @@ future export that touches a browser global at call time fails there.
 
 ### Also
 
+- **`fuse` and `QualityCause` are exported** from the core entry. `fuse` is the
+  pure function behind `AdaptiveQuality`, taking a device tier, a budget tier, a
+  motion preference and a pressure reading, and returning the effective tier
+  plus the reason for it. Exported for the same stated reason as
+  `SAFE_TO_MOUNT_COST` and `POINTER_INTENT_SENSITIVITY`: a devtools panel or a
+  documentation page explaining a verdict needs the real rule, and the
+  alternative is every such surface keeping a copy that drifts. That drift had
+  already happened. The adaptive-quality docs page was still computing
+  `max(deviceTier, budgetTier)`, which stopped being the rule in 3.0.
 - New `npm run test:vanilla`: a plain HTML page with no React, no bundler and
   no framework, importing the built ESM core and constructing `PointerIntent`,
   `MagneticElement` and `VideoScrubber` by hand. The package has advertised

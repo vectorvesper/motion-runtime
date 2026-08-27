@@ -56,7 +56,7 @@ export interface AdaptiveState {
    * it yet, so the budget tier is trusted. `held` means the budget tier wants
    * to degrade and was overruled because the frame is blocked elsewhere.
    */
-  cause: "ok" | "device" | "reduced-motion" | "render" | "frame-rate" | "held";
+  cause: QualityCause;
   /** Human-readable trail of why the device tier is what it is. */
   reasons: string[];
   reducedMotion: boolean;
@@ -94,12 +94,38 @@ const RENDER_CONFIDENCE_FLOOR = 0.4;
  *    main-thread or runtime verdict is the one case where degrading is known
  *    to be useless, so the budget tier is overruled and reported as `held`.
  */
+/**
+ * Why the governor arrived at the tier it did.
+ *
+ * Branch on this when a slow device and a slow frame call for different
+ * responses. `held` is the interesting one: frames are dropping, but something
+ * other than drawing is to blame, so reducing quality would make the page
+ * uglier without making it faster.
+ */
+export type QualityCause =
+  | "ok"
+  | "device"
+  | "reduced-motion"
+  | "render"
+  | "frame-rate"
+  | "held";
+
+/**
+ * The fusion rule, as a pure function.
+ *
+ * Exported for the same reason `SAFE_TO_MOUNT_COST` and
+ * `POINTER_INTENT_SENSITIVITY` are: a devtools panel or a docs page explaining
+ * a verdict needs the real rule, and the alternative is every such surface
+ * keeping a copy that drifts out of date. The adaptive-quality documentation
+ * page had exactly that, still computing `max(deviceTier, budgetTier)` long
+ * after 3.0 replaced it.
+ */
 export function fuse(
   deviceTier: BudgetTier,
   budgetTier: BudgetTier,
   reducedMotion: boolean,
   pressure: { source: PressureSource; confidence: number },
-): { effective: BudgetTier; cause: AdaptiveState["cause"] } {
+): { effective: BudgetTier; cause: QualityCause } {
   if (reducedMotion) return { effective: 2, cause: "reduced-motion" };
   if (deviceTier >= budgetTier && deviceTier > 0) {
     return { effective: deviceTier, cause: "device" };
