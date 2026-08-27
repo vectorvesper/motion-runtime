@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { createHybridRef } from "./hybrid-ref";
 import { useAdaptiveQuality } from "./useAdaptiveQuality";
-import { useFramePressure } from "./useFramePressure";
 import { useSafeToMount, type MountCost } from "./useSafeToMount";
 import { getConductor } from "../core/conductor";
 import { getSensorBus } from "../core/sensor-bus/SensorBus";
@@ -134,9 +133,10 @@ export interface SceneGate<T extends HTMLElement> {
  * `"reduced"` look like. The renderer adapter that applies these decisions to
  * a real three.js scene is a separate piece.
  *
- * It composes `useSafeToMount`, `useAdaptiveQuality` and `useFramePressure`
- * rather than reimplementing any of them, and all three still work on their
- * own. It replaced `useLazyScene` outright: that hook carried a second,
+ * It composes `useSafeToMount` and `useAdaptiveQuality` rather than
+ * reimplementing either, and both still work on their own. The pressure
+ * classifier reaches it through `useAdaptiveQuality`, which since 3.0 fuses
+ * that verdict into the tier. It replaced `useLazyScene` outright: that hook carried a second,
  * differently-behaved answer to "is the page healthy enough to mount", which
  * is the one shape this codebase cannot afford to keep duplicating.
  */
@@ -206,7 +206,6 @@ export function useSceneGate<T extends HTMLElement = HTMLDivElement>({
     if (ready) setStarted(true);
   }, [ready]);
   const quality = useAdaptiveQuality();
-  const pressure = useFramePressure();
 
   const [health, setHealth] = useState(() => getRendererHealth().state);
   useEffect(() => getRendererHealth().subscribe(setHealth), []);
@@ -269,16 +268,6 @@ export function useSceneGate<T extends HTMLElement = HTMLDivElement>({
 const SETTLED_SCROLL_SPEED = 40;
 /** How long a reduced scene stays reduced after conditions improve. */
 const CONSTRAIN_DWELL_MS = 4000;
-/**
- * Confidence below which a render verdict is ignored.
- *
- * Measured in a real browser, a realistic heavy scene reads about 0.52 — so
- * this has to sit below that, and well above the 0.3 the classifier assigns to
- * a bare long-task hint. Reading `source` without checking `confidence` would
- * degrade scenes on a guess.
- */
-const RENDER_CONFIDENCE_FLOOR = 0.4;
-
 interface Inputs {
   near: boolean;
   ready: boolean;

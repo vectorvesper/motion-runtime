@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import React, { StrictMode } from "react";
-import { render, cleanup, act } from "@testing-library/react";
+import { StrictMode } from "react";
+import { render, cleanup } from "@testing-library/react";
 
 /**
  * The kernel-adjacent React adapters: useSensorBus, useAnimationBudget,
@@ -15,13 +15,6 @@ import { render, cleanup, act } from "@testing-library/react";
 let rafCallbacks = new Map<number, FrameRequestCallback>();
 let rafId = 0;
 let now = 0;
-
-function crank(timeMs: number): void {
-  now = timeMs;
-  const pending = [...rafCallbacks.values()];
-  rafCallbacks = new Map();
-  for (const cb of pending) cb(timeMs);
-}
 
 /** matchMedia is not implemented in jsdom; hooks that gate on it need one. */
 function stubMatchMedia(matches: Record<string, boolean>): void {

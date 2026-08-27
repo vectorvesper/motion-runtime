@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import React from "react";
 import { render, cleanup, act } from "@testing-library/react";
 
 /**
@@ -34,22 +33,6 @@ function crank(timeMs: number): void {
 /** Run n frames at a healthy 60Hz cadence. */
 function crankFrames(count: number): void {
   for (let i = 0; i < count; i++) crank(now + 16);
-}
-
-function flushIdle(): void {
-  const pending = idleCallbacks;
-  idleCallbacks = [];
-  for (const cb of pending) cb();
-}
-
-function intersect(): void {
-  for (const o of observers) {
-    o.callback(
-      o.observed.map((target) => ({ isIntersecting: true, target })) as
-        unknown as IntersectionObserverEntry[],
-      {} as IntersectionObserver,
-    );
-  }
 }
 
 beforeEach(() => {

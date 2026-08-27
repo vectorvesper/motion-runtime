@@ -6,7 +6,7 @@ let conductorCallbacks: ((dt: number, time: number) => void)[] = [];
 vi.mock("../conductor", () => {
   return {
     getConductor: () => ({
-      subscribe: (lane: string, fn: any) => {
+      subscribe: (_lane: string, fn: any) => {
         conductorCallbacks.push(fn);
         return () => {
           conductorCallbacks = conductorCallbacks.filter((c) => c !== fn);

@@ -1,5 +1,77 @@
 # Changelog
 
+## 4.0.0
+
+`useRenderQuality` did not work. This fixes it, and the fix changes how it is
+called.
+
+### The bug
+
+Since it shipped, the R3F adapter set the pixel ratio, the frame loop and the
+shadow map imperatively from inside `<Canvas>`, through `setDpr`,
+`setFrameloop` and `gl.shadowMap.enabled`. React Three Fiber re-runs its
+configure pass on **every `<Canvas>` render** and resets all three from the
+props:
+
+```js
+if (dpr && state.viewport.dpr !== calculateDpr(dpr)) state.setDpr(dpr);
+if (state.frameloop !== frameloop) state.setFrameloop(frameloop);
+gl.shadowMap.enabled = !!shadows;
+```
+
+R3F 9 defaults `dpr` to `[1, 2]` and `frameloop` to `"always"`, so every call
+the adapter made was undone on the next render. Measured in a real browser
+against 3.0.1: an idle scene kept rendering, 167 further frames over three
+seconds, and a renderer asked for `dpr: 1` sat at 1.25.
+
+In other words, the two things the adapter exists for, capping the pixel ratio
+and stopping the loop off screen, were not happening for anyone.
+
+### The fix, and what you have to change
+
+`useRenderQuality` now returns props to spread onto `<Canvas>`, and moves
+outside it. R3F owns these settings, so the only way to hold them is to be what
+R3F reconciles against.
+
+```diff
+- function Rig({ state }: { state: SceneState }) {
+-   useRenderQuality(state, PROFILES);
+-   return null;
+- }
+-
+- <Canvas key={scene.generation}>
+-   <Rig state={scene.state} />
+-   <Hero detail={scene.quality} />
+- </Canvas>
+
++ const canvas = useRenderQuality(scene.state, PROFILES);
++
++ <Canvas key={scene.generation} {...canvas}>
++   <Hero detail={scene.quality} />
++ </Canvas>
+```
+
+Remove any `dpr`, `frameloop` or `shadows` prop you were passing to `<Canvas>`
+yourself. Two owners of one setting is the whole problem, and yours will win.
+
+**This does not produce a compile error.** The old call still type-checks,
+because ignoring a return value is legal, and it still renders. It quietly does
+nothing, and you also lose the context-loss recovery that did work before. That
+silence is why this is a major bump rather than a patch: there is no way for
+the compiler to tell you.
+
+### Also
+
+- The module no longer imports any React Three Fiber value, only React. The
+  peers stay declared because the props it returns are only meaningful to an
+  R3F canvas.
+- New exported type `RenderQualityProps`.
+- The r3f tests were green throughout the entire period the adapter was broken.
+  They mocked `useThree` and asserted that the imperative calls happened, which
+  was true, while never checking that the renderer ended up in the requested
+  state. They now assert the returned props, and the end-to-end claim is
+  checked against a real renderer in a real browser instead.
+
 ## 3.0.1
 
 Packaging only. The runtime code is byte-identical to 3.0.0.

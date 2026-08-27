@@ -129,7 +129,6 @@ export class VideoScrubber {
   private seekEpsilon = SEEK_EPSILON;
   private seekStartTime = 0;
   private warningTriggered = false;
-  private lastSeekDuration = 0;
 
   constructor(video: HTMLVideoElement, options: VideoScrubberOptions = {}) {
     this.video = video;
@@ -169,7 +168,6 @@ export class VideoScrubber {
     const onSeeked = () => {
       if (this.seekStartTime > 0) {
         const seekDuration = performance.now() - this.seekStartTime;
-        this.lastSeekDuration = seekDuration;
         // If a seek takes longer than 60ms (very slow decoder due to lack of I-frames)
         if (seekDuration > 60) {
           // Increase seek epsilon to skip near-frame seeks (up to 0.5s of throttle)

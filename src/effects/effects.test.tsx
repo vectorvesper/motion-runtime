@@ -35,22 +35,6 @@ function crankFrames(count: number): void {
   for (let i = 0; i < count; i++) crank(now + 16);
 }
 
-function flushIdle(): void {
-  const pending = idleCallbacks;
-  idleCallbacks = [];
-  for (const cb of pending) cb();
-}
-
-function intersect(): void {
-  for (const o of observers) {
-    o.callback(
-      o.observed.map((target) => ({ isIntersecting: true, target })) as
-        unknown as IntersectionObserverEntry[],
-      {} as IntersectionObserver,
-    );
-  }
-}
-
 beforeEach(() => {
   rafCallbacks = new Map();
   rafId = 0;

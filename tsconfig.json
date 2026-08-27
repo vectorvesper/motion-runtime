@@ -6,6 +6,14 @@
     "lib": ["DOM", "DOM.Iterable", "ESNext"],
     "jsx": "react-jsx",
     "strict": true,
+    // On since 3.0.2. 3.0.1 shipped a `const pressure = useFramePressure()` in
+    // useSceneGate that nothing read: a live subscription and a re-render at
+    // ~2Hz, in every component using the gate, for a value the 3.0 refactor had
+    // already moved into AdaptiveQuality. `strict` does not cover this and no
+    // eslint rule was configured for it, so the only thing standing between a
+    // dead reference and the registry was somebody reading the file.
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "declaration": true,
     "esModuleInterop": true,
     "skipLibCheck": true,

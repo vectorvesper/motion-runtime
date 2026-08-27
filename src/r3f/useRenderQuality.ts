@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
-import { useThree } from "@react-three/fiber";
+import { useCallback, useMemo } from "react";
 import type { SceneState } from "../react/useSceneGate";
 import { getRendererHealth } from "../core/renderer-health/RendererHealth";
 
@@ -9,7 +8,7 @@ import { getRendererHealth } from "../core/renderer-health/RendererHealth";
  * Renderer settings for one quality level.
  *
  * Only what the adapter can genuinely apply to the renderer itself. Particle
- * counts, geometry detail and post-processing passes are not here on purpose —
+ * counts, geometry detail and post-processing passes are not here on purpose:
  * those live in your own components, keyed off `gate.quality`. An option that
  * looks applied and is not is worse than no option.
  */
@@ -28,30 +27,42 @@ export interface RenderProfiles {
   reduced: RenderProfile;
 }
 
+/** The subset of R3F's `onCreated` argument this needs. */
+interface CreatedState {
+  gl: { domElement: HTMLCanvasElement };
+}
+
 /**
- * Apply a scene gate's decision to the R3F renderer.
+ * Props to spread onto `<Canvas>`. Every field is a prop R3F owns.
+ */
+export interface RenderQualityProps {
+  dpr: number | undefined;
+  frameloop: "always" | "never";
+  shadows: boolean | undefined;
+  onCreated: (state: CreatedState) => void;
+}
+
+/**
+ * Turn a scene gate's decision into `<Canvas>` props.
  *
  * ```tsx
- * function Rig({ state }: { state: SceneState }) {
- *   useRenderQuality(state, {
- *     full:    { dpr: 2, shadows: true },
- *     reduced: { dpr: 1, shadows: false },
- *   });
- *   return null;
- * }
- *
- * // and outside the canvas
  * const scene = useSceneGate<HTMLDivElement>({ label: "hero" });
+ * const canvas = useRenderQuality(scene.state, {
+ *   full:    { dpr: 2, shadows: true },
+ *   reduced: { dpr: 1, shadows: false },
+ * });
  *
  * <div ref={scene.ref}>
  *   {scene.mounted && (
- *     <Canvas>
- *       <Rig state={scene.state} />
+ *     <Canvas key={scene.generation} {...canvas}>
  *       <Hero detail={scene.quality} />
  *     </Canvas>
  *   )}
  * </div>
  * ```
+ *
+ * Called OUTSIDE the canvas, because that is where its output goes. It touches
+ * no R3F context and renders nothing.
  *
  * Three jobs.
  *
@@ -61,91 +72,86 @@ export interface RenderProfiles {
  * **It stops the render loop when the scene is off screen.** R3F draws
  * continuously by default, so a hero three screens up keeps shading every
  * frame for nobody. On `"idle"` the loop is set to `"never"` and the context,
- * the textures and the geometry all stay exactly where they were — coming back
- * into view is instant, where a remount would pay for the whole upload again.
+ * the textures and the geometry all stay exactly where they were, so coming
+ * back into view is instant where a remount would pay for the whole upload
+ * again.
  *
  * **It notices when the graphics context dies.** A browser can take a WebGL
- * context away at any time, and R3F has no handler for it — verified against
+ * context away at any time, and R3F has no handler for it: verified against
  * 9.6.1, there is nothing in the bundle. What you get is a permanently black
- * canvas and a clean console. This calls `preventDefault()` so a replacement
- * context is possible at all, and reports the loss so the scene gate can hand
- * back a new `generation` for the `<Canvas key>`.
+ * canvas and a clean console. `onCreated` attaches a listener that calls
+ * `preventDefault()`, so a replacement context is possible at all, and reports
+ * the loss so the scene gate can hand back a new `generation` for the
+ * `<Canvas key>`.
+ *
+ * ## Why props, when 3.0 did this imperatively
+ *
+ * Up to 3.0.1 this ran inside the canvas and called `setDpr`, `setFrameloop`
+ * and assigned `gl.shadowMap.enabled` directly. None of it survived.
+ *
+ * R3F re-runs its configure pass on every `<Canvas>` render and resets the
+ * renderer from the props:
+ *
+ * ```js
+ * if (dpr && state.viewport.dpr !== calculateDpr(dpr)) state.setDpr(dpr);
+ * if (state.frameloop !== frameloop) state.setFrameloop(frameloop);
+ * gl.shadowMap.enabled = !!shadows;
+ * ```
+ *
+ * v9 defaults `dpr` to `[1, 2]`, `frameloop` to `"always"` and `shadows` to
+ * undefined, so every imperative call was undone on the next render. Measured
+ * in a real browser against 3.0.1: an idle scene kept rendering, 167 further
+ * frames in three seconds, and a renderer asked for `dpr: 1` sat at 1.25.
+ *
+ * These are R3F's settings. The only way to hold them is to be the thing R3F
+ * reconciles against, which means props.
  *
  * ## Why this is a separate import
  *
  * `@vectorvesper/motion` has no dependencies. Three and R3F are optional peers
  * reached through `@vectorvesper/motion/r3f`, so a project that never renders
- * 3D never pays for any of this.
+ * 3D never pays for any of this. As of 4.0 this module imports no R3F value at
+ * all, only React.
  *
  * ## Why quality is not changed with `#define`
  *
  * Recompiling a shader is a stall of exactly the kind this is trying to avoid,
- * and it lands at the worst possible moment — when the page is already
+ * and it lands at the worst possible moment, when the page is already
  * struggling. Everything here is a renderer setting or a uniform. If you need
  * a cheaper shader variant, compile both up front and switch which one draws.
  */
 export function useRenderQuality(
   state: SceneState,
   profiles: RenderProfiles,
-): void {
-  const gl = useThree((s) => s.gl);
-  const setDpr = useThree((s) => s.setDpr);
-  const setFrameloop = useThree((s) => s.setFrameloop);
-  const invalidate = useThree((s) => s.invalidate);
-
-  const running = state === "active" || state === "constrained";
+): RenderQualityProps {
   const profile = state === "active" ? profiles.full : profiles.reduced;
   const { dpr, shadows } = profile;
 
-  // Off screen: keep everything, draw nothing.
-  useEffect(() => {
-    if (state === "idle") {
-      setFrameloop("never");
-      return;
-    }
-    if (running) {
-      setFrameloop("always");
-      // A loop that was stopped has nothing queued, so ask for one frame to
-      // get the picture back rather than waiting for something else to.
-      invalidate();
-    }
-  }, [state, running, setFrameloop, invalidate]);
+  /**
+   * Off screen: keep everything, draw nothing.
+   *
+   * Only `"idle"` stops the loop. `dormant`, `warming` and `poster` mean the
+   * canvas should not exist yet, which is the gate's `mounted` decision rather
+   * than this one, and stopping the loop for a canvas that is about to be
+   * created would leave it blank on arrival.
+   */
+  const frameloop: "always" | "never" = state === "idle" ? "never" : "always";
 
-  // The context can go at any moment: a driver reset, a phone backgrounding
-  // the tab, too many live contexts. Without preventDefault the browser will
-  // not attempt a restore, and some drivers then refuse a new context on the
-  // page at all — so this runs whatever the scene's state is.
-  useEffect(() => {
-    const canvas = gl.domElement;
-    const onLost = (event: Event) => {
-      event.preventDefault();
-      getRendererHealth().reportLost();
-    };
-    canvas.addEventListener("webglcontextlost", onLost);
-
+  const onCreated = useCallback(({ gl }: CreatedState) => {
     // Mounting at all means a working context. After a loss this is the
     // replacement announcing itself, which is what ends the recovery.
     getRendererHealth().reportHealthy();
 
-    return () => canvas.removeEventListener("webglcontextlost", onLost);
-  }, [gl]);
+    // Without preventDefault the browser will not attempt a restore, and some
+    // drivers then refuse a new context on the page at all.
+    gl.domElement.addEventListener("webglcontextlost", (event: Event) => {
+      event.preventDefault();
+      getRendererHealth().reportLost();
+    });
+  }, []);
 
-  useEffect(() => {
-    if (!running || dpr === undefined) return;
-    setDpr(dpr);
-    invalidate();
-  }, [running, dpr, setDpr, invalidate]);
-
-  useEffect(() => {
-    if (!running || shadows === undefined) return;
-    const previous = gl.shadowMap.enabled;
-    gl.shadowMap.enabled = shadows;
-    // Existing materials were compiled against the old shadow setting and will
-    // otherwise keep their old shader until something else marks them dirty.
-    gl.shadowMap.needsUpdate = true;
-    invalidate();
-    return () => {
-      gl.shadowMap.enabled = previous;
-    };
-  }, [running, shadows, gl, invalidate]);
+  return useMemo(
+    () => ({ dpr, frameloop, shadows, onCreated }),
+    [dpr, frameloop, shadows, onCreated],
+  );
 }

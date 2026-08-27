@@ -963,7 +963,8 @@
     ],
     "types": [
       "RenderProfile",
-      "RenderProfiles"
+      "RenderProfiles",
+      "RenderQualityProps"
     ],
     "shapes": {
       "RenderProfile": {
@@ -984,6 +985,17 @@
           "reduced: RenderProfile"
         ]
       },
+      "RenderQualityProps": {
+        "kind": "object",
+        "isType": true,
+        "heritage": "",
+        "members": [
+          "dpr: number | undefined",
+          "frameloop: \"always\" | \"never\"",
+          "onCreated: (state: CreatedState) => void",
+          "shadows: boolean | undefined"
+        ]
+      },
       "useRenderQuality": {
         "kind": "function",
         "isType": false,
@@ -992,7 +1004,7 @@
           "state: SceneState",
           "profiles: RenderProfiles"
         ],
-        "returns": "void"
+        "returns": "RenderQualityProps"
       }
     }
   }

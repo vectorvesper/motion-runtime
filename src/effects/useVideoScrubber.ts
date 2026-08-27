@@ -57,14 +57,14 @@ export interface UseVideoScrubberReturn<TTrack extends HTMLElement> {
  * import { useVideoScrubber } from "@vectorvesper/motion/react";
  * 
  * export function ScrollScrubVideo() {
- *   const { videoRef, trackRef, progressRef } = useVideoScrubber<HTMLDivElement>({
+ *   const { videoRef, ref, progressRef } = useVideoScrubber<HTMLDivElement>({
  *     driver: "scroll",
  *     speed: 10,        // How fast it catches up; 0 is instant
  *     mapping: "pin",   // Pin the video viewport while scrubbing
  *   });
  * 
  *   return (
- *     <div ref={trackRef} className="scroll-track" style={{ height: "300vh" }}>
+ *     <div ref={ref} className="scroll-track" style={{ height: "300vh" }}>
  *       <div className="sticky-container" style={{ position: "sticky", top: 0, height: "100vh" }}>
  *         <video ref={videoRef} src="/keyframe-dense-clip.mp4" muted playsInline />
  *         <div className="progress-indicator">
