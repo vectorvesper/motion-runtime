@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>vanilla core check</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #0b0b0d; color: #e5e5e5;
+                   font: 13px/1.5 ui-monospace, monospace; }
+      #stage { position: relative; height: 320px; margin: 40px; border: 1px solid #333; }
+      #magnet { position: absolute; left: 50%; top: 50%; width: 44px; height: 44px;
+                margin: -22px 0 0 -22px; background: #7eacb5; border-radius: 6px; }
+      #intent { position: absolute; left: 78%; top: 50%; width: 90px; height: 60px;
+                margin: -30px 0 0 -45px; border: 1px solid #7eacb5; }
+      #tall { height: 260vh; }
+      video { width: 260px; display: block; margin: 20px 40px; }
+    </style>
+  </head>
+  <body>
+    <div id="stage">
+      <div id="magnet"></div>
+      <div id="intent"></div>
+    </div>
+    <div id="track"><video id="clip" muted playsinline></video></div>
+    <div id="tall"></div>
+
+    <script type="module">
+      /**
+       * The whole point: no React, no bundler, no framework.
+       *
+       * The package has advertised vanilla / Vue / Svelte support since 1.0 and
+       * nothing has ever exercised it. This imports the built ESM core entry the
+       * way a plain page would and reports what it can actually do.
+       */
+      const result = { imported: false, errors: [], checks: {} };
+      window.__vv = result;
+
+      const note = (k, v) => { result.checks[k] = v; };
+
+      try {
+        const mod = await import("/dist/index.js");
+        result.imported = true;
+        result.exports = Object.keys(mod).sort();
+
+        const {
+          VERSION, getConductor, getSensorBus, getAnimationBudget,
+          getAdaptiveQuality, getFramePressure, getRendererHealth,
+          damp, clamp01, rayRectIntersect, scrollProgress,
+          PointerIntent, MagneticElement, VideoScrubber,
+          POINTER_INTENT_SENSITIVITY, VIDEO_SCRUBBER_DEFAULTS,
+        } = mod;
+
+        note("version", VERSION ?? null);
+
+        /* ── pure helpers ─────────────────────────────────────────── */
+        note("clamp01", clamp01(1.7) === 1 && clamp01(-3) === 0);
+        note("damp", Math.abs(damp(0, 10, 8, 1 / 60) - 0) > 0);
+        note("rayRectIntersect", typeof rayRectIntersect === "function");
+        note(
+          "scrollProgress",
+          scrollProgress(0, 1000, 800, "pin") >= 0 && scrollProgress(0, 1000, 800, "pin") <= 1,
+        );
+        note("sensitivityTable", !!POINTER_INTENT_SENSITIVITY && typeof POINTER_INTENT_SENSITIVITY === "object");
+        note("scrubberDefaults", !!VIDEO_SCRUBBER_DEFAULTS);
+
+        /* ── the shared loop, with no React to start it ───────────── */
+        let ticks = 0;
+        let lastDt = 0;
+        const offTick = getConductor().subscribe("update", (dt) => { ticks++; lastDt = dt; },
+          { label: "vanilla-check" });
+        note("conductorSubscribed", getConductor().state.subscribers.some((s) => s.label === "vanilla-check"));
+
+        /* ── sensors ──────────────────────────────────────────────── */
+        const bus = getSensorBus();
+        const releaseBus = bus.retain();
+
+        /* ── governors ────────────────────────────────────────────── */
+        const offBudget = getAnimationBudget().subscribe(() => {});
+        const offQuality = getAdaptiveQuality().subscribe(() => {});
+        const offPressure = getFramePressure().subscribe(() => {});
+        note("rendererHealth", typeof getRendererHealth().state.generation === "number");
+
+        /* ── effect engines, constructed directly ─────────────────── */
+        let intentFired = false;
+        const intent = new PointerIntent(
+          document.getElementById("intent"),
+          { sensitivity: "high" },
+          (v) => { if (v) intentFired = true; },
+        );
+        const magnet = new MagneticElement(document.getElementById("magnet"), { strength: 40, reach: 260 });
+
+        // A tiny generated clip, so this needs no fixture file.
+        const video = document.getElementById("clip");
+        video.src =
+          "data:video/mp4;base64," +
+          "AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAAIZnJlZQAAAr1tZGF0AAACrgYF//+q3EXpvebZSLeWLNgg2SPu73gyNjQgLSBjb3JlIDE1NSByMjkxNyAwYTg0ZDk4IC0gSC4yNjQvTVBFRy00IEFWQyBjb2RlYyAtIENvcHlsZWZ0IDIwMDMtMjAxOA==";
+
+        const scrubber = new VideoScrubber(video, { driver: "scroll", track: document.getElementById("track") });
+        note("effectsConstructed", !!intent && !!magnet && !!scrubber);
+
+        /* ── expose live readings for the harness ─────────────────── */
+        window.__vvRead = () => ({
+          ticks,
+          lastDt,
+          pointer: { x: bus.state.pointer.x, y: bus.state.pointer.y, speed: bus.state.pointer.speed },
+          scrollY: bus.state.scroll.y,
+          magnetTransform: getComputedStyle(document.getElementById("magnet")).transform,
+          intentFired,
+          budgetTier: getAnimationBudget().state.tier,
+          qualityTier: getAdaptiveQuality().state.tier,
+          pressureSource: getFramePressure().state.source,
+          subscribers: getConductor().state.subscribers.length,
+        });
+
+        window.__vvTeardown = () => {
+          offTick(); releaseBus(); offBudget(); offQuality(); offPressure();
+          intent.destroy(); magnet.destroy(); scrubber.destroy();
+          return getConductor().state.subscribers.length;
+        };
+      } catch (err) {
+        result.errors.push(String(err && err.stack ? err.stack : err));
+      }
+    </script>
+  </body>
+</html>

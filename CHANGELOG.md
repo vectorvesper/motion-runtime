@@ -66,6 +66,14 @@ the compiler to tell you.
   peers stay declared because the props it returns are only meaningful to an
   R3F canvas.
 - New exported type `RenderQualityProps`.
+- New `npm run test:vanilla`: a plain HTML page with no React, no bundler and
+  no framework, importing the built ESM core and constructing `PointerIntent`,
+  `MagneticElement` and `VideoScrubber` by hand. The package has advertised
+  vanilla / Vue / Svelte support since 1.0 and nothing had ever exercised it;
+  every existing test was a node unit test, a jsdom React test, or a browser
+  check that went through the React docs site. It passes, including `destroy()`
+  releasing the shared loop back to zero subscribers. Not wired into
+  `prepublishOnly`, because it needs a real Chrome.
 - The r3f tests were green throughout the entire period the adapter was broken.
   They mocked `useThree` and asserted that the imperative calls happened, which
   was true, while never checking that the renderer ended up in the requested
