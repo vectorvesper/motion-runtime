@@ -46,16 +46,17 @@ export interface RenderQualityProps {
  * Turn a scene gate's decision into `<Canvas>` props.
  *
  * ```tsx
- * const scene = useSceneGate<HTMLDivElement>({ label: "hero" });
- * const canvas = useRenderQuality(scene.state, {
+ * const { ref, state, mounted, quality, generation } =
+ *   useSceneGate<HTMLDivElement>({ label: "hero" });
+ * const canvas = useRenderQuality(state, {
  *   full:    { dpr: 2, shadows: true },
  *   reduced: { dpr: 1, shadows: false },
  * });
  *
- * <div ref={scene.ref}>
- *   {scene.mounted && (
- *     <Canvas key={scene.generation} {...canvas}>
- *       <Hero detail={scene.quality} />
+ * <div ref={ref}>
+ *   {mounted && (
+ *     <Canvas key={generation} {...canvas}>
+ *       <Hero detail={quality} />
  *     </Canvas>
  *   )}
  * </div>

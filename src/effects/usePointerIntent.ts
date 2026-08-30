@@ -19,6 +19,10 @@ export interface UsePointerIntentOptions extends PointerIntentOptions {
 export interface UsePointerIntentReturn<T extends HTMLElement> {
   /**
    * Ref to attach to the target DOM element.
+   *
+   * **Destructure this hook's result**, as the example below does. Reaching it
+   * as `pointer.ref` is a lint error under the React Compiler rules, and it
+   * poisons the sibling fields with it. See hybrid-ref.ts.
    */
   ref: RefObject<T | null>;
   /**
@@ -53,10 +57,12 @@ export interface UsePointerIntentReturn<T extends HTMLElement> {
  *     minSpeed: 100,    // Only predict if speed is > 100px/s
  *   });
  * 
+ *   // confidenceRef is deliberately not state, so it must not be read during
+ *   // render. Read it from a frame callback or an event handler instead.
  *   return (
  *     <div ref={ref} className="card-container">
  *       {intent && <PreloadedWebGLContent />}
- *       <span className="debug-readout">Confidence: {confidenceRef.current}</span>
+ *       <span className="debug-readout" />
  *     </div>
  *   );
  * }
@@ -106,8 +112,14 @@ export function usePointerIntent<T extends HTMLElement = HTMLElement>(
     instanceRef.current?.update({ sensitivity, dynamic });
   }, [sensitivity, dynamic]);
 
-  // eslint-disable-next-line react-hooks/refs -- the factory only wires deferred
-  // getters/setters; elementRef.current is never read during render.
+  // The factory only wires deferred getters/setters onto a function; it never
+  // reads elementRef.current during render. The compiler cannot see that
+  // through an opaque call, so it assumes the worst.
+  //
+  // The directive has to sit on the line immediately above the code. Written as
+  // `-- reason` with the reason wrapping onto a second comment line, it targets
+  // the comment instead and silently suppresses nothing.
+  // eslint-disable-next-line react-hooks/refs
   const ref = useMemo(() => createHybridRef<T>(elementRef, setElement), []);
 
   return { ref, intent, confidenceRef };

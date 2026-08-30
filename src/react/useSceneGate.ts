@@ -64,7 +64,15 @@ export type SceneCause =
   | "context-lost";
 
 export interface SceneGate<T extends HTMLElement> {
-  /** Attach to the element that holds the scene. */
+  /**
+   * Attach to the element that holds the scene.
+   *
+   * **Destructure this hook's result.** `<div ref={gate.ref}>` — reaching the
+   * ref through a member expression — is a lint error under the React Compiler
+   * rules, and it takes the rest of the object with it: `gate.generation` is a
+   * number and gets reported as a ref read during render too. See hybrid-ref.ts
+   * for why, and `compiler-lint.test.ts` for the check that keeps it true.
+   */
   ref: RefObject<T | null>;
   state: SceneState;
   /**
@@ -101,13 +109,13 @@ export interface SceneGate<T extends HTMLElement> {
  * Decide whether a heavy scene should exist, and how much of it.
  *
  * ```tsx
- * const scene = useSceneGate<HTMLDivElement>({ label: "hero" });
+ * const { ref, mounted, quality } = useSceneGate<HTMLDivElement>({ label: "hero" });
  *
  * return (
- *   <div ref={scene.ref}>
- *     {scene.mounted ? (
- *       <Canvas dpr={scene.quality === "full" ? 2 : 1}>
- *         <Hero detail={scene.quality} />
+ *   <div ref={ref}>
+ *     {mounted ? (
+ *       <Canvas dpr={quality === "full" ? 2 : 1}>
+ *         <Hero detail={quality} />
  *       </Canvas>
  *     ) : (
  *       <img src="/hero-poster.jpg" alt="" />
@@ -115,6 +123,10 @@ export interface SceneGate<T extends HTMLElement> {
  *   </div>
  * );
  * ```
+ *
+ * Destructure it, as above. Holding the result as one object and writing
+ * `<div ref={gate.ref}>` is a lint error in any app running the React Compiler
+ * rules — see `ref` on {@link SceneGate}.
  *
  * It answers three questions the page cannot answer for itself: is this scene
  * close enough to matter, can the page afford to start it, and once running,
@@ -153,8 +165,14 @@ export function useSceneGate<T extends HTMLElement = HTMLDivElement>({
   // in `dormant` forever with no error to explain why. See hybrid-ref.ts.
   const elementRef = useRef<T | null>(null);
   const [element, setElement] = useState<T | null>(null);
-  // eslint-disable-next-line react-hooks/refs -- the factory only wires deferred
-  // getters/setters; elementRef.current is never read during render.
+  // The factory only wires deferred getters/setters onto a function; it never
+  // reads elementRef.current during render. The compiler cannot see that
+  // through an opaque call, so it assumes the worst.
+  //
+  // The directive has to sit on the line immediately above the code. Written as
+  // `-- reason` with the reason wrapping onto a second comment line, it targets
+  // the comment instead and silently suppresses nothing.
+  // eslint-disable-next-line react-hooks/refs
   const ref = useMemo(() => createHybridRef<T>(elementRef, setElement), []);
 
   const [near, setNear] = useState(false);
