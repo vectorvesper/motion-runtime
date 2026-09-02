@@ -221,6 +221,10 @@ export function useSceneGate<T extends HTMLElement = HTMLDivElement>({
   // is a real defect class in this codebase and one eslint already catches.
   const [started, setStarted] = useState(false);
   useEffect(() => {
+    // A latch, not a cascade: this fires at most once per mount and then the
+    // condition can never be true again, so the rule's concern — an effect that
+    // re-renders on every pass — does not apply.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (ready) setStarted(true);
   }, [ready]);
   const quality = useAdaptiveQuality();
@@ -232,8 +236,7 @@ export function useSceneGate<T extends HTMLElement = HTMLDivElement>({
   // has its own smoothing, but they can still disagree frame to frame, and a
   // scene that rebuilds its detail level twice a second is worse than one that
   // is simply a bit too plain for four.
-  const constrainedSince = useRef(0);
-  const [, force] = useState(0);
+  const [dwelling, setDwelling] = useState(false);
 
   const verdict = decide({
     near,
@@ -247,24 +250,36 @@ export function useSceneGate<T extends HTMLElement = HTMLDivElement>({
   });
 
   let state = verdict.state;
-  if (state === "constrained") {
-    constrainedSince.current = constrainedSince.current || Date.now();
-  } else if (state === "active" && constrainedSince.current) {
-    const held = Date.now() - constrainedSince.current;
-    if (held < CONSTRAIN_DWELL_MS) state = "constrained";
-    else constrainedSince.current = 0;
-  } else {
-    constrainedSince.current = 0;
-  }
+  if (state === "active" && dwelling) state = "constrained";
 
-  // The dwell has to end on its own, or a page that recovers while nothing
-  // else changes would stay constrained until the next unrelated re-render.
+  // The dwell is owned entirely by the two effects below. Keeping the clock out
+  // of render is deliberate, for the reason already given on `started`: a ref
+  // written during render survives a discarded render, so an interrupted render
+  // could start or clear the hold without ever committing. Date.now() in render
+  // is impure besides, and the compiler flags both.
+  //
+  // Raise on the way in. The verdict already reports "constrained" at that
+  // point, so the flag only becomes load-bearing once the verdict recovers —
+  // which is why this cannot flicker back to "active" for a frame first.
   useEffect(() => {
-    if (state !== "constrained" || verdict.state !== "active") return;
-    const wait = CONSTRAIN_DWELL_MS - (Date.now() - constrainedSince.current);
-    const id = setTimeout(() => force((n) => n + 1), Math.max(16, wait));
+    // Keyed on verdict.state, so this runs only when the verdict actually
+    // changes band — not every render. Writing the flag from render instead is
+    // what this whole block exists to avoid.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (verdict.state === "constrained") setDwelling(true);
+    else if (verdict.state !== "active") setDwelling(false);
+  }, [verdict.state]);
+
+  // Fall on its own after the full window, whatever the verdict does meanwhile.
+  // The timer is keyed on the flag rather than the verdict, so recovering
+  // mid-dwell does not cancel it. Without a timer, a page that recovers while
+  // nothing else changes would stay constrained until the next unrelated
+  // re-render.
+  useEffect(() => {
+    if (!dwelling) return;
+    const id = setTimeout(() => setDwelling(false), CONSTRAIN_DWELL_MS);
     return () => clearTimeout(id);
-  }, [state, verdict.state]);
+  }, [dwelling]);
 
   const reason = state === verdict.state ? verdict.reason : "recently reduced, holding steady";
   const cause: SceneCause = state === verdict.state ? verdict.cause : "frame-rate";

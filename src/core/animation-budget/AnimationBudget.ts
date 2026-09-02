@@ -7,8 +7,12 @@ import { getConductor } from "../conductor";
  * into a coarse quality tier every effect can consume. The contract:
  *
  * - tier 0 "high":   frames are healthy, run the designed look
- * - tier 1 "medium": sustained drops to ~90% of the display rate — shed extras
- * - tier 2 "low":    sustained drops to ~50% of the display rate — survival mode
+ * - tier 1 "medium": sustained drops below ~54fps — shed extras
+ * - tier 2 "low":    sustained drops below ~30fps — survival mode
+ *
+ * Those lines are absolute, not a fraction of the display rate. See
+ * QUALITY_FLOOR_S: a display faster than 60Hz does not get a stricter test,
+ * because "not saturating a 240Hz panel" is not the same as "struggling".
  *
  * Hysteresis is asymmetric BY DESIGN: degrading is fast (users feel jank
  * within a second), upgrading is slow and cautious (8s of clean frames),
@@ -22,10 +26,17 @@ import { getConductor } from "../conductor";
  * ## Refresh-rate relative (v0.3)
  *
  * Thresholds were absolute (54fps / 30fps), which told a 120Hz display
- * limping at 70fps that everything was fine. They are now multiples of the
- * measured frame budget. The factors are chosen to reproduce the old
- * constants EXACTLY at 60Hz (18.5ms and 34ms), so 60Hz behaviour is
- * unchanged and only high-refresh displays start telling the truth.
+ * limping at 70fps that everything was fine. They became multiples of the
+ * measured frame budget, chosen to reproduce the old constants EXACTLY at
+ * 60Hz (18.5ms and 34ms).
+ *
+ * ## Floored again (v4.0.1)
+ *
+ * Purely relative thresholds inverted the whole mechanism on good hardware:
+ * a steady 100fps read as tier 0 on a 60Hz panel and tier 2 on a 240Hz one.
+ * The multiples remain, but the budget they multiply is floored at 1/60 —
+ * so a slow display still gets a relaxed line and a fast one never gets a
+ * stricter one. See QUALITY_FLOOR_S for the reasoning and what it gives up.
  *
  * ## Honest headroom (v0.3)
  *
@@ -89,6 +100,33 @@ const EMIT_INTERVAL = 0.5;    // s — heartbeat emits for HUDs/debug
 const SLOW_FACTOR = 1.11;
 const VERY_SLOW_FACTOR = 2.04;
 
+/**
+ * The tier never judges a device against a target faster than 60fps.
+ *
+ * Scoring purely against the detected refresh rate asks "are we hitting this
+ * monitor's maximum?" and treats "no" as "this device is struggling". Those are
+ * different questions. Measured on a 240Hz panel, a rock-steady 100fps scored
+ * every frame as slow AND very slow and reported tier 2 — survival mode on a
+ * machine that needed no help, while the same 100fps on a 60Hz panel reported
+ * tier 0. The better the display, the worse the verdict: exactly backwards for
+ * a mechanism whose job is protecting weak hardware.
+ *
+ * So the comparison floors here. Below 60fps is jank on any display and still
+ * degrades; above it nobody is suffering, and dropping quality to chase 144Hz
+ * makes the experience worse rather than better. A display SLOWER than 60Hz
+ * keeps its own budget, since the floor only ever raises the line.
+ *
+ * The cost is deliberate: a 120Hz page steady at 80fps no longer reads as
+ * degraded. That is the correct call — 80fps is not a quality emergency.
+ */
+const QUALITY_FLOOR_S = 1 / 60;
+
+/** Frame-duration lines for a budget, never stricter than the 60fps floor. */
+function thresholdsFor(frameBudgetS: number): { slowS: number; verySlowS: number } {
+  const judged = Math.max(frameBudgetS, QUALITY_FLOOR_S);
+  return { slowS: judged * SLOW_FACTOR, verySlowS: judged * VERY_SLOW_FACTOR };
+}
+
 const LABELS = ["high", "medium", "low"] as const;
 
 // 3-frame EMA alpha for headroom smoothing — fast response.
@@ -119,8 +157,7 @@ export class BudgetPolicy {
 
   constructor(frameBudgetS: number = DEFAULT_FRAME_BUDGET_S) {
     this.frameBudgetS = frameBudgetS;
-    this.slowS = frameBudgetS * SLOW_FACTOR;
-    this.verySlowS = frameBudgetS * VERY_SLOW_FACTOR;
+    ({ slowS: this.slowS, verySlowS: this.verySlowS } = thresholdsFor(frameBudgetS));
     this.headroomEma = frameBudgetS;
   }
 
@@ -132,8 +169,7 @@ export class BudgetPolicy {
   setFrameBudget(frameBudgetS: number): void {
     if (Math.abs(frameBudgetS - this.frameBudgetS) < 1e-4) return;
     this.frameBudgetS = frameBudgetS;
-    this.slowS = frameBudgetS * SLOW_FACTOR;
-    this.verySlowS = frameBudgetS * VERY_SLOW_FACTOR;
+    ({ slowS: this.slowS, verySlowS: this.verySlowS } = thresholdsFor(frameBudgetS));
     this.reset();
   }
 

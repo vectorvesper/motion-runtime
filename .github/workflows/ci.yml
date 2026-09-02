@@ -16,6 +16,9 @@ jobs:
           cache: npm
       - run: npm ci
 
+      - name: Lint
+        run: npm run lint
+
       - name: Typecheck
         run: npm run typecheck
 
@@ -42,11 +45,10 @@ jobs:
           node --input-type=module -e '
             const core = await import("@vectorvesper/motion");
             const react = await import("@vectorvesper/motion/react");
-            const fx = await import("@vectorvesper/motion/effects");
             const dt = await import("@vectorvesper/motion/devtools");
             if (typeof core.getConductor !== "function") throw new Error("core entry broken");
             if (typeof react.useSceneGate !== "function") throw new Error("react entry broken");
-            if (typeof fx.usePointerIntent !== "function") throw new Error("effects entry broken");
+            if (typeof react.usePointerIntent !== "function") throw new Error("react entry missing usePointerIntent");
             if (typeof dt.mountDevtools !== "function") throw new Error("devtools entry broken");
             if (!core.getConductor()) throw new Error("conductor will not construct without a DOM");
             console.log("entries resolve, core constructs in node:", core.VERSION);

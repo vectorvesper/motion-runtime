@@ -177,8 +177,13 @@ export function InteractionScope({
   // code components do, which is why `/react` would not load there while the
   // root entry did. Two `createElement` calls cost nothing and remove the
   // dependency at the source, where no build-config change can bring it back.
+  // The compiler unifies a ref operand back into the object it came from, so
+  // handing hostRef to createElement reads as a render-phase ref access. It is
+  // the same false positive documented at length in hybrid-ref.ts, and it is
+  // what JSX ref={} lowers to anyway.
   const content = asChild
-    ? cloneWithRef(children, hostRef)
+    ? // eslint-disable-next-line react-hooks/refs -- see the note above
+      cloneWithRef(children, hostRef)
     : React.createElement(
         "div",
         { ref: hostRef as React.Ref<HTMLDivElement>, className, style },

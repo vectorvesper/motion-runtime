@@ -115,3 +115,50 @@ describe("BudgetPolicy", () => {
     expect(p.state.headroom).toBeCloseTo(1000 / 60, 0); // ~16.6ms
   });
 });
+
+describe("BudgetPolicy — the 60fps quality floor", () => {
+  /**
+   * Purely refresh-relative thresholds inverted the mechanism: the better the
+   * display, the harsher the verdict. A steady 100fps scored tier 0 on a 60Hz
+   * panel and tier 2 on a 240Hz one — survival mode on hardware that needed no
+   * help at all, which is the opposite of what adaptive quality is for.
+   */
+  const HUNDRED_FPS = 10; // ms — excellent for a 3D scene on any display
+
+  for (const [label, hz] of [["120Hz", 120], ["144Hz", 144], ["240Hz", 240]] as const) {
+    it(`stays at tier 0 on a ${label} display running a steady 100fps`, () => {
+      const p = new BudgetPolicy();
+      p.setFrameBudget(1 / hz);
+      feed(p, HUNDRED_FPS, 200, 0);
+      expect(p.state.tier).toBe(0);
+      expect(p.state.slowRatio).toBe(0);
+    });
+  }
+
+  it("still degrades a high-refresh display that is genuinely janky", () => {
+    const p = new BudgetPolicy();
+    p.setFrameBudget(1 / 144);
+    feed(p, PANIC, 200, 0); // 20fps — bad on any display
+    expect(p.state.tier).toBe(2);
+  });
+
+  it("leaves 60Hz behaviour exactly as it was", () => {
+    const healthy = new BudgetPolicy();
+    healthy.setFrameBudget(1 / 60);
+    feed(healthy, FAST, 200, 0);
+    expect(healthy.state.tier).toBe(0);
+
+    const janky = new BudgetPolicy();
+    janky.setFrameBudget(1 / 60);
+    feed(janky, SLOW, 200, 0); // ~40fps
+    expect(janky.state.tier).toBeGreaterThan(0);
+  });
+
+  it("still relaxes the line for a display slower than 60Hz", () => {
+    // The floor only ever raises the target; a 30Hz panel keeps its own budget.
+    const p = new BudgetPolicy();
+    p.setFrameBudget(1 / 30);
+    feed(p, 25, 200, 0); // 40fps — faster than this display can present
+    expect(p.state.tier).toBe(0);
+  });
+});

@@ -34,4 +34,20 @@ export default [
     plugins: { "react-hooks": reactHooks },
     rules: reactHooks.configs["recommended-latest"].rules,
   },
+  {
+    // Test harnesses have to break component rules to build the arrangements
+    // they are testing: `useEffect(() => setState(true), [])` IS the deferred
+    // attach that 2.0.0 got wrong, and capturing render output into an outer
+    // variable is how an assertion sees it. Instrumentation, not modelling.
+    //
+    // `react-hooks/refs` stays ON here on purpose. Tests are call sites like
+    // any other, and the destructuring rule the docs give consumers has to hold
+    // in this package first — see the note in hybrid-ref.ts.
+    files: ["src/**/*.test.{ts,tsx}"],
+    rules: {
+      "react-hooks/set-state-in-effect": "off",
+      "react-hooks/globals": "off",
+      "react-hooks/immutability": "off",
+    },
+  },
 ];

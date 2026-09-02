@@ -526,10 +526,10 @@ describe("arrangements: the hook still works", () => {
 
     const seen: string[] = [];
     function Scene() {
-      const gate = useSceneGate<HTMLDivElement>({ cost: "light" });
+      const { ref, state } = useSceneGate<HTMLDivElement>({ cost: "light" });
       const attached = useDeferredAttach(true);
-      seen.push(gate.state);
-      return attached ? <div ref={gate.ref} /> : <div />;
+      seen.push(state);
+      return attached ? <div ref={ref} /> : <div />;
     }
 
     render(<Scene />);
@@ -545,9 +545,9 @@ describe("arrangements: the hook still works", () => {
 
     const seen: string[] = [];
     function Scene() {
-      const gate = useSceneGate<HTMLDivElement>({ cost: "light" });
-      seen.push(gate.state);
-      return <div ref={gate.ref} />;
+      const { ref, state } = useSceneGate<HTMLDivElement>({ cost: "light" });
+      seen.push(state);
+      return <div ref={ref} />;
     }
 
     render(
@@ -566,9 +566,9 @@ describe("arrangements: the hook still works", () => {
 
     let last = "";
     function Scene() {
-      const gate = useSceneGate<HTMLDivElement>({ cost: "light" });
-      last = gate.state;
-      return <div ref={gate.ref} />;
+      const { ref, state } = useSceneGate<HTMLDivElement>({ cost: "light" });
+      last = state;
+      return <div ref={ref} />;
     }
 
     const first = render(<Scene />);
@@ -587,9 +587,9 @@ describe("arrangements: the hook still works", () => {
 
     const states: Record<string, string> = {};
     function Scene({ id }: { id: string }) {
-      const gate = useSceneGate<HTMLDivElement>({ cost: "light", label: id });
-      states[id] = gate.state;
-      return <div ref={gate.ref} />;
+      const { ref, state } = useSceneGate<HTMLDivElement>({ cost: "light", label: id });
+      states[id] = state;
+      return <div ref={ref} />;
     }
 
     render(
@@ -693,8 +693,8 @@ describe("arrangements: server render and hydration", () => {
     const { useSceneGate } = await import("./useSceneGate");
 
     function Scene() {
-      const gate = useSceneGate<HTMLDivElement>({ cost: "light" });
-      return <div ref={gate.ref} data-state={gate.state} data-mounted={String(gate.mounted)} />;
+      const { ref, state, mounted } = useSceneGate<HTMLDivElement>({ cost: "light" });
+      return <div ref={ref} data-state={state} data-mounted={String(mounted)} />;
     }
 
     const html = renderToString(<Scene />);
@@ -709,8 +709,8 @@ describe("arrangements: server render and hydration", () => {
     const { useSceneGate } = await import("./useSceneGate");
 
     function Scene() {
-      const gate = useSceneGate<HTMLDivElement>({ cost: "light" });
-      return <div ref={gate.ref} data-state={gate.state} />;
+      const { ref, state } = useSceneGate<HTMLDivElement>({ cost: "light" });
+      return <div ref={ref} data-state={state} />;
     }
 
     const container = document.createElement("div");

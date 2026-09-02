@@ -224,3 +224,76 @@ describe("useSceneGate — a ref target that is not there on the first commit", 
     expect(last()).toBe("active");
   });
 });
+
+describe("useSceneGate — the constrain dwell", () => {
+  /**
+   * The dwell is what stops a scene rebuilding its detail level twice a second
+   * when the tier disagrees frame to frame. It holds "constrained" for
+   * CONSTRAIN_DWELL_MS measured from the moment quality dropped, even after the
+   * verdict itself has recovered.
+   *
+   * Driven through a stubbed quality hook because the point here is the hold,
+   * not how the tier was arrived at — `useSceneGate.test.ts` covers that.
+   */
+  async function mountAtTier() {
+    const quality = { tier: 0, deviceTier: 0, cause: "ok", reducedMotion: false };
+    vi.resetModules();
+    vi.doMock("./useAdaptiveQuality", () => ({ useAdaptiveQuality: () => quality }));
+    const { useSceneGate } = await import("./useSceneGate");
+    const seen: string[] = [];
+    function Scene() {
+      const gate = useSceneGate<HTMLDivElement>({ cost: "light" });
+      seen.push(gate.state);
+      return <div ref={gate.ref} />;
+    }
+    const view = render(<Scene />);
+    return {
+      seen,
+      last: () => seen[seen.length - 1],
+      /** Set the tier and re-render, the way a real quality change would. */
+      setTier: async (tier: number) => {
+        quality.tier = tier;
+        await act(async () => { view.rerender(<Scene />); });
+      },
+    };
+  }
+
+  beforeEach(() => vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] }));
+  afterEach(() => vi.useRealTimers());
+
+  it("holds constrained after the verdict has already recovered", async () => {
+    const gate = await mountAtTier();
+    await act(async () => intersect(true));
+    await act(async () => crankFrames(8));
+    expect(gate.last()).toBe("active");
+
+    await gate.setTier(1);
+    expect(gate.last()).toBe("constrained");
+
+    // The tier recovers almost immediately — exactly the flap the dwell exists
+    // to absorb.
+    await gate.setTier(0);
+    expect(gate.last()).toBe("constrained");
+
+    await act(async () => { vi.advanceTimersByTime(4000); });
+    expect(gate.last()).toBe("active");
+  });
+
+  it("does not cancel the dwell when the verdict recovers mid-hold", async () => {
+    const gate = await mountAtTier();
+    await act(async () => intersect(true));
+    await act(async () => crankFrames(8));
+
+    await gate.setTier(1);
+    await act(async () => { vi.advanceTimersByTime(1000); });
+    await gate.setTier(0);
+
+    // Recovering must not restart or drop the timer: the window is measured
+    // from the drop, so 3s of the 4s remain.
+    await act(async () => { vi.advanceTimersByTime(2999); });
+    expect(gate.last()).toBe("constrained");
+
+    await act(async () => { vi.advanceTimersByTime(2); });
+    expect(gate.last()).toBe("active");
+  });
+});
