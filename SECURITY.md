@@ -10,7 +10,7 @@
 
 ## Reporting a vulnerability
 
-Email **security@vectorvesper.dev**. Please do not open a public issue for a
+Email **support@vectorvesper.dev**. Please do not open a public issue for a
 security report.
 
 Include what you found, how to reproduce it, and the version. You will get an

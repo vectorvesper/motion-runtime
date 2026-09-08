@@ -61,3 +61,14 @@ jobs:
             echo "::error::tarball contains sourcemaps or source"; cat /tmp/files.txt; exit 1
           fi
           echo "tarball is clean ($(wc -l < /tmp/files.txt) files)"
+
+      # Editor tooling that instruments source (Console Ninja and friends) can
+      # bake its hooks into a bundle without anyone noticing, and the failure is
+      # silent until it is on npm. CI has no extensions installed, so this only
+      # fires on a contaminated build made on a workstation.
+      - name: No editor instrumentation in the build
+        run: |
+          if grep -rlniE 'console-ninja|consoleninja|__oo_|oo_oo' dist/ 2>/dev/null | grep -q .; then
+            echo "::error::build carries editor instrumentation"; grep -rlniE 'console-ninja|consoleninja|__oo_|oo_oo' dist/; exit 1
+          fi
+          echo "no editor instrumentation in dist"
