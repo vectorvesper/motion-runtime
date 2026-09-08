@@ -2,7 +2,9 @@
 
 # @vectorvesper/motion
 
-**One frame loop for everything on the page.**
+**Frame-time discipline for WebGL, canvas, and scroll-driven pages.**
+
+*For the failures that never throw.*
 
 [![npm](https://img.shields.io/npm/v/@vectorvesper/motion.svg?color=8b5cf6)](https://www.npmjs.com/package/@vectorvesper/motion)
 ![zero dependencies](https://img.shields.io/badge/dependencies-0-10b981)
@@ -17,32 +19,64 @@
 npm install @vectorvesper/motion
 ```
 
-A magnetic button, in five lines:
+Rendering failures rarely throw. A scene mounts while the reader is still
+scrolling and the page hitches. A context is lost and the canvas stays black.
+Quality flips between tiers twice a second. Frames take 45ms and nothing tells
+you whether the cost is yours, React's, or the compositor's.
+
+None of that produces an error, a failed test, or a red type. It produces a page
+that is slightly worse in a way you notice on someone else's machine.
+
+This runtime is a set of primitives for that class of problem: deciding when
+work runs, at what quality, whether it should run at all, and being able to see
+where the frame actually went.
 
 ```tsx
-import { useMagneticIntent } from "@vectorvesper/motion/react";
+import { useSceneGate } from "@vectorvesper/motion/react";
+import { useRenderQuality } from "@vectorvesper/motion/r3f";
 
-export function CTA() {
-  const { ref } = useMagneticIntent<HTMLButtonElement>({ strength: 30 });
-  return <button ref={ref}>Get started</button>;
+export function Scene() {
+  const { ref, state, mounted, generation } = useSceneGate<HTMLDivElement>({ cost: "heavy" });
+  const quality = useRenderQuality(state, {
+    full: { dpr: 2 },
+    reduced: { dpr: 1 },
+  });
+
+  // `mounted` waits for the page to afford it. `generation` bumps when a context
+  // is lost, and keying on it is what replaces the canvas, since a lost context
+  // can be recreated but never revived.
+  return <div ref={ref}>{mounted && <Canvas key={generation} {...quality} />}</div>;
 }
 ```
 
-That button already shares one `requestAnimationFrame` loop with everything else
-built on this runtime. Add four more effects and they still share it, still read
-layout before they write it, and still give up their frame time in a defined
-order when the page runs short.
-
 ## Do you need this?
 
-**One animated element does not need any of this.** It runs fine on its own
-loop. If you are here for a single effect, take the effect and stop reading.
+One animated element does not. It runs fine on its own loop, and a single canvas
+can handle its own context loss in about fifteen lines:
 
-The coordination starts paying at two, and pays properly at five, when they are
-competing for the same 16.7 milliseconds and none of them knows the others
-exist. Every library that animates starts its own loop, and every loop reads
-layout and then writes it, so ten independent loops means the browser
-recalculating layout up to ten times a frame with no library aware of the rest.
+```tsx
+const [gen, setGen] = useState(0);
+<Canvas key={gen} onCreated={({ gl }) => {
+  gl.domElement.addEventListener("webglcontextlost", (e) => {
+    e.preventDefault();          // without this the browser will not let you recreate
+    setGen((g) => g + 1);
+  });
+}} />
+```
+
+If that is your page, write those lines and skip the dependency.
+
+The line is roughly where you stop being able to reason about your canvases one
+at a time. At five effects they compete for the same 16.7 milliseconds and none
+of them knows the others exist. Every library that animates starts its own loop,
+and every loop reads layout and then writes it, so ten independent loops means
+the browser recalculating layout up to ten times a frame.
+
+At a dozen canvases the arithmetic changes again. A lost context is usually not
+about that canvas. Browsers keep around sixteen and evict the oldest when
+another is requested, so the loss is the page telling you it asked for too many,
+and a dozen components independently re-requesting contexts makes it worse. One
+counter that every scene reads rebuilds the page coherently instead.
 
 ## It grows with the page
 
