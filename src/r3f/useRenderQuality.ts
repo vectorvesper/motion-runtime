@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { SceneState } from "../react/useSceneGate";
 import { getRendererHealth } from "../core/renderer-health/RendererHealth";
 
@@ -126,7 +126,7 @@ export function useRenderQuality(
   profiles: RenderProfiles,
 ): RenderQualityProps {
   const profile = state === "active" ? profiles.full : profiles.reduced;
-  const { dpr, shadows } = profile;
+  const { shadows } = profile;
 
   /**
    * Off screen: keep everything, draw nothing.
@@ -137,6 +137,36 @@ export function useRenderQuality(
    * created would leave it blank on arrival.
    */
   const frameloop: "always" | "never" = state === "idle" ? "never" : "always";
+
+  /**
+   * The pixel ratio the canvas is already sized at, held across `idle`.
+   *
+   * Up to 4.0.1 an idle scene took the `reduced` profile like every other
+   * non-active state, so scrolling one off screen lowered its dpr at the same
+   * moment the loop stopped. **Changing dpr resizes the drawing buffer, and
+   * resizing clears it.** With nothing drawing afterwards the scene did not
+   * freeze on its last frame, it went black and stayed black — which is the
+   * opposite of what the comment above promises and of why `idle` keeps the
+   * context at all.
+   *
+   * It also bought nothing. A scene that is not drawing costs no frame time at
+   * any resolution; the memory is already allocated. The dpr axis belongs to
+   * `constrained`, where the scene is still drawing and should draw cheaper.
+   *
+   * So the resolution stops moving once drawing stops, and picks up again from
+   * whatever the scene resumes into. A scene that *mounts* already idle has no
+   * previous size and starts at the reduced profile, which is correct: there is
+   * no frame to preserve yet.
+   *
+   * The render-phase update is React's documented way to adjust state when an
+   * input changes. An effect would repaint once at the wrong size first, and a
+   * ref cannot be read here without breaking the compiler rules this package
+   * has to hold to.
+   */
+  const drawing = state !== "idle";
+  const [sizedDpr, setSizedDpr] = useState(profile.dpr);
+  if (drawing && sizedDpr !== profile.dpr) setSizedDpr(profile.dpr);
+  const dpr = drawing ? profile.dpr : sizedDpr;
 
   const onCreated = useCallback(({ gl }: CreatedState) => {
     // Mounting at all means a working context. After a loss this is the

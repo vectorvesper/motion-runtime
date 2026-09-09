@@ -104,6 +104,52 @@ describe("useRenderQuality — the profile", () => {
     }
   });
 
+  // The bug this pair exists for: an idle scene took the reduced profile, so
+  // going off screen dropped its dpr at the same moment the loop stopped.
+  // Changing dpr resizes the drawing buffer and resizing clears it, so with
+  // nothing drawing afterwards the scene went black instead of holding its last
+  // frame. Reported on vv-site's /lab/context-loss as "a few go black when I
+  // scroll"; measured there as active cards at 660x494 and idle ones at
+  // 330x247 and blank. Fixed in 4.0.2.
+  it("does not resize the canvas when a drawing scene goes idle", async () => {
+    const { useRenderQuality } = await import("./useRenderQuality");
+    const seen: Array<number | undefined> = [];
+    function Probe({ state }: { state: SceneStateName }) {
+      seen.push(useRenderQuality(state, PROFILES).dpr);
+      return null;
+    }
+    const view = render(<Probe state="active" />);
+    view.rerender(<Probe state="idle" />);
+    // Not the reduced 1. The canvas is already sized at 2 and must stay there.
+    expect(seen.at(-1)).toBe(2);
+  });
+
+  it("holds the constrained ratio too, rather than snapping back to full", async () => {
+    const { useRenderQuality } = await import("./useRenderQuality");
+    const seen: Array<number | undefined> = [];
+    function Probe({ state }: { state: SceneStateName }) {
+      seen.push(useRenderQuality(state, PROFILES).dpr);
+      return null;
+    }
+    const view = render(<Probe state="constrained" />);
+    view.rerender(<Probe state="idle" />);
+    expect(seen.at(-1)).toBe(1);
+  });
+
+  it("resumes the profile of whatever the scene comes back as", async () => {
+    const { useRenderQuality } = await import("./useRenderQuality");
+    const seen: Array<number | undefined> = [];
+    function Probe({ state }: { state: SceneStateName }) {
+      seen.push(useRenderQuality(state, PROFILES).dpr);
+      return null;
+    }
+    const view = render(<Probe state="active" />);
+    view.rerender(<Probe state="idle" />);
+    view.rerender(<Probe state="constrained" />);
+    // Drawing again, so the resize is wanted: it will be redrawn at once.
+    expect(seen.at(-1)).toBe(1);
+  });
+
   it("keeps a stable object while nothing changes", async () => {
     const { useRenderQuality } = await import("./useRenderQuality");
     const seen: unknown[] = [];

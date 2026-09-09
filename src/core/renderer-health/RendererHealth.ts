@@ -49,6 +49,15 @@ export interface RendererHealthState {
   lastLostAt: number | null;
 }
 
+/**
+ * How long after a loss another loss is treated as the same reset.
+ *
+ * A driver reset reaches every canvas on the page within a frame or two, so
+ * this only has to be longer than that. Kept short so a genuinely separate
+ * failure moments later still registers as one.
+ */
+const LOSS_COALESCE_MS = 250;
+
 type HealthListener = (state: RendererHealthState) => void;
 
 class RendererHealth {
@@ -82,9 +91,38 @@ class RendererHealth {
    */
   reportLost(): void {
     if (this.lost) return;
+
+    /**
+     * The `lost` flag above is not enough on a page with several canvases.
+     *
+     * It only holds until a replacement mounts and calls `reportHealthy()`,
+     * and with N canvases that happens *between* the queued
+     * `webglcontextlost` events, because those are async and the remount is
+     * synchronous. So the sequence is lost, healthy, lost, healthy — and every
+     * one of those losses looks like a fresh failure.
+     *
+     * Measured: sixteen canvases, one driver reset, **generation 16**. Each
+     * bump remounts every scene on the page, so a single reset produced
+     * sixteen full rebuilds and up to 256 context creations against a browser
+     * that keeps about sixteen. Cards lose that race and stay black, which is
+     * the failure this class exists to prevent.
+     *
+     * A loss arriving this soon after the last one is the same reset reaching
+     * another canvas. The canvas reporting it has already been replaced by the
+     * rebuild the first report triggered, so its event is about a element that
+     * is no longer in the document. Ignored outright rather than merely not
+     * counted: flipping `lost` back to true would report LOST for a page whose
+     * replacements are already up.
+     *
+     * The window is deliberately short. A genuinely new failure a second later
+     * is a new failure and still counts.
+     */
+    const now = Date.now();
+    if (this.lastLostAt !== null && now - this.lastLostAt < LOSS_COALESCE_MS) return;
+
     this.lost = true;
     this.generation++;
-    this.lastLostAt = Date.now();
+    this.lastLostAt = now;
     this.emit();
   }
 

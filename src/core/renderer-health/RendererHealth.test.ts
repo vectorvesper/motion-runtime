@@ -60,14 +60,51 @@ describe("RendererHealth", () => {
     expect(health.state.generation).toBe(1);
   });
 
-  it("counts a second loss separately", async () => {
-    const health = await fresh();
-    health.reportLost();
-    health.reportHealthy();
-    health.reportLost();
+  // This asserted the bug until 4.0.3. A second loss *does* count separately,
+  // but "immediately, with a healthy in between" is not a second loss — it is
+  // the same reset reaching the next canvas. So the intent stays and the clock
+  // moves past the coalescing window to express it.
+  it("counts a genuinely later loss separately", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+      const health = await fresh();
+      health.reportLost();
+      health.reportHealthy();
 
-    expect(health.state.generation).toBe(2);
-    expect(health.state.lost).toBe(true);
+      vi.setSystemTime(new Date("2026-01-01T00:00:02Z"));
+      health.reportLost();
+
+      expect(health.state.generation).toBe(2);
+      expect(health.state.lost).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  /**
+   * The failure this window exists for.
+   *
+   * The `lost` flag alone only holds until a replacement mounts and reports
+   * healthy. With several canvases that happens BETWEEN the queued
+   * `webglcontextlost` events, so the sequence is lost, healthy, lost,
+   * healthy — and every loss looked like a fresh failure.
+   *
+   * Measured on vv-site's /lab/context-loss before the fix: sixteen canvases,
+   * one click, **generation 16**. Every bump remounts every scene, so one
+   * reset produced sixteen rebuilds and up to 256 context creations against a
+   * browser that keeps about sixteen. Cards lost that race and stayed black.
+   */
+  it("survives replacements reporting healthy between queued losses", async () => {
+    const health = await fresh();
+
+    for (let canvas = 0; canvas < 16; canvas++) {
+      health.reportLost();
+      // An earlier replacement finishes mounting and announces itself.
+      health.reportHealthy();
+    }
+
+    expect(health.state.generation).toBe(1);
   });
 
   it("ignores a healthy report when nothing was lost", async () => {

@@ -1,5 +1,95 @@
 # Changelog
 
+## 4.0.3
+
+One driver reset rebuilt every scene on the page sixteen times.
+
+### The bug
+
+`reportLost()` has always guarded against a reset being counted once per
+canvas. That guard only holds while `lost` is true, and `reportHealthy()`
+clears it the moment the first replacement mounts.
+
+`webglcontextlost` is async and the remount it triggers is synchronous, so on
+a page with several canvases the two interleave:
+
+```
+lost    gen 1     canvas 1's event
+healthy gen 1     canvas 1's replacement is up
+lost    gen 2     canvas 2's event, still from the same reset
+healthy gen 2
+lost    gen 3
+...
+```
+
+Every bump changes the `<Canvas key>` for every scene on the page, so one
+reset on sixteen canvases produced **generation 16**: sixteen full rebuilds and
+up to 256 context creations against a browser that keeps about sixteen. Scenes
+lost that race and stayed black, which is the exact failure this is here to
+prevent.
+
+Reproduced: sixteen `reportLost()`/`reportHealthy()` pairs took the generation
+to 16. It is now 1.
+
+### The fix
+
+A loss arriving within 250ms of the previous one is treated as the same reset
+reaching another canvas, not as a new failure. The canvas reporting it has
+already been replaced by the rebuild the first report triggered, so the event
+describes an element no longer in the document.
+
+Nothing to change in your code. A genuinely separate failure a second later
+still counts, and single-canvas pages are unaffected.
+
+## 4.0.2
+
+An off-screen scene went black instead of holding its last frame.
+
+### The bug
+
+`useRenderQuality` treated every state that was not `"active"` as `reduced`,
+`"idle"` included. So scrolling a scene off screen lowered its pixel ratio at
+the same moment it stopped the render loop.
+
+Changing `dpr` resizes the canvas drawing buffer, and **resizing a WebGL
+drawing buffer clears it**. With the loop stopped, nothing redrew. The scene
+did not freeze on its last frame the way the docs promise — it was erased and
+left blank until it came back into view.
+
+This hits any consumer whose `full` and `reduced` profiles use different `dpr`
+values, which is the documented usage.
+
+Measured on a page of sixteen gated scenes: active canvases at 660×494, idle
+canvases at 330×247 and empty.
+
+It also bought nothing. A scene that is not drawing costs no frame time at any
+resolution, and the memory is already allocated. The `dpr` axis belongs to
+`"constrained"`, where the scene is still drawing and should draw cheaper.
+
+### The fix
+
+No API change, nothing to update. The pixel ratio now stops moving when drawing
+stops, and resumes from whatever state the scene comes back into.
+
+- `active` → `idle` keeps the full ratio, so the last frame survives.
+- `constrained` → `idle` keeps the reduced one, for the same reason.
+- Coming back to any drawing state applies that state's profile immediately;
+  a resize is wanted there, because the next frame repaints it.
+- A scene that *mounts* already idle still starts at `reduced`. There is no
+  frame to preserve yet.
+
+## 4.0.1
+
+Quality tiers inverted on high-refresh displays.
+
+`AnimationBudget` scored frame times against a fixed 16.7ms target, so on a
+240Hz panel a page running at a comfortable 100fps was measured against a 4.2ms
+budget and reported the worst tier. Excellent performance read as failure, and
+the scenes that trusted it degraded themselves for no reason.
+
+Thresholds are now derived from the display's own refresh rate, with a quality
+floor so a very fast panel cannot demand more than the eye can use.
+
 ## 4.0.0
 
 `useRenderQuality` did not work. This fixes it, and the fix changes how it is
