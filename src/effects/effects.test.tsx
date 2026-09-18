@@ -198,6 +198,141 @@ describe("useNumberTicker", () => {
     view.unmount();
     expect(getConductor().state.subscribers).toHaveLength(0);
   });
+
+  /**
+   * R4 in vv-lab's findings. After landing, the subscription stayed and every
+   * frame assigned the same text again, for the life of the page: 105 text
+   * writes a second on a page of three counters with nothing moving, and 180
+   * for an agent's integration of the same page.
+   */
+  it("stops ticking once it lands", async () => {
+    vi.resetModules();
+    const { useNumberTicker } = await import("./useNumberTicker");
+    const { getConductor } = await import("../core/conductor");
+
+    function Score() {
+      const { ref } = useNumberTicker<HTMLSpanElement>(42);
+      return <span ref={ref} />;
+    }
+
+    const view = render(<Score />);
+    await act(async () => {
+      crankFrames(150);
+    });
+
+    expect(view.container.querySelector("span")!.textContent).toBe("42");
+    // Still mounted, and nothing of it left on the loop.
+    expect(getConductor().state.subscribers).toHaveLength(0);
+  });
+
+  it("writes nothing to the page once it has landed", async () => {
+    vi.resetModules();
+    const { useNumberTicker } = await import("./useNumberTicker");
+
+    function Score() {
+      const { ref } = useNumberTicker<HTMLSpanElement>(42);
+      return <span ref={ref} />;
+    }
+
+    const view = render(<Score />);
+    await act(async () => {
+      crankFrames(150);
+    });
+
+    // What the lab's dom-rest probe watches for: a text write while nothing moves.
+    // Records are delivered in a microtask, which act() flushes, so collect
+    // them in the callback as well as taking whatever is still queued. Reading
+    // only takeRecords() here passed against the broken hook.
+    const span = view.container.querySelector("span")!;
+    const writes: MutationRecord[] = [];
+    const mo = new MutationObserver((records) => writes.push(...records));
+    mo.observe(span, { childList: true, characterData: true, subtree: true });
+    await act(async () => {
+      crankFrames(60);
+    });
+    writes.push(...mo.takeRecords());
+    mo.disconnect();
+
+    expect(writes).toHaveLength(0);
+  });
+
+  it("counts on from where it is when the value changes after landing", async () => {
+    vi.resetModules();
+    const { useNumberTicker } = await import("./useNumberTicker");
+    const { getConductor } = await import("../core/conductor");
+
+    function Score({ value }: { value: number }) {
+      const { ref } = useNumberTicker<HTMLSpanElement>(value);
+      return <span ref={ref} />;
+    }
+
+    const view = render(<Score value={42} />);
+    await act(async () => {
+      crankFrames(150);
+    });
+    const span = view.container.querySelector("span")!;
+
+    view.rerender(<Score value={100} />);
+    await act(async () => {
+      crankFrames(5);
+    });
+    const mid = Number(span.textContent);
+    expect(mid).toBeGreaterThan(42);
+    expect(mid).toBeLessThan(100);
+
+    await act(async () => {
+      crankFrames(150);
+    });
+    expect(span.textContent).toBe("100");
+    expect(getConductor().state.subscribers).toHaveLength(0);
+  });
+
+  it("shows a new suffix after it has landed, without waiting for a new value", async () => {
+    vi.resetModules();
+    const { useNumberTicker } = await import("./useNumberTicker");
+
+    function Score({ suffix }: { suffix: string }) {
+      const { ref } = useNumberTicker<HTMLSpanElement>(42, { suffix });
+      return <span ref={ref} />;
+    }
+
+    const view = render(<Score suffix="%" />);
+    await act(async () => {
+      crankFrames(150);
+    });
+    const span = view.container.querySelector("span")!;
+    expect(span.textContent).toBe("42%");
+
+    // Nothing is ticking any more, so the options change has to write it.
+    view.rerender(<Score suffix=" pts" />);
+    expect(span.textContent).toBe("42 pts");
+  });
+
+  /**
+   * The element arriving on a later commit: a hydration guard, a loading
+   * branch, `next/dynamic`. The effect read `ref.current` once, found nothing,
+   * and waited for a value change that might never come, so the counter stayed
+   * blank. The arrangement matrix only checks cleanup, which a hook that never
+   * started passes.
+   */
+  it("starts when its element arrives on a later commit", async () => {
+    vi.resetModules();
+    const { useNumberTicker } = await import("./useNumberTicker");
+
+    function Score() {
+      const { ref } = useNumberTicker<HTMLSpanElement>(42);
+      const [ready, setReady] = React.useState(false);
+      React.useEffect(() => setReady(true), []);
+      return ready ? <span ref={ref} /> : <i />;
+    }
+
+    const view = render(<Score />);
+    await act(async () => {
+      crankFrames(150);
+    });
+
+    expect(view.container.querySelector("span")!.textContent).toBe("42");
+  });
 });
 
 describe("useImageTrail", () => {
@@ -292,6 +427,104 @@ function finePointerNoReducedMotion(): void {
     "(prefers-reduced-motion: reduce)": false,
   });
 }
+
+/**
+ * The element arriving on a later commit, for every hook that takes one.
+ *
+ * R9 found `useNumberTicker` reading `ref.current` once in an effect keyed only
+ * on its value, so a counter behind a hydration guard, a loading branch or
+ * `next/dynamic` never started. Up to 4.1.0 these three read their element the
+ * same way, in an effect keyed on mount-time options that never change, and
+ * every late variant below failed. The arrangement matrix only checks cleanup,
+ * which a hook that never started passes, so liveness is checked here.
+ */
+describe("a ref that arrives on a later commit", () => {
+  /** The real element from the first commit, or a placeholder first when `late`. */
+  function useReady(late: boolean): boolean {
+    const [ready, setReady] = React.useState(!late);
+    React.useEffect(() => setReady(true), []);
+    return ready;
+  }
+
+  // Each check runs twice. With the element there from the first commit it is
+  // a control: if that fails, the check is broken, not the hook.
+  for (const late of [false, true]) {
+    const when = late ? "on a later commit" : "on the first commit (control)";
+
+    it(`useMagneticIntent attaches when its element arrives ${when}`, async () => {
+      finePointerNoReducedMotion();
+      vi.resetModules();
+      const { useMagneticIntent } = await import("./useMagneticIntent");
+
+      let isActive = false;
+      function Cta() {
+        const { ref, active } = useMagneticIntent<HTMLButtonElement>();
+        isActive = active;
+        return useReady(late) ? <button ref={ref} /> : <i />;
+      }
+
+      render(<Cta />);
+      await act(async () => {
+        crankFrames(3);
+      });
+
+      expect(isActive).toBe(true);
+    });
+
+    it(`useImageTrail builds its pool when its element arrives ${when}`, async () => {
+      finePointerNoReducedMotion();
+      // jsdom has no Web Animations, and the trail cancels its animations on cleanup.
+      Object.defineProperty(Element.prototype, "getAnimations", { value: () => [], configurable: true });
+      try {
+        vi.resetModules();
+        const { useImageTrail } = await import("./useImageTrail");
+
+        function Trail() {
+          const { ref } = useImageTrail<HTMLDivElement>({ images: ["/a.png", "/b.png"], maxActive: 4 });
+          return useReady(late) ? <div ref={ref} /> : <i />;
+        }
+
+        const view = render(<Trail />);
+        await act(async () => {
+          crankFrames(2);
+        });
+
+        expect(view.container.querySelectorAll("img")).toHaveLength(4);
+        view.unmount();
+      } finally {
+        delete (Element.prototype as { getAnimations?: unknown }).getAnimations;
+      }
+    });
+
+    it(`useVideoScrubber builds its scrubber when its element arrives ${when}`, async () => {
+      vi.resetModules();
+      const { useVideoScrubber } = await import("./useVideoScrubber");
+
+      let scrubber: unknown = null;
+      function Scrub() {
+        const { ref, videoRef, scrubberRef } = useVideoScrubber<HTMLDivElement>();
+        const ready = useReady(late);
+        React.useEffect(() => {
+          scrubber = scrubberRef.current;
+        });
+        return ready ? (
+          <div ref={ref}>
+            <video ref={videoRef} />
+          </div>
+        ) : (
+          <div />
+        );
+      }
+
+      render(<Scrub />);
+      await act(async () => {
+        crankFrames(2);
+      });
+
+      expect(scrubber).not.toBeNull();
+    });
+  }
+});
 
 describe("useMagneticIntent", () => {
   it("stays inactive when there is no fine pointer", async () => {

@@ -1,0 +1,6 @@
+{
+  "main": "../dist/three.cjs",
+  "module": "../dist/three.js",
+  "types": "../dist/three.d.ts",
+  "sideEffects": false
+}

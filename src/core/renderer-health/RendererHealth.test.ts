@@ -83,6 +83,69 @@ describe("RendererHealth", () => {
   });
 
   /**
+   * R2 in vv-lab's findings. `reportLost()` returned early while `lost` was
+   * still set, so code that never called `reportHealthy()` survived exactly one
+   * loss: the next was swallowed and the scene stayed black. vv-site's landing
+   * demo died on its second "Drop Context" this way.
+   */
+  it("still rebuilds on a later loss when nothing reported healthy", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+      const health = await fresh();
+      health.reportLost();
+
+      vi.setSystemTime(new Date("2026-01-01T00:00:02Z"));
+      health.reportLost();
+
+      expect(health.state.generation).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("assumes the rebuild worked when nothing says so, and warns once", async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const health = await fresh();
+      health.reportLost();
+      expect(health.state.lost).toBe(true);
+
+      // A gate holds its scene in `recovering`, at reduced quality, while this
+      // is set. Without the grace period a forgotten call held it there forever.
+      vi.advanceTimersByTime(5000);
+      expect(health.state.lost).toBe(false);
+      expect(warn).toHaveBeenCalledTimes(1);
+
+      health.reportLost();
+      vi.advanceTimersByTime(5000);
+      expect(health.state.generation).toBe(2);
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("stays quiet when the replacement reports healthy in time", async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const health = await fresh();
+      health.reportLost();
+      health.reportHealthy();
+      vi.advanceTimersByTime(10000);
+
+      expect(health.state.lost).toBe(false);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  /**
    * The failure this window exists for.
    *
    * The `lost` flag alone only holds until a replacement mounts and reports
@@ -118,6 +181,111 @@ describe("RendererHealth", () => {
     health.reportHealthy();
 
     expect(seen).toHaveLength(1); // the initial call only
+  });
+});
+
+/**
+ * R10 in vv-lab's findings. The window above folds one reset reaching several
+ * canvases into one rebuild, and it also swallowed a real loss: the
+ * replacement that rebuild had just built, lost inside the same quarter
+ * second. vv-site's landing demo went black on two quick clicks of "Drop
+ * Context". `builtAt` tells the two apart.
+ */
+describe("RendererHealth — a replacement lost moments after it was built", () => {
+  const at = (ms: number) => vi.setSystemTime(new Date(Date.UTC(2026, 0, 1) + ms));
+
+  it("rebuilds again when the canvas the rebuild built is lost inside the window", async () => {
+    vi.useFakeTimers();
+    try {
+      at(0);
+      const health = await fresh();
+      health.reportLost({ builtAt: 0 });
+      expect(health.state.generation).toBe(1);
+
+      // The replacement, built under generation 1, dies 100ms later.
+      at(100);
+      health.reportLost({ builtAt: 1 });
+      expect(health.state.generation).toBe(2);
+      expect(health.state.lost).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still folds the canvases the reset itself took into one rebuild", async () => {
+    vi.useFakeTimers();
+    try {
+      at(0);
+      const health = await fresh();
+      // Sixteen canvases built under generation 0, one driver reset, and the
+      // replacements reporting healthy between the queued losses.
+      for (let canvas = 0; canvas < 16; canvas++) {
+        at(canvas * 10);
+        health.reportLost({ builtAt: 0 });
+        health.reportHealthy();
+      }
+      expect(health.state.generation).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("judges a report without builtAt by the window alone, as before", async () => {
+    vi.useFakeTimers();
+    try {
+      at(0);
+      const health = await fresh();
+      health.reportLost();
+      at(100);
+      health.reportLost();
+      expect(health.state.generation).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("counts an older canvas's loss once the window has passed", async () => {
+    vi.useFakeTimers();
+    try {
+      at(0);
+      const health = await fresh();
+      health.reportLost({ builtAt: 0 });
+
+      // A scene that does not rebuild on the generation keeps its canvas, and a
+      // later loss of it is real. builtAt only matters inside the window.
+      at(2000);
+      health.reportLost({ builtAt: 0 });
+      expect(health.state.generation).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops after three rebuilds in a row that each lose their own canvas, and says why once", async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      at(0);
+      const health = await fresh();
+      health.reportLost({ builtAt: 0 });
+
+      // A page with more canvases than the browser keeps contexts for: every
+      // rebuild's new canvases are evicted as they are created.
+      for (let i = 1; i <= 5; i++) {
+        at(i * 50);
+        health.reportLost({ builtAt: health.state.generation });
+      }
+      expect(health.state.generation).toBe(4);
+      expect(warn).toHaveBeenCalledTimes(1);
+
+      // A loss after a quiet moment is a new failure and rebuilds as normal.
+      at(2000);
+      health.reportLost({ builtAt: health.state.generation });
+      expect(health.state.generation).toBe(5);
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
   });
 });
 

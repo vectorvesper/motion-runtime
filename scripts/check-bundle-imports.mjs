@@ -38,6 +38,9 @@ const ALLOWED = {
   devtools: [],
   react: ["react"],
   r3f: ["react", "three", "@react-three/fiber"],
+  // Reads the renderer it is handed by shape. Importing three here would bundle
+  // the engine's resolution into every page that uses the hook.
+  three: ["react"],
 };
 
 /** Never allowed anywhere, whatever the entry. */

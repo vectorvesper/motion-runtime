@@ -18,7 +18,8 @@
       "getRendererHealth",
       "getSensorBus",
       "rayRectIntersect",
-      "scrollProgress"
+      "scrollProgress",
+      "watchGPUDevice"
     ],
     "types": [
       "AdaptiveState",
@@ -29,6 +30,7 @@
       "ConductorStats",
       "DeviceSignals",
       "FrameFn",
+      "GPUDeviceLike",
       "MagneticOptions",
       "PointerIntentOptions",
       "PointerIntentSensitivity",
@@ -39,10 +41,12 @@
       "QualityCause",
       "RectLike",
       "RendererHealthState",
+      "ReportLostOptions",
       "ScrollSensor",
       "ScrubDriver",
       "ScrubMapping",
       "SensorState",
+      "StopWatchingDevice",
       "SubscribeOptions",
       "SubscriberPriority",
       "SubscriberStat",
@@ -172,7 +176,9 @@
           "deviceMemory: number | null",
           "reducedMotion: boolean",
           "renderer: string",
-          "webgl2: boolean"
+          "touch?: boolean | null",
+          "webgl2: boolean",
+          "webgpu: boolean"
         ]
       },
       "MagneticElement": {
@@ -300,6 +306,14 @@
           "generation: number",
           "lastLostAt: number | null",
           "lost: boolean"
+        ]
+      },
+      "ReportLostOptions": {
+        "kind": "object",
+        "isType": true,
+        "heritage": "",
+        "members": [
+          "builtAt?: number"
         ]
       },
       "ScrollSensor": {
@@ -478,10 +492,32 @@
         ],
         "returns": "number"
       },
+      "GPUDeviceLike": {
+        "kind": "object",
+        "isType": true,
+        "heritage": "",
+        "members": [
+          "lost: Promise<{ reason?: string; } | undefined>"
+        ]
+      },
+      "StopWatchingDevice": {
+        "kind": "alias",
+        "isType": true,
+        "type": "() => void"
+      },
       "VERSION": {
         "kind": "value",
         "isType": false,
         "type": "string"
+      },
+      "watchGPUDevice": {
+        "kind": "function",
+        "isType": false,
+        "generics": [],
+        "params": [
+          "device: GPUDeviceLike"
+        ],
+        "returns": "StopWatchingDevice"
       }
     }
   },
@@ -583,6 +619,7 @@
         "isType": true,
         "heritage": "",
         "members": [
+          "content?: boolean",
           "cost?: MountCost",
           "label?: string",
           "preload?: number"
@@ -604,7 +641,7 @@
           "T extends HTMLElement = HTMLDivElement"
         ],
         "params": [
-          "{ label, cost, preload, }?: UseSceneGateOptions"
+          "{ label, cost, preload, content, }?: UseSceneGateOptions"
         ],
         "returns": "SceneGate<T>"
       },
@@ -1024,6 +1061,116 @@
           "profiles: RenderProfiles"
         ],
         "returns": "RenderQualityProps"
+      }
+    }
+  },
+  "./three": {
+    "values": [
+      "useThreeScene"
+    ],
+    "types": [
+      "ThreeRendererLike",
+      "ThreeScene",
+      "ThreeSceneContext",
+      "ThreeSceneFrame",
+      "ThreeSceneHandle",
+      "ThreeSceneLike",
+      "UseThreeSceneOptions"
+    ],
+    "shapes": {
+      "ThreeRendererLike": {
+        "kind": "object",
+        "isType": true,
+        "heritage": "",
+        "members": [
+          "dispose(): void",
+          "domElement: HTMLCanvasElement",
+          "render(scene: unknown, camera: unknown): unknown",
+          "setPixelRatio(value: number): void",
+          "setSize(width: number, height: number, updateStyle?: boolean): void"
+        ]
+      },
+      "ThreeScene": {
+        "kind": "object",
+        "isType": true,
+        "heritage": "",
+        "members": [
+          "cause: SceneCause",
+          "mounted: boolean",
+          "quality: \"full\" | \"reduced\" | null",
+          "reason: string",
+          "ref: RefObject<HTMLDivElement | null>",
+          "state: SceneState"
+        ]
+      },
+      "ThreeSceneContext": {
+        "kind": "object",
+        "isType": true,
+        "heritage": "",
+        "members": [
+          "height: number",
+          "quality: \"full\" | \"reduced\"",
+          "renderer: R",
+          "width: number"
+        ]
+      },
+      "ThreeSceneFrame": {
+        "kind": "object",
+        "isType": true,
+        "heritage": "",
+        "members": [
+          "dt: number",
+          "height: number",
+          "pixelRatio: number",
+          "quality: \"full\" | \"reduced\"",
+          "time: number",
+          "width: number"
+        ]
+      },
+      "ThreeSceneHandle": {
+        "kind": "object",
+        "isType": true,
+        "heritage": "",
+        "members": [
+          "camera: object",
+          "dispose?(): void",
+          "render?(frame: ThreeSceneFrame): void",
+          "resize?(width: number, height: number): void",
+          "scene: ThreeSceneLike",
+          "update?(frame: ThreeSceneFrame): void"
+        ]
+      },
+      "ThreeSceneLike": {
+        "kind": "object",
+        "isType": true,
+        "heritage": "",
+        "members": [
+          "traverse(callback: (object: unknown) => void): void"
+        ]
+      },
+      "UseThreeSceneOptions": {
+        "kind": "object",
+        "isType": true,
+        "heritage": "",
+        "members": [
+          "cost?: MountCost",
+          "label?: string",
+          "maxDpr?: { full?: number; reduced?: number; }",
+          "preload?: number",
+          "renderer: () => R | Promise<R>",
+          "setup: (context: ThreeSceneContext<R>) => ThreeSceneHandle | Promise<ThreeSceneHandle>"
+        ]
+      },
+      "useThreeScene": {
+        "kind": "function",
+        "isType": false,
+        "generics": [
+          "R extends ThreeRendererLike"
+        ],
+        "params": [
+          "options: UseThreeSceneOptions<R>"
+        ],
+        "returns": "ThreeScene"
       }
     }
   }

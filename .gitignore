@@ -1,3 +1,6 @@
 node_modules
 dist
 *.tgz
+# AI coding tool scratch copies (Kilo Code worktrees)
+.kilo/
+ISSUE_TEMPLATE

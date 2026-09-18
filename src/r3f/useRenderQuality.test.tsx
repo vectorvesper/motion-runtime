@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup, act } from "@testing-library/react";
 
 /**
@@ -83,6 +83,28 @@ describe("useRenderQuality — the render loop", () => {
 });
 
 describe("useRenderQuality — the profile", () => {
+  // jsdom reports a 1x screen, and a profile's dpr never goes above the
+  // screen's own ratio. On a 3x phone every value below passes as written.
+  beforeEach(() => {
+    Object.defineProperty(window, "devicePixelRatio", { value: 3, configurable: true });
+  });
+  afterEach(() => {
+    Object.defineProperty(window, "devicePixelRatio", { value: 1, configurable: true });
+  });
+
+  /**
+   * T1 in vv-lab's findings. Every example writes `full: { dpr: 2 }` and R3F
+   * applies a number as given, so a 1x monitor drew four times its pixels and
+   * the managed scene came out heavier than the unmanaged one it replaced.
+   */
+  it("never draws above the screen's own pixel ratio", async () => {
+    Object.defineProperty(window, "devicePixelRatio", { value: 1, configurable: true });
+    expect((await propsFor("active")).dpr).toBe(1);
+    cleanup();
+    Object.defineProperty(window, "devicePixelRatio", { value: 1.5, configurable: true });
+    expect((await propsFor("active")).dpr).toBe(1.5);
+  });
+
   it("applies the full profile while active", async () => {
     const p = await propsFor("active");
     expect(p.dpr).toBe(2);
@@ -177,13 +199,20 @@ describe("useRenderQuality — a lost graphics context", () => {
       props = useRenderQuality("active", PROFILES) as Props;
       return null;
     }
-    render(<Probe />);
+    const view = render(<Probe />);
 
-    const canvas = document.createElement("canvas");
+    // In the document, as every canvas R3F draws to is. A detached canvas is
+    // one R3F is tearing down, and its loss is deliberately not reported.
+    const canvas = document.body.appendChild(document.createElement("canvas"));
     await act(async () => {
       props!.onCreated({ gl: { domElement: canvas } });
     });
-    return { canvas, health: getRendererHealth() };
+    return {
+      canvas,
+      health: getRendererHealth(),
+      unmount: view.unmount,
+      onCreated: (s: { gl: { domElement: HTMLCanvasElement } }) => props!.onCreated(s),
+    };
   }
 
   it("reports healthy when a canvas is created", async () => {
@@ -207,6 +236,282 @@ describe("useRenderQuality — a lost graphics context", () => {
     });
 
     expect(health.state.lost).toBe(true);
+    expect(health.state.generation).toBe(before + 1);
+  });
+
+  /**
+   * R1 in vv-lab's findings. R3F calls `forceContextLoss()` on every canvas it
+   * unmounts, 500ms after React has taken it out of the document, and that
+   * fires `webglcontextlost` like any real loss. Reported, it moved the
+   * generation, so closing one tab rebuilt every other scene on the page: a
+   * managed hero rebuilt four times in six tab switches, and on WebKit died.
+   */
+  it("ignores the loss R3F causes when it tears a canvas down", async () => {
+    const { canvas, health } = await created();
+    const before = health.state.generation;
+
+    canvas.remove();
+    const event = new Event("webglcontextlost", { cancelable: true });
+    await act(async () => {
+      canvas.dispatchEvent(event);
+    });
+
+    expect(health.state.lost).toBe(false);
+    expect(health.state.generation).toBe(before);
+    // Nothing wants a torn-down canvas's context back.
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it("stops listening once the component that owns the canvas unmounts", async () => {
+    const { canvas, health, unmount } = await created();
+    const before = health.state.generation;
+
+    // The canvas is still in the document, which the isConnected check cannot
+    // tell from a live one: a parent that keeps the DOM but drops the tree, as
+    // a hidden <Activity> does.
+    unmount();
+    await act(async () => {
+      canvas.dispatchEvent(new Event("webglcontextlost", { cancelable: true }));
+    });
+
+    expect(health.state.generation).toBe(before);
+  });
+
+  it("follows a rebuilt canvas and lets go of the one it replaced", async () => {
+    const { canvas: first, health, onCreated } = await created();
+
+    // What `<Canvas key={generation}>` does: React swaps the element, R3F
+    // builds on the new one, and the old one is torn down afterwards.
+    const second = document.body.appendChild(document.createElement("canvas"));
+    first.remove();
+    await act(async () => {
+      onCreated({ gl: { domElement: second } });
+    });
+    const before = health.state.generation;
+
+    await act(async () => {
+      first.dispatchEvent(new Event("webglcontextlost", { cancelable: true }));
+    });
+    expect(health.state.generation).toBe(before);
+
+    await act(async () => {
+      second.dispatchEvent(new Event("webglcontextlost", { cancelable: true }));
+    });
+    expect(health.state.generation).toBe(before + 1);
+  });
+
+  /**
+   * R10 in vv-lab's findings. Losses that arrive soon after a loss are folded
+   * into its rebuild, because one driver reset reaches every canvas. The
+   * replacement that rebuild built is the exception: it did not exist when the
+   * reset happened, so losing it is a new failure. Folded in, it stayed black.
+   */
+  it("rebuilds again when the replacement is lost moments after it was built", async () => {
+    const { canvas: first, health, onCreated } = await created();
+    await act(async () => {
+      first.dispatchEvent(new Event("webglcontextlost", { cancelable: true }));
+    });
+    const afterFirst = health.state.generation;
+
+    // The rebuild: a new canvas, built under the new generation.
+    const second = document.body.appendChild(document.createElement("canvas"));
+    first.remove();
+    await act(async () => {
+      onCreated({ gl: { domElement: second } });
+    });
+
+    // Lost at once, well inside the window the first loss opened.
+    await act(async () => {
+      second.dispatchEvent(new Event("webglcontextlost", { cancelable: true }));
+    });
+    expect(health.state.generation).toBe(afterFirst + 1);
+    expect(health.state.lost).toBe(true);
+  });
+
+  /**
+   * R11 in vv-lab's findings. R3F creates the context, builds the scene, and
+   * only then calls onCreated. A loss in between fires with no listener
+   * attached, so onCreated has to ask the context itself.
+   */
+  it("reports a context that was already lost when it was handed over", async () => {
+    vi.resetModules();
+    const { useRenderQuality } = await import("./useRenderQuality");
+    const { getRendererHealth } = await import("../core/renderer-health/RendererHealth");
+    let props: Props | null = null;
+    function Probe() {
+      props = useRenderQuality("active", PROFILES) as Props;
+      return null;
+    }
+    render(<Probe />);
+    const health = getRendererHealth();
+    const canvas = document.body.appendChild(document.createElement("canvas"));
+    await act(async () => {
+      (props!.onCreated as (s: unknown) => void)({
+        gl: { domElement: canvas, getContext: () => ({ isContextLost: () => true }) },
+      });
+    });
+
+    expect(health.state.generation).toBe(1);
+    expect(health.state.lost).toBe(true);
+  });
+
+  it("rebuilds when the replacement died before it was handed over", async () => {
+    const { canvas: first, health, onCreated } = await created();
+    await act(async () => {
+      first.dispatchEvent(new Event("webglcontextlost", { cancelable: true }));
+    });
+    const afterFirst = health.state.generation;
+
+    // The second reset lands while R3F is still building the replacement.
+    const second = document.body.appendChild(document.createElement("canvas"));
+    first.remove();
+    await act(async () => {
+      (onCreated as (s: unknown) => void)({
+        gl: { domElement: second, getContext: () => ({ isContextLost: () => true }) },
+      });
+    });
+
+    expect(health.state.generation).toBe(afterFirst + 1);
+  });
+
+  it("still counts one reset across two canvases as one rebuild", async () => {
+    vi.resetModules();
+    const { useRenderQuality } = await import("./useRenderQuality");
+    const { getRendererHealth } = await import("../core/renderer-health/RendererHealth");
+    const props: Props[] = [];
+    function Probe({ slot }: { slot: number }) {
+      props[slot] = useRenderQuality("active", PROFILES) as Props;
+      return null;
+    }
+    render(
+      <>
+        <Probe slot={0} />
+        <Probe slot={1} />
+      </>,
+    );
+    const canvases = [0, 1].map(() => document.body.appendChild(document.createElement("canvas")));
+    await act(async () => {
+      canvases.forEach((canvas, i) => props[i].onCreated({ gl: { domElement: canvas } }));
+    });
+    const health = getRendererHealth();
+    const before = health.state.generation;
+
+    // Both were built before the reset, so the second loss is the same reset.
+    await act(async () => {
+      for (const canvas of canvases) {
+        canvas.dispatchEvent(new Event("webglcontextlost", { cancelable: true }));
+      }
+    });
+    expect(health.state.generation).toBe(before + 1);
+  });
+});
+
+/**
+ * WebGPU, added in 4.1.0.
+ *
+ * The shapes here are the ones three 0.184 actually produces, checked against
+ * WebGPUBackend (`isWebGPUBackend`, `device`) and WebGLBackend
+ * (`isWebGLBackend`, no device), and confirmed end to end in a real Chrome by
+ * tools/verify-webgpu.mjs in the site repo.
+ */
+describe("useRenderQuality — a lost WebGPU device", () => {
+  interface Backend {
+    isWebGPUBackend?: boolean;
+    isWebGLBackend?: boolean;
+    device?: unknown;
+  }
+
+  /** A device whose `lost` promise the test controls. */
+  function makeDevice() {
+    let settle: (info: { reason?: string } | undefined) => void = () => {};
+    const lost = new Promise<{ reason?: string } | undefined>((r) => {
+      settle = r;
+    });
+    return { device: { lost }, lose: settle };
+  }
+
+  async function created(backend: Backend | undefined) {
+    vi.resetModules();
+    const { useRenderQuality } = await import("./useRenderQuality");
+    const { getRendererHealth } = await import("../core/renderer-health/RendererHealth");
+
+    let props: Props | null = null;
+    function Probe() {
+      props = useRenderQuality("active", PROFILES) as Props;
+      return null;
+    }
+    render(<Probe />);
+
+    const canvas = document.body.appendChild(document.createElement("canvas"));
+    await act(async () => {
+      (props!.onCreated as (s: unknown) => void)({ gl: { domElement: canvas, backend } });
+    });
+    return { canvas, health: getRendererHealth() };
+  }
+
+  const settle = async () => {
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  };
+
+  it("rebuilds the scene when the device is lost", async () => {
+    const { device, lose } = makeDevice();
+    const { health } = await created({ isWebGPUBackend: true, device });
+    const before = health.state.generation;
+
+    lose({ reason: "unknown" });
+    await settle();
+
+    expect(health.state.lost).toBe(true);
+    expect(health.state.generation).toBe(before + 1);
+  });
+
+  it("ignores a device the page destroyed itself", async () => {
+    const { device, lose } = makeDevice();
+    const { health } = await created({ isWebGPUBackend: true, device });
+    const before = health.state.generation;
+
+    lose({ reason: "destroyed" });
+    await settle();
+
+    expect(health.state.lost).toBe(false);
+    expect(health.state.generation).toBe(before);
+  });
+
+  /**
+   * The case that would ship broken if the renderer were classified by its
+   * class. `Renderer.init` swaps in a WebGL backend when WebGPU fails, so this
+   * is a WebGPURenderer drawing through WebGL. Its canvas fires the event, and
+   * recovery has to come from the listener.
+   */
+  it("still recovers when three falls back to WebGL", async () => {
+    const { canvas, health } = await created({ isWebGLBackend: true });
+    const before = health.state.generation;
+
+    await act(async () => {
+      canvas.dispatchEvent(new Event("webglcontextlost", { cancelable: true }));
+    });
+
+    expect(health.state.generation).toBe(before + 1);
+  });
+
+  it("ignores a backend whose device has not resolved yet", async () => {
+    const { health } = await created({ isWebGPUBackend: true, device: null });
+    // No device means nothing to watch, and no crash on the way past.
+    expect(health.state.lost).toBe(false);
+  });
+
+  it("leaves a plain WebGLRenderer alone", async () => {
+    const { canvas, health } = await created(undefined);
+    const before = health.state.generation;
+
+    await act(async () => {
+      canvas.dispatchEvent(new Event("webglcontextlost", { cancelable: true }));
+    });
+
     expect(health.state.generation).toBe(before + 1);
   });
 });

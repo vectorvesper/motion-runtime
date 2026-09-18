@@ -43,6 +43,19 @@ export interface UseSceneGateOptions {
   cost?: MountCost;
   /** How far before the viewport to start warming, in px. Default 200. */
   preload?: number;
+  /**
+   * What is behind the gate is content the visitor came for, not decoration.
+   * Default false.
+   *
+   * It still waits to be near the viewport, for the scroll to settle and for
+   * frame headroom, which is why a heavy chart wants this gate at all. What
+   * changes is that it is never withheld. Reduced motion and a device below
+   * the floor otherwise send the gate straight to `poster`, and `mounted`
+   * never turns true: right for a scene, and for a chart it means the visitor
+   * who asked for less motion never sees the chart. vv-lab's own D1 reference
+   * shipped exactly that, unnoticed, because no probe asked.
+   */
+  content?: boolean;
 }
 
 /**
@@ -156,6 +169,7 @@ export function useSceneGate<T extends HTMLElement = HTMLDivElement>({
   label,
   cost = "heavy",
   preload = 200,
+  content = false,
 }: UseSceneGateOptions = {}): SceneGate<T> {
   // A hybrid ref, not a plain one. Reading `ref.current` from an effect keyed
   // only on [preload] means the element is looked for exactly once, on the
@@ -247,6 +261,7 @@ export function useSceneGate<T extends HTMLElement = HTMLDivElement>({
     deviceTier: quality.deviceTier,
     qualityCause: quality.cause,
     contextLost: health.lost,
+    content,
   });
 
   let state = verdict.state;
@@ -319,16 +334,21 @@ interface Inputs {
   reducedMotion: boolean;
   /** Why the governor arrived at that tier, passed through for reporting. */
   qualityCause: "ok" | "device" | "reduced-motion" | "render" | "frame-rate" | "held";
+  /** Content the visitor came for, which is never sent to the poster. */
+  content?: boolean;
 }
 
 /** The decision, with no React in it, so it can be tested directly. */
 export function decide(i: Inputs): { state: SceneState; reason: string; cause: SceneCause } {
   // Both of these outrank position and timing: there is no point warming a
-  // scene that is never going to be allowed to run.
-  if (i.reducedMotion) {
+  // scene that is never going to be allowed to run. Content is the exception,
+  // because a visitor who asked for less motion still came for it. It waits
+  // like anything else, and once mounted reads as constrained, since the fused
+  // tier is at its lowest in both cases.
+  if (!i.content && i.reducedMotion) {
     return { state: "poster", reason: "reduced motion is turned on", cause: "reduced-motion" };
   }
-  if (i.deviceTier === 2) {
+  if (!i.content && i.deviceTier === 2) {
     return { state: "poster", reason: "this device cannot render it smoothly", cause: "device-floor" };
   }
 
@@ -356,7 +376,29 @@ export function decide(i: Inputs): { state: SceneState; reason: string; cause: S
   // AdaptiveQuality now, so `tier` arrives already knowing whether reducing
   // quality would help, and the governor tells us why so this can report it
   // rather than re-derive it.
-  if (i.tier === 1) {
+  //
+  // Tier 2 included. Up to 4.1.0 this read `tier === 1`, so the worst tier fell
+  // through to "active" and the harder a page struggled, the more the gate
+  // asked of it: in vv-lab a managed R3F hero ran at 10–12fps at full
+  // resolution while the governor said tier 2 for the whole run. The fused
+  // tier only reaches 2 when reducing would help or cannot be ruled out; a main
+  // thread blocked elsewhere arrives as "held" at the device's own tier, so
+  // that rule is untouched. The gate has one reduced level and tier 2 gets it.
+  // A scene that wants a deeper cut reads `useAdaptiveQuality().tier`.
+  if (i.tier >= 1) {
+    // Only content reaches here under reduced motion or on a device below the
+    // floor, since a scene went to its poster above. Say which, rather than
+    // blaming a frame rate that may be perfectly fine.
+    if (i.qualityCause === "reduced-motion") {
+      return { state: "constrained", reason: "reduced motion is turned on", cause: "reduced-motion" };
+    }
+    if (i.deviceTier === 2) {
+      return {
+        state: "constrained",
+        reason: "this device is below the floor for full quality",
+        cause: "device-floor",
+      };
+    }
     return i.qualityCause === "render"
       ? { state: "constrained", reason: "rendering is the bottleneck", cause: "render-bound" }
       : { state: "constrained", reason: "the frame rate is not holding up", cause: "frame-rate" };

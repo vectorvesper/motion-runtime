@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { getConductor } from "../core/conductor";
+import { createHybridRef } from "../react/hybrid-ref";
 
 export interface UseNumberTickerOptions {
   /**
@@ -62,8 +63,22 @@ export function useNumberTicker<T extends HTMLElement = HTMLSpanElement>(
   value: number,
   options: UseNumberTickerOptions = {},
 ): { ref: RefObject<T | null> } {
-  const ref = useRef<T>(null);
+  // A hybrid ref, not a plain one, so the ticker starts when its element
+  // arrives rather than only on the first commit. A counter behind a hydration
+  // guard, a loading branch or `next/dynamic` has no element there yet; up to
+  // 4.1.0 the effect bailed, nothing re-ran it, and the number stayed blank.
+  // See hybrid-ref.ts.
+  const elementRef = useRef<T | null>(null);
+  const [element, setElement] = useState<T | null>(null);
+  // The factory only wires deferred getters/setters onto a function; it never
+  // reads elementRef.current during render. The compiler cannot see that
+  // through an opaque call, so it assumes the worst.
+  // eslint-disable-next-line react-hooks/refs
+  const ref = useMemo(() => createHybridRef<T>(elementRef, setElement), []);
+
   const currentRef = useRef(0);
+  /** True once the number has reached its target and nothing is ticking. */
+  const landedRef = useRef(false);
   const targetRef = useRef(value);
   const speedRef = useRef(options.speed ?? 6);
   
@@ -77,54 +92,87 @@ export function useNumberTicker<T extends HTMLElement = HTMLSpanElement>(
     prefixRef.current = options.prefix ?? "";
     suffixRef.current = options.suffix ?? "";
     formatterRef.current = new Intl.NumberFormat(options.locale, options.format);
+
+    // A landed counter is no longer ticking, so nothing else would show a new
+    // prefix, suffix or format until the value changed. Write it once here,
+    // and only if the text is actually different.
+    const el = elementRef.current;
+    if (el && landedRef.current) {
+      writeText(el, textFor(currentRef.current, formatterRef.current, prefixRef.current, suffixRef.current));
+    }
   });
 
   useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
+    // `element` says the node has arrived, and is what re-runs this. The node
+    // itself comes from the ref: the compiler treats state as immutable, and
+    // writing its style or its text is a mutation.
+    const el = elementRef.current;
+    if (!element || !el) return;
 
     // Enforce monospaced numbers (tabular) so characters do not shift widths on change
     el.style.fontVariantNumeric = "tabular-nums";
     targetRef.current = value;
 
-    const write = (v: number) => {
-      const formatted = (formatterRef.current ?? new Intl.NumberFormat()).format(
-        Math.round(v * 100) / 100, // Round to nearest 2 decimal places to allow fractional counts
-      );
-      el.textContent = `${prefixRef.current}${formatted}${suffixRef.current}`;
-    };
+    const write = (v: number) =>
+      writeText(el, textFor(v, formatterRef.current, prefixRef.current, suffixRef.current));
 
     // Reduced motion fallback: snap instantly
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       currentRef.current = value;
       write(value);
+      landedRef.current = true;
       return;
     }
 
     // Subscribe to unified central conductor update loop rather than spawning independent RAF loops
-    const unsubscribe = getConductor().subscribe("update", (dt) => {
+    landedRef.current = false;
+    let stop: (() => void) | null = null;
+    stop = getConductor().subscribe("update", (dt) => {
       const target = targetRef.current;
       const current = currentRef.current;
 
       // Exponential damping
       let next = current + (target - current) * (1 - Math.exp(-speedRef.current * dt));
 
-      // Snapping threshold: if close enough, snap to target and stop ticking
+      // Snapping threshold: if close enough, snap to target
       if (Math.abs(target - next) < 0.01) {
         next = target;
       }
 
       currentRef.current = next;
       write(next);
+
+      // Landed, so stop ticking. Up to 4.1.0 the subscription stayed and every
+      // frame assigned the same text again for the life of the page: vv-lab
+      // measured 105 text writes a second on a page of three counters with
+      // nothing moving. A new value re-runs this effect and starts a fresh
+      // approach from wherever the number is now.
+      if (next === target) {
+        landedRef.current = true;
+        stop?.();
+        stop = null;
+      }
       // Decorative: a counter that updates less often under load still reads
       // correctly, because the damping is frame-rate independent. It just
       // arrives at the value a little later.
     }, { priority: "decorative", label: "useNumberTicker" });
 
-    return () => {
-      unsubscribe();
-    };
-  }, [value]);
+    return () => stop?.();
+  }, [element, value]);
 
   return { ref };
+}
+
+/** One value as the caller wants it shown, rounded to two places so fractional counts read cleanly. */
+function textFor(v: number, formatter: Intl.NumberFormat | null, prefix: string, suffix: string): string {
+  return `${prefix}${(formatter ?? new Intl.NumberFormat()).format(Math.round(v * 100) / 100)}${suffix}`;
+}
+
+/**
+ * Touch the DOM only when the text changes. Near the end of an approach several
+ * frames round to the same string, and assigning `textContent` replaces the
+ * text node whether or not the string moved.
+ */
+function writeText(el: HTMLElement, text: string): void {
+  if (el.textContent !== text) el.textContent = text;
 }

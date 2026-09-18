@@ -44,6 +44,7 @@ const ENTRIES = {
   "./react": "dist/react.d.ts",
   "./devtools": "dist/devtools.d.ts",
   "./r3f": "dist/r3f.d.ts",
+  "./three": "dist/three.d.ts",
 };
 
 /**

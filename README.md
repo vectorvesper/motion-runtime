@@ -132,7 +132,8 @@ not.
 | AnimationBudget | `useAnimationBudget` | Live frame-headroom governor, giving a stable tier (`high` / `medium` / `low`). |
 | AdaptiveQuality | `useAdaptiveQuality` | Device floor, live budget, and what is actually costing the frame, fused into one verdict. |
 | FramePressure | `useFramePressure` | Names what is eating a badly blown frame: this runtime, other main-thread work, or rendering. |
-| RendererHealth | none | Notices a lost graphics context and counts a recovery generation to remount on. |
+| RendererHealth | none | Notices a lost graphics context and counts a recovery generation to remount on. A hand-built renderer reports with `reportLost({ builtAt })`, passing the generation it was created under, and calls `reportHealthy()` once the replacement draws. |
+| `watchGPUDevice` | none | The same, for WebGPU. A device announces its death by resolving `device.lost` rather than firing an event, so it needs its own wiring — and a device you destroyed on purpose is not one that needs replacing. |
 | PointerIntent · MagneticElement · VideoScrubber | see below | The engines behind the effects, for use without React. |
 
 **React.** `@vectorvesper/motion/react`. Everything above, plus:
@@ -140,7 +141,7 @@ not.
 | Hook | What it does |
 | --- | --- |
 | `useSafeToMount` | Mount an expensive subtree only once there is real frame headroom. |
-| `useSceneGate` | One policy for a heavy scene: when to mount it, whether to draw, at what quality, and how to come back from a lost context. |
+| `useSceneGate` | One policy for a heavy scene: when to mount it, whether to draw, at what quality, and how to come back from a lost context. With `content: true` it holds a heavy section, such as a chart, the same way but still mounts it under reduced motion. |
 | `InteractionScope` | Mark the region the visitor is working in. While a pointer is down inside it, non-essential work outside yields earlier. |
 | `usePointerIntent` | Predicts the pointer is heading for an element before it arrives, for prefetching on desktop. |
 | `useMagneticIntent` | A magnetic pull toward the cursor. |
@@ -150,7 +151,27 @@ not.
 
 **React Three Fiber.** `@vectorvesper/motion/r3f`. `useRenderQuality` applies a
 scene gate's decision to the renderer: pixel ratio, shadow maps, stopping the
-loop off screen, and surviving a lost context.
+loop off screen, and surviving a lost context. A profile's `dpr` is a ceiling,
+never above the screen's own ratio.
+
+**Plain three.js.** `@vectorvesper/motion/three`. `useThreeScene` is the whole
+job in one hook. You make the renderer and build the scene; it gates the
+build, draws on the shared loop and only while on screen, sizes the pixel ratio
+to the screen, rebuilds after a lost context, frees everything when the scene
+goes, and never builds under reduced motion.
+
+```tsx
+const { ref, mounted } = useThreeScene({
+  renderer: () => new THREE.WebGLRenderer({ antialias: true }),
+  setup({ width, height }) {
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 100);
+    // ...build the scene
+    return { scene, camera, update: ({ dt }) => { /* animate */ } };
+  },
+});
+return <div ref={ref} style={{ height: "100vh" }}>{!mounted && <img src="/hero.jpg" alt="" />}</div>;
+```
 
 **DevTools.** `@vectorvesper/motion/devtools`. `mountDevtools()` puts a live
 overlay on the page showing per-subscriber cost, what got shed, and how far the
@@ -214,8 +235,11 @@ import { getConductor, getSensorBus, damp } from "@vectorvesper/motion";
 // React. Includes everything above.
 import { useTick, useSceneGate, usePointerIntent } from "@vectorvesper/motion/react";
 
-// React Three Fiber. Pulls in three + @react-three/fiber.
+// React Three Fiber. Imports nothing from three or R3F at runtime.
 import { useRenderQuality } from "@vectorvesper/motion/r3f";
+
+// Plain three.js. Imports nothing from three at runtime either.
+import { useThreeScene } from "@vectorvesper/motion/three";
 
 // The live inspector.
 import { mountDevtools } from "@vectorvesper/motion/devtools";

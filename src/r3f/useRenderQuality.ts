@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SceneState } from "../react/useSceneGate";
 import { getRendererHealth } from "../core/renderer-health/RendererHealth";
+import { watchGPUDevice } from "../core/renderer-health/watchGPUDevice";
+import { gpuDeviceOf, isContextLost } from "../core/renderer-health/rendererChecks";
 
 /**
  * Renderer settings for one quality level.
@@ -14,8 +16,10 @@ import { getRendererHealth } from "../core/renderer-health/RendererHealth";
  */
 export interface RenderProfile {
   /**
-   * Device pixel ratio. Capping this is the single biggest saving available on
-   * a high-density display: dropping from 3 to 1.5 quarters the pixels shaded.
+   * The highest device pixel ratio the canvas draws at. Never above the
+   * screen's own, so `dpr: 2` draws a 1x monitor at 1x and a 3x phone at 2.
+   * Capping this is the single biggest saving available on a high-density
+   * display: dropping from 3 to 1.5 quarters the pixels shaded.
    */
   dpr?: number;
   /** Whether shadow maps are drawn at all. */
@@ -27,9 +31,23 @@ export interface RenderProfiles {
   reduced: RenderProfile;
 }
 
-/** The subset of R3F's `onCreated` argument this needs. */
+/**
+ * The subset of R3F's `onCreated` argument this needs.
+ *
+ * `backend` is three's WebGPU-era renderer field, absent on a `WebGLRenderer`.
+ * Optional and structurally typed, so `@webgpu/types` and `three/webgpu` stay
+ * out of this package's dependency tree. `getContext` is how a context that
+ * died before `onCreated` ran is noticed at all.
+ */
 interface CreatedState {
-  gl: { domElement: HTMLCanvasElement };
+  gl: {
+    domElement: HTMLCanvasElement;
+    backend?: {
+      isWebGPUBackend?: boolean;
+      device?: unknown;
+    };
+    getContext?: () => { isContextLost?: () => boolean } | null;
+  };
 }
 
 /**
@@ -83,7 +101,8 @@ export interface RenderQualityProps {
  * canvas and a clean console. `onCreated` attaches a listener that calls
  * `preventDefault()`, so a replacement context is possible at all, and reports
  * the loss so the scene gate can hand back a new `generation` for the
- * `<Canvas key>`.
+ * `<Canvas key>`. The loss R3F causes itself when it unmounts a canvas is not
+ * reported: that is a teardown, not a failure.
  *
  * ## Why props, when 3.0 did this imperatively
  *
@@ -164,25 +183,124 @@ export function useRenderQuality(
    * has to hold to.
    */
   const drawing = state !== "idle";
-  const [sizedDpr, setSizedDpr] = useState(profile.dpr);
-  if (drawing && sizedDpr !== profile.dpr) setSizedDpr(profile.dpr);
-  const dpr = drawing ? profile.dpr : sizedDpr;
+  const wanted = capToScreen(profile.dpr);
+  const [sizedDpr, setSizedDpr] = useState(wanted);
+  if (drawing && sizedDpr !== wanted) setSizedDpr(wanted);
+  const dpr = drawing ? wanted : sizedDpr;
+
+  /**
+   * The live device watcher, so a rebuild does not leave the old one running.
+   *
+   * Not strictly required for correctness: three destroys the previous device
+   * when the renderer is disposed, and a destroyed device is ignored. Stopping
+   * it anyway means the guarantee does not rest on that one branch.
+   */
+  const stopWatchRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => stopWatchRef.current?.(), []);
+
+  /**
+   * The live canvas's loss listener, so a canvas the scene has finished with
+   * cannot report a loss on behalf of the one that replaced it.
+   *
+   * Removed when the owner unmounts and when a rebuilt canvas takes over. The
+   * `isConnected` check inside the listener covers the moment between a canvas
+   * leaving the page and either of those, which is exactly when R3F's own
+   * teardown loss arrives.
+   */
+  const stopListeningRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => stopListeningRef.current?.(), []);
 
   const onCreated = useCallback(({ gl }: CreatedState) => {
+    const health = getRendererHealth();
+    const canvas = gl.domElement;
+
+    // The generation this canvas was built under. With it, a replacement lost
+    // moments after it was built counts as a new failure, not as the reset
+    // that built it reaching one more canvas (vv-lab R10). `<Canvas
+    // key={generation}>` builds a new root on every bump, so this runs again
+    // for each replacement.
+    const builtAt = health.state.generation;
+
+    // Whatever the previous canvas left running goes first.
+    stopListeningRef.current?.();
+    stopListeningRef.current = null;
+    stopWatchRef.current?.();
+    stopWatchRef.current = null;
+
+    // A context can die before this runs. R3F creates it, builds the scene and
+    // only then calls onCreated, and on a slow device a second reset can land
+    // in between. Its event then fired with nothing here listening: three
+    // logged "Context Lost", the runtime never heard, and the scene stayed
+    // black (vv-lab R11, on WebKit). So the context is asked directly, and a
+    // dead one is reported rather than announced as healthy.
+    if (isContextLost(gl)) {
+      if (canvas.isConnected) health.reportLost({ builtAt });
+      return;
+    }
+
     // Mounting at all means a working context. After a loss this is the
     // replacement announcing itself, which is what ends the recovery.
-    getRendererHealth().reportHealthy();
+    health.reportHealthy();
+
+    // Both paths, always, rather than one or the other.
+    //
+    // A WebGPU canvas never fires `webglcontextlost`, so the listener is inert
+    // there. But a `WebGPURenderer` that fell back to WebGL draws to a canvas
+    // that *does* fire it, and that case is invisible from the outside. Wiring
+    // both means recovery does not depend on classifying the renderer
+    // correctly; the classification only decides whether to add the device
+    // watch on top.
 
     // Without preventDefault the browser will not attempt a restore, and some
     // drivers then refuse a new context on the page at all.
-    gl.domElement.addEventListener("webglcontextlost", (event: Event) => {
+    //
+    // Not every loss is a failure, though. R3F loses the context of every
+    // `<Canvas>` it unmounts on purpose: `unmountComponentAtNode` calls
+    // `forceContextLoss()` 500ms later (9.7), and that fires this same event.
+    // Up to 4.1.0 it was reported, so closing one canvas moved the generation
+    // and rebuilt every other scene on the page. Measured in vv-lab: six tab
+    // switches under a managed hero rebuilt it four times on Chrome, and on
+    // WebKit the rebuilds outran R3F's event wiring and left the hero dead.
+    //
+    // By the time that loss arrives React has taken the canvas out of the
+    // document, and a canvas the visitor can still see never has. So a
+    // detached canvas is being torn down, not failing, and nothing wants its
+    // context back.
+    const onLost = (event: Event) => {
+      if (!canvas.isConnected) return;
       event.preventDefault();
-      getRendererHealth().reportLost();
-    });
+      health.reportLost({ builtAt });
+    };
+    canvas.addEventListener("webglcontextlost", onLost);
+    stopListeningRef.current = () => canvas.removeEventListener("webglcontextlost", onLost);
+
+    // WebGPU announces a dead device by resolving a promise instead, so the
+    // listener above would never hear it.
+    const device = gpuDeviceOf(gl);
+    stopWatchRef.current = device ? watchGPUDevice(device) : null;
   }, []);
 
   return useMemo(
     () => ({ dpr, frameloop, shadows, onCreated }),
     [dpr, frameloop, shadows, onCreated],
   );
+}
+
+/**
+ * A profile's pixel ratio, never above the screen's own.
+ *
+ * `full: { dpr: 2 }` is how every example writes it, and R3F applies a number
+ * exactly as given. On a 1x monitor that drew four times the pixels the screen
+ * can show, so the managed scene came out heavier than the unmanaged one it
+ * replaced, whose default `[1, 2]` resolves to 1 there. Measured in vv-lab: an
+ * AI-written R3F hero that copied `dpr: 2` from our own pattern ran at
+ * 8–12fps, where the same page with the ratio capped ran at about 20 (T1). So
+ * the number is a ceiling, which is what the docs always called it.
+ *
+ * During server rendering there is no screen to read and the value passes
+ * through as written. The canvas only ever exists on the client.
+ */
+function capToScreen(dpr: number | undefined): number | undefined {
+  if (dpr === undefined || typeof window === "undefined") return dpr;
+  return Math.min(dpr, window.devicePixelRatio || 1);
 }

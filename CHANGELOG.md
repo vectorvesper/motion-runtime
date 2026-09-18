@@ -1,5 +1,253 @@
 # Changelog
 
+## 4.2.0
+
+### Closing one R3F canvas no longer rebuilds every other scene
+
+`useRenderQuality` reported a context loss that React Three Fiber causes on
+purpose. R3F calls `forceContextLoss()` on every `<Canvas>` it unmounts, 500ms
+after React has removed it, and that fires `webglcontextlost` exactly like a
+real failure. The adapter's listener was never removed, so the loss was
+reported, the page's `generation` moved, and every gated scene on the page
+rebuilt. Tabs, modals, a configurator that closes, any conditional canvas:
+each close rebuilt the rest.
+
+Measured in the vv-lab test app: six tab switches under a managed R3F hero
+rebuilt it four times on Chrome, where the same page without the runtime
+rebuilt it zero times. On WebKit the rebuilds came fast enough that R3F wired
+its pointer events to a container that was already gone
+(`TypeError: null is not an object`), and the hero stayed dead.
+
+The listener now ignores a loss on a canvas that has left the document, and is
+removed when its owner unmounts or a rebuilt canvas replaces it. A loss on a
+canvas still on the page is reported exactly as before.
+
+### The scene gate no longer goes back to full quality under the worst load
+
+`useSceneGate` reduced quality at tier 1 and ran at full quality at tier 2.
+`decide()` tested `tier === 1`, so the worst tier, sustained drops below
+~30fps, fell through to `active`: the harder the page struggled, the more the
+gate asked of it. Measured in vv-lab on a managed R3F hero at a 3x pixel
+ratio: AdaptiveQuality read tier 2 from the first second, and the gate stayed
+reduced only for the dwell left over from an earlier tier-1 verdict, then went
+to full quality at 10–12fps for the rest of the run.
+
+Tier 2 now reduces quality like tier 1. The fused tier only reaches 2 when
+reducing would help or cannot be ruled out, so a main thread blocked by
+someone else is still never answered by degrading: that case arrives as
+`held`, at the device's own tier.
+
+No test covered it. Every tier-2 case also set `deviceTier: 2`, which shows the
+poster before the tier is read.
+
+### Number tickers stop once they land, and start when their element arrives
+
+`useNumberTicker` kept its conductor subscription after the number reached its
+target, and every frame for the life of the page assigned the same text again.
+Measured in vv-lab: 105 to 180 text writes a second on a page of three
+counters with nothing moving. It now unsubscribes on landing. A new value
+starts a fresh approach from wherever the number is, and a write is skipped
+when the text would not change.
+
+It also never started when its element arrived on a later commit, behind a
+hydration guard, a loading branch or `next/dynamic`. The effect read
+`ref.current` once, found nothing and waited for a new `value`, so the counter
+stayed blank. It now uses the same hybrid ref as `useSceneGate` and
+`usePointerIntent`, so the element arriving is what starts it.
+
+### The magnet, the image trail and the video scrubber start when their element arrives
+
+`useMagneticIntent`, `useImageTrail` and `useVideoScrubber` read their element
+once, in an effect keyed on mount-time options. An element behind a hydration
+guard, a loading branch or `next/dynamic` never got a magnet, a trail or a
+scrubber: the same defect as the ticker above. All three use the hybrid ref
+now. The scrubber keys on its track as well, so a track that arrives after the
+video is still picked up. `effects.test.tsx` checks each hook with its element
+on the first commit and on a later one.
+
+### A Mac on Safari is no longer rated a phone
+
+`deviceTierFromSignals` treated the renderer string "Apple GPU" as a
+mobile-class GPU. Safari reports that string on every Apple device, an M3 Max
+included, so every Mac on Safari started at tier 1 and the reduced profile
+before a single frame was measured. `DeviceSignals` gains an optional `touch`:
+touch points (`navigator.maxTouchPoints`) or touch events, either one. "Apple
+GPU" counts as mobile-class only with touch, which no Mac has and an iPad asking
+for the desktop site still reports. With touch unknown, the old cautious
+reading stands.
+
+### A forgotten `reportHealthy()` no longer kills a scene
+
+`RendererHealth.reportLost()` returned early while `lost` was set. Code that
+never called `reportHealthy()` therefore survived exactly one loss: the next was
+swallowed and the canvas stayed black. vv-site's own landing demo died that way
+on its second "Drop Context".
+
+A later loss now always counts, and the coalescing window alone keeps one reset
+to one rebuild. If nothing reports healthy within 5 seconds, the runtime
+assumes the rebuild worked, clears `lost` so that gates leave `recovering`, and
+warns once, naming the call to add. `useRenderQuality` still reports healthy
+for you.
+
+### A scene lost again moments after its rebuild now rebuilds again
+
+`RendererHealth` folds every loss within 250ms of the last one into the same
+rebuild, because one driver reset reaches every canvas on the page. A
+replacement that rebuild had just built, lost inside the same quarter second,
+was folded in too. It did not exist when the reset happened, so it was a new
+failure, and it stayed black with nothing left to rebuild it. Two quick clicks
+on vv-site's "Drop Context" did it.
+
+`reportLost()` takes an optional `{ builtAt }`: the generation that was current
+when the lost canvas's renderer was created. A loss from a canvas built under
+the current generation always counts. An older canvas's loss inside the window
+is still folded in, and a report without `builtAt` is judged by the window
+alone, as before. `useRenderQuality` and `watchGPUDevice` pass it for you. A
+hand-built renderer can read `getRendererHealth().state.generation` when it is
+created.
+
+So that a page with more canvases than the browser keeps contexts for cannot
+rebuild forever, fresh canvases can trigger at most three rebuilds in a row
+this way. After that the runtime warns once and waits for the next separate
+loss.
+
+### A context lost while R3F is still building the scene is no longer missed
+
+React Three Fiber creates the WebGL context, builds the scene, and only then
+calls `onCreated`, which is where `useRenderQuality` starts listening. A loss
+in between fired with nothing listening: three.js logged "Context Lost", the
+runtime never heard, and the scene stayed black for good. On Safari's engine
+that gap is long enough for a second reset to land in it, and vv-lab
+reproduced it on the first round. `onCreated` now asks the context whether it
+is already dead, and reports the loss instead of announcing a healthy canvas.
+
+### New: `@vectorvesper/motion/three`, a plain three.js scene in one call
+
+`useThreeScene` does for a hand-written three.js scene what `useSceneGate` and
+`useRenderQuality` do for R3F, in one hook. You make the renderer and build
+the scene; it does the rest:
+
+- builds nothing until the scene is near the viewport and the page can afford
+  it, and never mid-scroll
+- draws on the shared frame loop, and not at all while the scene is off screen
+- keeps the pixel ratio at or below the screen's own, and lowers it on the live
+  renderer when the frame rate cannot hold, without a rebuild
+- follows the element's size, and a `PerspectiveCamera`'s aspect with it
+- listens for a lost context from the moment the renderer exists, then builds a
+  new renderer and scene and reports when the new one has drawn
+- frees every geometry, material and texture in the scene, the renderer and the
+  context itself when the scene goes
+- never builds under reduced motion or on a device below the floor, so a still
+  image can show instead
+
+```tsx
+const { ref, mounted } = useThreeScene({
+  renderer: () => new THREE.WebGLRenderer({ antialias: true }),
+  setup({ width, height }) {
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 100);
+    // ...build the scene
+    return { scene, camera, update: ({ dt }) => { /* animate */ } };
+  },
+});
+```
+
+The entry imports nothing from three. The renderer's shape is all it reads,
+so a `WebGPURenderer` works the same way. In vv-lab, the plain three.js hero
+rewritten with it passed every probe the hand-wired reference passes, on
+Chrome and Safari's engine, on desktop and mobile. It also passed both new
+double-reset probes, one of which the hand-wired version fails until it passes
+`builtAt`. The hand-wired version takes two files and about ten separate
+steps.
+
+### A profile's `dpr` is now a ceiling
+
+`useRenderQuality` applied `dpr` exactly as written, and every example writes
+`full: { dpr: 2 }`. On a 1x monitor that drew four times the pixels the screen
+can show, so the managed scene came out heavier than the unmanaged one it
+replaced, whose R3F default resolves to 1 there. Measured in vv-lab: an
+AI-written hero that copied `dpr: 2` from our own pattern ran at 8–12fps, where
+the same page with the ratio capped ran at about 20. `dpr` is now the most the
+canvas draws at, and never more than the screen's own ratio. A 3x phone still
+gets 2.
+
+### `useSceneGate({ content: true })`, for sections a reader came for
+
+The gate sends a scene to its poster under reduced motion and on a device below
+the floor, and `mounted` never turns true. That is right for decoration and
+wrong for a chart. vv-lab's own heavy-chart reference used the gate for its
+wait on the scroll and on frame headroom, and a visitor who asked for less
+motion would never have seen the chart. With `content: true` the section still
+waits to be near, for the scroll to settle and for frame headroom, then mounts,
+in the constrained state, whatever the motion preference or the device.
+
+## 4.1.0
+
+WebGPU device loss.
+
+### What this adds
+
+`watchGPUDevice(device)` reports a WebGPU device's health to the runtime, the
+way the R3F adapter's `onCreated` already does for a WebGL context.
+
+```ts
+const device = await adapter.requestDevice();
+const stop = watchGPUDevice(device);
+// on teardown
+stop();
+```
+
+WebGL announces a dead context with a `webglcontextlost` event. WebGPU
+announces a dead device by resolving `device.lost`, a promise handed to you at
+creation. Different shape, same failure: the canvas stops producing frames,
+nothing throws, and the console stays clean.
+
+Everything downstream is unchanged. A loss bumps `generation`, a scene gate
+hands that to a `key`, and React rebuilds against a device you request fresh.
+The counter never cared which API died, so `useSceneGate` works over WebGPU
+today with no changes.
+
+### A device you destroyed is not a device that failed
+
+`GPUDeviceLostInfo.reason` is `"destroyed"` when the page called
+`device.destroy()` itself. That case is ignored.
+
+This is the WebGL lesson carried across rather than relearned. Dropping a
+context on unmount used to report a loss after its replacement had already
+reported healthy, which bumped the generation, which remounted everything,
+which unmounted more contexts. One page reached generation 18 inside a second
+with nobody touching it.
+
+### `useRenderQuality` wires it for you
+
+The R3F adapter now watches the device as well as listening for
+`webglcontextlost`, so a WebGPU scene mounted through `useSceneGate` recovers
+with no extra code. Everything else it does already worked over WebGPU: R3F
+applies `dpr` through `setPixelRatio` and shadows through `shadowMap.enabled`
+without checking the renderer's type, and three's `WebGPURenderer` carries
+both. The dead context listener was the only gap.
+
+It attaches both paths rather than choosing between them. `Renderer.init`
+catches a WebGPU failure and quietly swaps in a WebGL backend, so a
+`WebGPURenderer` can be drawing through WebGL with nothing logged. Wiring both
+means recovery does not depend on classifying the renderer correctly.
+
+Verified in Chrome against a real `WebGPURenderer`: the device exists by the
+time `onCreated` fires, `dpr` reaches the renderer, the loop still stops when
+the scene goes idle, a real `device.destroy()` resolves with reason
+`"destroyed"` and is ignored, and a loss rebuilds a scene that draws again.
+
+### Also
+
+`DeviceSignals` gains `webgpu`, true when `navigator.gpu` exists. It says the
+API is available and nothing more: adapter limits need `requestAdapter()`,
+which is async and cannot inform a synchronous probe. The flag does not move
+the device tier.
+
+`@webgpu/types` is not a dependency and will not become one. `GPUDeviceLike`
+is a structural type covering the one field this reads, so a real `GPUDevice`
+satisfies it whether or not your project has the types installed.
+
 ## 4.0.3
 
 One driver reset rebuilt every scene on the page sixteen times.

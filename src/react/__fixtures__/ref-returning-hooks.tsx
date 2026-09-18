@@ -12,6 +12,7 @@ import { useImageTrail } from "../../effects/useImageTrail";
 import { useMagneticIntent } from "../../effects/useMagneticIntent";
 import { useNumberTicker } from "../../effects/useNumberTicker";
 import { useVideoScrubber } from "../../effects/useVideoScrubber";
+import { useThreeScene } from "../../three/useThreeScene";
 
 export function ImageTrail({ images }: { images: string[] }) {
   const { ref } = useImageTrail<HTMLDivElement>({ images });
@@ -39,4 +40,19 @@ export function Scrubber({ src }: { src: string }) {
       <video ref={videoRef} src={src} muted playsInline />
     </div>
   );
+}
+
+export function Hero() {
+  const { ref, mounted } = useThreeScene({
+    label: "hero",
+    renderer: () => ({
+      domElement: document.createElement("canvas"),
+      setPixelRatio() {},
+      setSize() {},
+      render() {},
+      dispose() {},
+    }),
+    setup: () => ({ scene: { traverse() {} }, camera: {} }),
+  });
+  return <div ref={ref}>{mounted ? null : <img src="/hero.jpg" alt="" />}</div>;
 }

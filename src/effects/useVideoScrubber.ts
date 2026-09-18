@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { createHybridRef } from "../react/hybrid-ref";
 import {
   VideoScrubber,
   type VideoScrubberOptions,
@@ -82,8 +83,22 @@ export interface UseVideoScrubberReturn<TTrack extends HTMLElement> {
 export function useVideoScrubber<TTrack extends HTMLElement = HTMLDivElement>(
   options: UseVideoScrubberOptions = {},
 ): UseVideoScrubberReturn<TTrack> {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const trackRef = useRef<TTrack>(null);
+  // Hybrid refs, so the scrubber is built when the video arrives rather than
+  // only on the first commit. A video behind a hydration guard, a loading
+  // branch or `next/dynamic` has no element there yet; up to 4.1.0 the effect
+  // bailed, nothing re-ran it, and it never scrubbed. The track is keyed too,
+  // so one that arrives after the video is still picked up. See hybrid-ref.ts.
+  const videoStore = useRef<HTMLVideoElement | null>(null);
+  const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
+  const trackStore = useRef<TTrack | null>(null);
+  const [trackEl, setTrackEl] = useState<TTrack | null>(null);
+  // The factory only wires deferred getters/setters onto a function; it never
+  // reads the store during render. The compiler cannot see that through an
+  // opaque call, so it assumes the worst.
+  // eslint-disable-next-line react-hooks/refs
+  const videoRef = useMemo(() => createHybridRef<HTMLVideoElement>(videoStore, setVideoEl), []);
+  // eslint-disable-next-line react-hooks/refs
+  const trackRef = useMemo(() => createHybridRef<TTrack>(trackStore, setTrackEl), []);
   const progressRef = useRef(0);
   const scrubberRef = useRef<VideoScrubber | null>(null);
 
@@ -96,11 +111,13 @@ export function useVideoScrubber<TTrack extends HTMLElement = HTMLDivElement>(
   const [initial] = useState(options);
 
   useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
+    // The state values say the nodes have arrived and are what re-run this;
+    // the nodes themselves come from the stores.
+    const video = videoStore.current;
+    if (!videoEl || !video) return;
     const scrubber = new VideoScrubber(video, {
       ...initial,
-      track: trackRef.current ?? undefined,
+      track: (trackEl && trackStore.current) || undefined,
       onProgress: (p, t) => {
         progressRef.current = p;
         onProgressRef.current?.(p, t);
@@ -111,7 +128,7 @@ export function useVideoScrubber<TTrack extends HTMLElement = HTMLDivElement>(
       scrubber.destroy();
       scrubberRef.current = null;
     };
-  }, [initial]);
+  }, [videoEl, trackEl, initial]);
 
   const { speed, mapping, pointerAxis } = options;
   useEffect(() => {

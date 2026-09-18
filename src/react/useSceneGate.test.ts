@@ -57,6 +57,39 @@ describe("scene gate — before it can run at all", () => {
   });
 });
 
+/**
+ * `content: true`. The poster is right for a scene and wrong for a chart: a
+ * visitor who asked for less motion still came for the chart. vv-lab's own
+ * heavy-chart reference used the gate without it, and would never have shown
+ * the chart to them.
+ */
+describe("scene gate — content a visitor came for", () => {
+  const reduced = { reducedMotion: true, tier: 2 as const, qualityCause: "reduced-motion" as const };
+  const floor = { deviceTier: 2 as const, tier: 2 as const, qualityCause: "device" as const };
+
+  it("still waits to be near and for the page to afford it", () => {
+    expect(decide({ ...base, ...reduced, content: true, started: false, near: false }).state).toBe("dormant");
+    expect(decide({ ...base, ...reduced, content: true, started: false, ready: false }).state).toBe("warming");
+  });
+
+  it("mounts under reduced motion instead of going to the poster, and says why it is reduced", () => {
+    const out = decide({ ...base, ...reduced, content: true });
+    expect(out.state).toBe("constrained");
+    expect(out.cause).toBe("reduced-motion");
+  });
+
+  it("mounts on a device below the floor too", () => {
+    const out = decide({ ...base, ...floor, content: true });
+    expect(out.state).toBe("constrained");
+    expect(out.cause).toBe("device-floor");
+  });
+
+  it("leaves a scene's poster alone", () => {
+    expect(decide({ ...base, ...reduced }).state).toBe("poster");
+    expect(decide({ ...base, ...floor }).state).toBe("poster");
+  });
+});
+
 describe("scene gate — surviving a scroll", () => {
   it("pauses instead of tearing down when scrolled off screen", () => {
     const out = decide({ ...base, near: false });
@@ -121,6 +154,28 @@ describe("scene gate — while running", () => {
 
   it("reduces quality when the frame rate is not holding up", () => {
     expect(decide({ ...base, tier: 1 }).state).toBe("constrained");
+  });
+
+  /**
+   * R3 in vv-lab's findings. Tier 2 fell through to "active", so the harder the
+   * page struggled the more the gate asked of it: a managed R3F hero ran at
+   * 10–12fps at full resolution while the governor read tier 2 the whole time.
+   * Every other tier-2 case in this file also sets deviceTier 2, which takes
+   * the poster branch before the tier is read, so none of them reached the
+   * path that broke: tier 2 from the frame budget on a capable device.
+   */
+  it("keeps quality down when the frame rate collapses, not only when it sags", () => {
+    const out = decide({ ...base, tier: 2, qualityCause: "frame-rate" });
+
+    expect(out.state).toBe("constrained");
+    expect(out.cause).toBe("frame-rate");
+  });
+
+  it("keeps quality down when rendering is the bottleneck at the worst tier", () => {
+    const out = decide({ ...base, tier: 2, qualityCause: "render" });
+
+    expect(out.state).toBe("constrained");
+    expect(out.cause).toBe("render-bound");
   });
 });
 

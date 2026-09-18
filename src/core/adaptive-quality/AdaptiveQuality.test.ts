@@ -3,6 +3,7 @@ import { deviceTierFromSignals, fuse, type DeviceSignals } from "./AdaptiveQuali
 
 const capable: DeviceSignals = {
   webgl2: true,
+  webgpu: true,
   renderer: "ANGLE (NVIDIA GeForce RTX 4070)",
   deviceMemory: 16,
   cores: 12,
@@ -36,6 +37,22 @@ describe("deviceTierFromSignals", () => {
     expect(
       deviceTierFromSignals({ ...capable, renderer: "Apple GPU" }).tier,
     ).toBe(1);
+  });
+
+  /**
+   * R6 in vv-lab's findings. Safari masks the renderer as "Apple GPU" on every
+   * Apple device, so up to 4.1.0 every Mac on Safari started at tier 1, the
+   * reduced profile, before a single frame was measured. Touch tells them
+   * apart; the case above, with touch unknown, keeps the cautious reading.
+   */
+  it("does not rate a Mac on Safari as a phone", () => {
+    const { tier, reasons } = deviceTierFromSignals({ ...capable, renderer: "Apple GPU", touch: false });
+    expect(tier).toBe(0);
+    expect(reasons).toEqual(["capable GPU"]);
+  });
+
+  it("still rates an iPhone or an iPad tier 1", () => {
+    expect(deviceTierFromSignals({ ...capable, renderer: "Apple GPU", touch: true }).tier).toBe(1);
   });
 
   it("bumps constrained devices one tier", () => {

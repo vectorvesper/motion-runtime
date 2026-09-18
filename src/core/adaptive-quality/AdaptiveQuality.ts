@@ -21,8 +21,27 @@ import {
 
 export interface DeviceSignals {
   webgl2: boolean;
+  /**
+   * Whether the browser exposes WebGPU at all.
+   *
+   * Detected synchronously from `navigator.gpu`, which says the API exists and
+   * nothing more. Adapter limits and the device tier behind them need
+   * `requestAdapter()`, which is async and therefore cannot inform the first
+   * synchronous probe. This flag is here so a scene can choose a WebGPU path
+   * before that answer arrives; it deliberately does not move the tier.
+   */
+  webgpu: boolean;
   /** GPU renderer string (unmasked where available), "" if unknown. */
   renderer: string;
+  /**
+   * Whether the device has a touch screen (touch points or touch events), or
+   * null when unknown.
+   *
+   * Read only to tell Apple devices apart: Safari reports "Apple GPU" on a Mac
+   * and on an iPhone alike. Optional, so signals built by hand elsewhere still
+   * type-check; absent reads as unknown.
+   */
+  touch?: boolean | null;
   /** navigator.deviceMemory in GB, null if unsupported. */
   deviceMemory: number | null;
   /** navigator.hardwareConcurrency, null if unsupported. */
@@ -160,7 +179,15 @@ export function deviceTierFromSignals(s: DeviceSignals): {
   if (/swiftshader|llvmpipe|software|basic render/i.test(s.renderer)) {
     tier = 2;
     reasons.push("software GL renderer");
-  } else if (/mali|adreno|powervr|videocore|apple gpu/i.test(s.renderer)) {
+  } else if (
+    /mali|adreno|powervr|videocore/i.test(s.renderer) ||
+    // Safari reports "Apple GPU" for every Apple device, an M3 Max included, so
+    // the string alone cannot tell a phone from a Mac: up to 4.1.0 every Mac on
+    // Safari started at tier 1. Touch can. No Mac has a touch screen, and an
+    // iPad asking for the desktop site still reports touch points. When touch
+    // is unknown the old, cautious reading stands.
+    (/apple gpu/i.test(s.renderer) && s.touch !== false)
+  ) {
     // Mobile-class GPUs run GL well but live in a thermal envelope.
     tier = 1;
     reasons.push("mobile-class GPU");
@@ -194,6 +221,7 @@ export function deviceTierFromSignals(s: DeviceSignals): {
  */
 const SERVER_SIGNALS: DeviceSignals = {
   webgl2: false,
+  webgpu: false,
   renderer: "",
   deviceMemory: null,
   cores: null,
@@ -222,10 +250,15 @@ function probeDeviceSignals(): DeviceSignals {
   } catch {
     /* webgl2 stays false — fail toward the floor */
   }
-  const nav = navigator as Navigator & { deviceMemory?: number };
+  const nav = navigator as Navigator & { deviceMemory?: number; gpu?: unknown };
   return {
     webgl2,
+    webgpu: typeof nav.gpu === "object" && nav.gpu !== null,
     renderer,
+    // Touch points or touch events, either one. A real iPhone reports five
+    // touch points, but Playwright's iPhone emulation reports none while still
+    // exposing touch events; Safari on a Mac has neither.
+    touch: navigator.maxTouchPoints > 0 || "ontouchstart" in window,
     deviceMemory: typeof nav.deviceMemory === "number" ? nav.deviceMemory : null,
     cores: typeof navigator.hardwareConcurrency === "number"
       ? navigator.hardwareConcurrency

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { createHybridRef } from "../react/hybrid-ref";
 
 /**
  * useImageTrail — images spawn along the pointer's path and fade away:
@@ -37,12 +38,25 @@ export interface UseImageTrailOptions {
 export function useImageTrail<T extends HTMLElement = HTMLDivElement>(
   options: UseImageTrailOptions,
 ): { ref: RefObject<T | null> } {
-  const ref = useRef<T>(null);
+  // A hybrid ref, so the trail starts when its element arrives rather than only
+  // on the first commit. A section behind a hydration guard, a loading branch
+  // or `next/dynamic` has no element there yet; up to 4.1.0 the effect bailed,
+  // nothing re-ran it, and no image ever followed the pointer. See hybrid-ref.ts.
+  const elementRef = useRef<T | null>(null);
+  const [element, setElement] = useState<T | null>(null);
+  // The factory only wires deferred getters/setters onto a function; it never
+  // reads elementRef.current during render. The compiler cannot see that
+  // through an opaque call, so it assumes the worst.
+  // eslint-disable-next-line react-hooks/refs
+  const ref = useMemo(() => createHybridRef<T>(elementRef, setElement), []);
   const [initial] = useState(options); // mount-time options
 
   useEffect(() => {
-    const container = ref.current;
-    if (!container || initial.images.length === 0) return;
+    // `element` says the node has arrived and is what re-runs this; the node
+    // itself comes from the ref, because the compiler treats state as immutable
+    // and this writes the container's style.
+    const container = elementRef.current;
+    if (!element || !container || initial.images.length === 0) return;
     if (!window.matchMedia("(any-pointer: fine)").matches) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
@@ -137,7 +151,7 @@ export function useImageTrail<T extends HTMLElement = HTMLDivElement>(
       container.style.position = prevPosition;
       container.style.overflow = prevOverflow;
     };
-  }, [initial]);
+  }, [element, initial]);
 
   return { ref };
 }

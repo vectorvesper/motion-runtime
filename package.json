@@ -1,7 +1,7 @@
 {
   "name": "@vectorvesper/motion",
-  "version": "4.0.3",
-  "description": "Motion primitives on one shared frame loop \u2014 a sensor layer, a frame-budget governor, and React hooks for fast, coordinated interactive sites. Zero dependencies.",
+  "version": "4.1.0",
+  "description": "Motion primitives on one shared frame loop — a sensor layer, a frame-budget governor, and React hooks for fast, coordinated interactive sites. Zero dependencies.",
   "license": "MIT",
   "author": "Vector Vesper",
   "homepage": "https://vectorvesper.dev/runtime",
@@ -12,6 +12,7 @@
     "react",
     "devtools",
     "r3f",
+    "three",
     "README.md",
     "CHANGELOG.md",
     "MIGRATION-3.0.md",
@@ -37,6 +38,11 @@
       "types": "./dist/r3f.d.ts",
       "import": "./dist/r3f.js",
       "require": "./dist/r3f.cjs"
+    },
+    "./three": {
+      "types": "./dist/three.d.ts",
+      "import": "./dist/three.js",
+      "require": "./dist/three.cjs"
     },
     "./package.json": "./package.json"
   },

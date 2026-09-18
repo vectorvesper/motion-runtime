@@ -89,7 +89,15 @@ export {
 // the React hooks that wrap them can be typed against a named contract.
 export { getFramePressure } from "./core/frame-pressure/FramePressure";
 export { getRendererHealth } from "./core/renderer-health/RendererHealth";
-export type { RendererHealthState } from "./core/renderer-health/RendererHealth";
+export type { RendererHealthState, ReportLostOptions } from "./core/renderer-health/RendererHealth";
+
+// WebGPU. A dead device resolves `device.lost` instead of firing an event, so
+// it needs its own wiring, and the recovery behind it is the same counter.
+export { watchGPUDevice } from "./core/renderer-health/watchGPUDevice";
+export type {
+  GPUDeviceLike,
+  StopWatchingDevice,
+} from "./core/renderer-health/watchGPUDevice";
 export type {
   PressureState,
   PressureSource,
