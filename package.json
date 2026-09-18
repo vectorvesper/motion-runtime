@@ -1,6 +1,6 @@
 {
   "name": "@vectorvesper/motion",
-  "version": "4.1.0",
+  "version": "4.2.0",
   "description": "Motion primitives on one shared frame loop — a sensor layer, a frame-budget governor, and React hooks for fast, coordinated interactive sites. Zero dependencies.",
   "license": "MIT",
   "author": "Vector Vesper",
