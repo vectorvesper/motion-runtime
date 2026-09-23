@@ -2,110 +2,333 @@
 
 # @vectorvesper/motion
 
-**Frame-time discipline for WebGL, canvas, and scroll-driven pages.**
+**An open-source runtime for WebGL, three.js and motion on the web.**
 
-*For the failures that never throw.*
+One frame loop for the whole page, quality that follows the device,
+and scenes that come back when the browser takes the GPU away.
 
-[![npm](https://img.shields.io/npm/v/@vectorvesper/motion.svg?color=8b5cf6)](https://www.npmjs.com/package/@vectorvesper/motion)
-![zero dependencies](https://img.shields.io/badge/dependencies-0-10b981)
-![types included](https://img.shields.io/badge/types-included-38bdf8)
-[![license](https://img.shields.io/badge/license-MIT-a3a3a3)](./LICENSE)
+[![npm](https://img.shields.io/npm/v/@vectorvesper/motion?color=2B6069&label=npm)](https://www.npmjs.com/package/@vectorvesper/motion)
+[![CI](https://github.com/vectorvesper/motion-runtime/actions/workflows/ci.yml/badge.svg)](https://github.com/vectorvesper/motion-runtime/actions/workflows/ci.yml)
+![dependencies: 0](https://img.shields.io/badge/dependencies-0-2B6069)
+![types: included](https://img.shields.io/badge/types-included-2B6069)
+
+[Documentation](https://vectorvesper.dev/runtime) · [Changelog](./CHANGELOG.md) · [vectorvesper.dev](https://vectorvesper.dev)
 
 </div>
-
----
 
 ```bash
 npm install @vectorvesper/motion
 ```
 
+## Why it exists
+
 Rendering failures rarely throw. A scene mounts while the reader is still
-scrolling and the page hitches. A context is lost and the canvas stays black.
-Quality flips between tiers twice a second. Frames take 45ms and nothing tells
-you whether the cost is yours, React's, or the compositor's.
+scrolling, and the page hitches. The browser takes the GPU away, and the canvas
+stays black with nothing in the console. A hero keeps drawing after it has
+scrolled out of view, and every frame it spends is taken from whatever is on
+screen. None of this fails a test or turns a type red. It produces a page that
+is slightly worse, on someone else's machine.
 
-None of that produces an error, a failed test, or a red type. It produces a page
-that is slightly worse in a way you notice on someone else's machine.
+This runtime is the layer underneath the motion that deals with that class of
+problem. It decides when work runs, at what quality, and whether it should run
+at all, and it shows you where the frame actually went. We built it for WebGL
+and three.js scenes first, where a missed frame or a lost context costs the
+most. Scroll, pointer, canvas and DOM work run on the same scheduler.
 
-This runtime is a set of primitives for that class of problem: deciding when
-work runs, at what quality, whether it should run at all, and being able to see
-where the frame actually went.
+Measured on real pages:
+
+| | Without the runtime | With it |
+| --- | --- | --- |
+| **Frame cost** | A layout read in the write lane forced a recalculation every frame: about 46ms on one page. | Reads and writes run in separate lanes. The runtime's own work on that page measured 2.4ms. |
+| **A second scene** | Below a hero that never stopped drawing, the next scene took 4.5 to 7.5 seconds to appear. | The hero stops drawing off screen, and the next scene arrived in 0.8 seconds. |
+| **Quality changes** | Rebuilding the renderer on every change took one page from 3 graphics contexts to 7 in 20 seconds. | Quality is applied to the renderer that is already running. Nothing is torn down. |
+
+It has no dependencies, and every peer is optional.
+
+## Quick start
+
+### A React Three Fiber scene
 
 ```tsx
+"use client";
+
+import { Canvas } from "@react-three/fiber";
 import { useSceneGate } from "@vectorvesper/motion/react";
 import { useRenderQuality } from "@vectorvesper/motion/r3f";
 
-export function Scene() {
-  const { ref, state, mounted, generation } = useSceneGate<HTMLDivElement>({ cost: "heavy" });
-  const quality = useRenderQuality(state, {
-    full: { dpr: 2 },
-    reduced: { dpr: 1 },
+export function Hero() {
+  const { ref, state, mounted, quality, generation } = useSceneGate<HTMLDivElement>({
+    label: "hero",
+    cost: "heavy",
   });
 
-  // `mounted` waits for the page to afford it. `generation` bumps when a context
-  // is lost, and keying on it is what replaces the canvas, since a lost context
-  // can be recreated but never revived.
-  return <div ref={ref}>{mounted && <Canvas key={generation} {...quality} />}</div>;
+  const canvas = useRenderQuality(state, {
+    full: { dpr: 2, shadows: true },
+    reduced: { dpr: 1, shadows: false },
+  });
+
+  return (
+    <div ref={ref} style={{ height: "100vh" }}>
+      {mounted ? (
+        <Canvas key={generation} {...canvas}>
+          <HeroScene detail={quality} />
+        </Canvas>
+      ) : (
+        <img src="/hero.jpg" alt="" />
+      )}
+    </div>
+  );
 }
 ```
 
-## Do you need this?
+- **`useSceneGate`** mounts the scene once it is near the viewport and the
+  page can afford it. It pauses the scene off screen and picks `full` or
+  `reduced` quality from the device and the live frame budget. Under reduced
+  motion, or on a device below the floor, it never mounts, and the still image
+  stays.
+- **`useRenderQuality`** applies that decision to the canvas: pixel ratio,
+  shadows, and a frame loop that stops while the scene is off screen. A
+  profile's `dpr` is a ceiling, never above the screen's own ratio.
+- **`key={generation}`** is what brings the scene back. A lost WebGL context
+  can be replaced but never revived, so the gate hands out a new generation and
+  the canvas remounts.
 
-One animated element does not. It runs fine on its own loop, and a single canvas
-can handle its own context loss in about fifteen lines:
+### Plain three.js
 
 ```tsx
-const [gen, setGen] = useState(0);
-<Canvas key={gen} onCreated={({ gl }) => {
-  gl.domElement.addEventListener("webglcontextlost", (e) => {
-    e.preventDefault();          // without this the browser will not let you recreate
-    setGen((g) => g + 1);
+"use client";
+
+import * as THREE from "three";
+import { useThreeScene } from "@vectorvesper/motion/three";
+
+export function Hero() {
+  const { ref, mounted } = useThreeScene({
+    label: "hero",
+    renderer: () => new THREE.WebGLRenderer({ antialias: true }),
+    setup({ width, height }) {
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 100);
+      camera.position.z = 4;
+
+      const knot = new THREE.Mesh(
+        new THREE.TorusKnotGeometry(1, 0.3, 128, 16),
+        new THREE.MeshNormalMaterial(),
+      );
+      scene.add(knot);
+
+      return {
+        scene,
+        camera,
+        update: ({ dt }) => {
+          knot.rotation.y += dt * 0.5;
+        },
+        resize: (w, h) => {
+          camera.aspect = w / h;
+          camera.updateProjectionMatrix();
+        },
+      };
+    },
   });
-}} />
+
+  return (
+    <div ref={ref} style={{ height: "100vh" }}>
+      {!mounted && <img src="/hero.jpg" alt="" />}
+    </div>
+  );
+}
+```
+
+You make the renderer and build the scene. `useThreeScene` does the rest:
+
+- gates the build
+- draws on the shared loop, and only while the scene is on screen
+- caps the pixel ratio
+- rebuilds after a lost context
+- frees every GPU resource when the scene goes
+- never builds under reduced motion
+
+A `WebGPURenderer` works the same way.
+
+### Anything else on the shared loop
+
+```tsx
+"use client";
+
+import { useRef } from "react";
+import { useTick } from "@vectorvesper/motion/react";
+
+export function Follower({ target }: { target: number }) {
+  const el = useRef<HTMLDivElement>(null);
+  const x = useRef(0);
+
+  useTick(
+    "render",
+    (dt) => {
+      x.current += (target - x.current) * (1 - Math.exp(-18 * dt));
+      if (el.current) el.current.style.transform = `translate3d(${x.current}px, 0, 0)`;
+    },
+    { priority: "enhanced", label: "Follower" },
+  );
+
+  return <div ref={el} />;
+}
+```
+
+`useTick` joins the page's one `requestAnimationFrame` loop instead of starting
+another. It runs outside React's render, reads the latest props without
+resubscribing, yields under load according to its priority, and unsubscribes
+when the component unmounts. `dt` is in seconds.
+
+## Do you need it?
+
+One animated element does not. It runs fine on its own loop, and a single
+canvas can handle its own context loss in about fifteen lines:
+
+```tsx
+function Scene() {
+  const [generation, setGeneration] = useState(0);
+
+  return (
+    <Canvas
+      key={generation}
+      onCreated={({ gl }) => {
+        gl.domElement.addEventListener("webglcontextlost", (event) => {
+          event.preventDefault(); // without this, the browser allows no replacement
+          setGeneration((g) => g + 1);
+        });
+      }}
+    />
+  );
+}
 ```
 
 If that is your page, write those lines and skip the dependency.
 
 The line is roughly where you stop being able to reason about your canvases one
-at a time. At five effects they compete for the same 16.7 milliseconds and none
-of them knows the others exist. Every library that animates starts its own loop,
-and every loop reads layout and then writes it, so ten independent loops means
-the browser recalculating layout up to ten times a frame.
+at a time. At five effects, they compete for the same 16.7 milliseconds and
+none of them knows the others exist. Each one starts its own loop, and each
+loop reads layout and then writes it, so the browser can end up recalculating
+layout once per effect, every frame.
 
-At a dozen canvases the arithmetic changes again. A lost context is usually not
-about that canvas. Browsers keep around sixteen and evict the oldest when
-another is requested, so the loss is the page telling you it asked for too many,
-and a dozen components independently re-requesting contexts makes it worse. One
-counter that every scene reads rebuilds the page coherently instead.
+At a dozen canvases, the arithmetic changes again. A lost context is usually
+not about that canvas. Browsers keep around sixteen live contexts per page and
+drop the oldest when another is requested, which is often the hero. One counter
+that every scene reads rebuilds the page coherently, where a dozen components
+each asking for a new context make it worse.
 
 ## It grows with the page
 
 | When | Add |
 | --- | --- |
-| You want one nice effect | an effects hook |
+| You want one nice effect | an effect hook |
 | Now you have five of them | `useTick` on the shared conductor |
 | One of them is a 3D scene | `useSceneGate` |
-| Fine on your laptop, dies on a phone | `useAdaptiveQuality` |
+| Fine on your laptop, struggling on a phone | `useAdaptiveQuality` |
 | Something is slow and you cannot tell what | `mountDevtools`, then `useFramePressure` |
 
-## What is inside
+## What's inside
 
-**Core.** `@vectorvesper/motion`. Zero dependencies, no framework. Works from
-vanilla JS, Vue, Svelte, or anything else.
+| Import | For | Main exports |
+| --- | --- | --- |
+| `@vectorvesper/motion` | Any framework, or none. Safe to import on a server. | `getConductor`, `getSensorBus`, `getAnimationBudget`, `getAdaptiveQuality`, `getFramePressure`, `getRendererHealth`, `watchGPUDevice` |
+| `@vectorvesper/motion/react` | React | `useTick`, `useSceneGate`, `useSafeToMount`, `useAdaptiveQuality`, and the hooks below |
+| `@vectorvesper/motion/r3f` | React Three Fiber | `useRenderQuality` |
+| `@vectorvesper/motion/three` | Plain three.js in React | `useThreeScene` |
+| `@vectorvesper/motion/devtools` | A live overlay while you develop | `mountDevtools` |
 
-### Using it outside React
+The adapters import nothing from `three` or `@react-three/fiber` at runtime.
 
-The core entry has no React import and no `"use client"` directive, so it can be
-imported anywhere, including on a server. Reading a governor or holding the
-sensor bus during SSR is safe: Nuxt, SvelteKit and Astro all render without a
-DOM, and the runtime returns its defaults rather than throwing.
+### Core primitives
 
-What you write is the same code React writes, in your framework's lifecycle
-hooks. In Vue that is `onMounted` and `onUnmounted`; in Svelte, `onMount` and
-its returned cleanup.
+| Primitive | React hook | What it does |
+| --- | --- | --- |
+| FrameConductor | `useTick` | The one `requestAnimationFrame` loop for the page, with three ordered lanes (`input`, `update`, `render`) and no cost while idle. |
+| SensorBus | `useSensorBus` | One set of pointer, scroll and viewport listeners for the whole page, with damped velocity, shared by every reader. |
+| AnimationBudget | `useAnimationBudget` | A live quality tier from measured frame health, so effects can shed themselves. |
+| FramePressure | `useFramePressure` | Names which of three unrelated things is eating the frame (this runtime, other main-thread work, or rendering) and how sure it is. |
+| AdaptiveQuality | `useAdaptiveQuality` | Device capability, live frame health and the reduced-motion preference, fused into one quality signal. |
+| RendererHealth | used by the adapters | Notices a lost graphics context and counts a generation to remount on. |
+| `watchGPUDevice` | used by the adapters | The same for a WebGPU device, which reports its loss through `device.lost` rather than an event. A device you destroy yourself is not treated as a loss. |
+
+A hand-built renderer reports a loss with `getRendererHealth().reportLost({ builtAt })`,
+passing the generation it was built under, and calls `reportHealthy()` once the
+replacement draws. `useRenderQuality` and `useThreeScene` do this for you.
+
+### React hooks
+
+| Hook | What it does |
+| --- | --- |
+| `useSafeToMount` | Mounts an expensive subtree only once there is real frame headroom. |
+| `useSceneGate` | One policy for a heavy scene: when to mount it, whether to draw, at what quality, and how to come back from a lost context. With `content: true` it holds a heavy section, such as a chart, the same way, but still mounts it under reduced motion. |
+| `InteractionScope` | Marks the region the visitor is working in. While a pointer is down inside it, non-essential work outside yields earlier. |
+| `usePointerIntent` | Predicts that the pointer is heading for an element before it arrives, for prefetching on desktop. |
+| `useMagneticIntent` | A magnetic pull towards the cursor. |
+| `useVideoScrubber` | Drives a video's timeline from scroll or pointer. |
+| `useNumberTicker` | Animates a number to its target, written straight to the DOM. |
+| `useImageTrail` | A trail of images following the pointer, from a recycled pool. |
+
+Plus maths helpers: `damp`, `clamp01`, `scrollProgress` and `rayRectIntersect`.
+
+## Scheduling
+
+Subscribers declare what they are, and the loop spends each frame accordingly:
+
+```ts
+getConductor().subscribe("render", draw, {
+  priority: "decorative", // "essential" | "enhanced" | "decorative"
+  hz: 30,                 // optional cadence cap
+  label: "AuroraBackground", // shown in the devtools overlay
+});
+```
+
+| Priority | For | Shed when |
+| --- | --- | --- |
+| `essential` | Sensors, governors, direct manipulation | Never |
+| `enhanced` | Interaction feedback (the default) | The frame is about 70% spent |
+| `decorative` | Ambient detail | The frame is about 45% spent |
+
+Shedding is per frame, and nothing starves. A subscriber skipped four frames
+running is forced through, so a heavy page runs its decorative work at a lower
+cadence instead of freezing it. The budget follows the display's measured
+refresh rate, not an assumed 60Hz.
+
+Because reads (`input`) run before writes (`render`), the browser recalculates
+layout at most once per frame, however many effects subscribe.
+
+## Quality that knows why
+
+Lowering quality only fixes one kind of slow. If a third-party script is
+blocking the main thread, halving your particle count makes the page uglier and
+exactly as slow.
+
+So `useAdaptiveQuality` reads the pressure classifier. It lowers quality for
+rendering pressure and for a weak device, and it refuses for a blocked main
+thread, reporting that refusal as `cause: "held"`.
+
+```ts
+const { tier, label, cause } = useAdaptiveQuality();
+// label: "high" | "medium" | "low"
+// cause: "ok" | "device" | "reduced-motion" | "render" | "frame-rate" | "held"
+```
+
+One limit worth knowing: the classifier stays quiet on frames less than 25%
+over budget, roughly 48fps at 60Hz. A page dipping to 55fps on the GPU reads as
+no pressure, and the budget tier covers that band. The classifier diagnoses
+frames that are properly blown. It is not a general render-pressure detector.
+
+## Without React
+
+The core entry has no React import and no `"use client"` directive, so it can
+be imported anywhere, including on a server. Nuxt, SvelteKit and Astro all
+render without a DOM, and the runtime returns its defaults there rather than
+throwing.
+
+You write the same code React does, in your framework's lifecycle hooks: in
+Vue, `onMounted` and `onUnmounted`; in Svelte, `onMount` and its returned
+cleanup.
 
 ```js
-import { getConductor, getSensorBus, damp } from "@vectorvesper/motion";
+import { getConductor, getSensorBus } from "@vectorvesper/motion";
 
 // Vue
 onMounted(() => {
@@ -114,146 +337,60 @@ onMounted(() => {
     const { x } = getSensorBus().state.pointer;
     el.value.style.transform = `translate3d(${x * 0.05}px, 0, 0)`;
   });
-  onUnmounted(() => { off(); release(); });
+  onUnmounted(() => {
+    off();
+    release();
+  });
 });
 ```
 
-**The React hooks are React only.** `useSceneGate`, `useSafeToMount`,
-`usePointerIntent` and the rest live in `@vectorvesper/motion/react` and depend
-on React. Outside React you get the engine and wire the lifecycle yourself,
-which is roughly fifteen lines per effect. The scheduling, the shared sensors,
-the governors and the effect classes are all available; the convenience layer is
-not.
+The hooks in `/react` depend on React. Outside it, you get the engine and wire
+the lifecycle yourself, which is roughly fifteen lines per effect.
 
-| Primitive | React hook | What it does |
+## Tested in real browsers
+
+We build every release into a real site and run it through our browser lab in
+Chrome and Safari's engine, on desktop and mobile profiles. The probes take the
+GPU away, scroll scenes off screen, load the device and turn on reduced motion.
+What they find goes into the [changelog](./CHANGELOG.md) with its measurement.
+Unit tests, type checks and a frozen API surface run in CI on every push to
+`main` and every pull request.
+
+| | Supported | Tested with |
 | --- | --- | --- |
-| FrameConductor | `useTick` | One `rAF` loop for the page, three ordered lanes (`input → update → render`), zero idle cost. |
-| SensorBus | `useSensorBus` | One set of pointer / scroll / viewport listeners, with damped velocity, shared by every reader. |
-| AnimationBudget | `useAnimationBudget` | Live frame-headroom governor, giving a stable tier (`high` / `medium` / `low`). |
-| AdaptiveQuality | `useAdaptiveQuality` | Device floor, live budget, and what is actually costing the frame, fused into one verdict. |
-| FramePressure | `useFramePressure` | Names what is eating a badly blown frame: this runtime, other main-thread work, or rendering. |
-| RendererHealth | none | Notices a lost graphics context and counts a recovery generation to remount on. A hand-built renderer reports with `reportLost({ builtAt })`, passing the generation it was created under, and calls `reportHealthy()` once the replacement draws. |
-| `watchGPUDevice` | none | The same, for WebGPU. A device announces its death by resolving `device.lost` rather than firing an event, so it needs its own wiring — and a device you destroyed on purpose is not one that needs replacing. |
-| PointerIntent · MagneticElement · VideoScrubber | see below | The engines behind the effects, for use without React. |
+| React | 18 and later | 19 |
+| React Three Fiber | 8 and later | 9 |
+| three.js | r150 and later | r182 to r186 |
 
-**React.** `@vectorvesper/motion/react`. Everything above, plus:
+All three are optional peers. Server rendering needs Node 18 or later.
 
-| Hook | What it does |
-| --- | --- |
-| `useSafeToMount` | Mount an expensive subtree only once there is real frame headroom. |
-| `useSceneGate` | One policy for a heavy scene: when to mount it, whether to draw, at what quality, and how to come back from a lost context. With `content: true` it holds a heavy section, such as a chart, the same way but still mounts it under reduced motion. |
-| `InteractionScope` | Mark the region the visitor is working in. While a pointer is down inside it, non-essential work outside yields earlier. |
-| `usePointerIntent` | Predicts the pointer is heading for an element before it arrives, for prefetching on desktop. |
-| `useMagneticIntent` | A magnetic pull toward the cursor. |
-| `useVideoScrubber` | Drive a video timeline from scroll or pointer. |
-| `useNumberTicker` | Animate a number to its target, written straight to the DOM. |
-| `useImageTrail` | A trail of images following the pointer, from a recycled pool. |
+## Build on it
 
-**React Three Fiber.** `@vectorvesper/motion/r3f`. `useRenderQuality` applies a
-scene gate's decision to the renderer: pixel ratio, shadow maps, stopping the
-loop off screen, and surviving a lost context. A profile's `dpr` is a ceiling,
-never above the screen's own ratio.
+Most [Vector Vesper components](https://vectorvesper.dev/components) run on
+this runtime, and you can build your own on it too. The `vectorvesper` CLI sets
+up a project, and its MCP server works in Cursor, Claude and Windsurf. Your
+agent plans against the runtime's contracts and checks its work with
+`check_motion`: 21 rules for motion code that compiles cleanly and still ships
+a bad page.
 
-**Plain three.js.** `@vectorvesper/motion/three`. `useThreeScene` is the whole
-job in one hook. You make the renderer and build the scene; it gates the
-build, draws on the shared loop and only while on screen, sizes the pixel ratio
-to the screen, rebuilds after a lost context, frees everything when the scene
-goes, and never builds under reduced motion.
-
-```tsx
-const { ref, mounted } = useThreeScene({
-  renderer: () => new THREE.WebGLRenderer({ antialias: true }),
-  setup({ width, height }) {
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 100);
-    // ...build the scene
-    return { scene, camera, update: ({ dt }) => { /* animate */ } };
-  },
-});
-return <div ref={ref} style={{ height: "100vh" }}>{!mounted && <img src="/hero.jpg" alt="" />}</div>;
+```bash
+npx vectorvesper init
+npx vectorvesper mcp install
 ```
 
-**DevTools.** `@vectorvesper/motion/devtools`. `mountDevtools()` puts a live
-overlay on the page showing per-subscriber cost, what got shed, and how far the
-last frame overran. No framework, no dependencies.
-
-Plus maths helpers: `damp`, `clamp01`, `rayRectIntersect`.
-
-## Scheduling
-
-Subscribers declare what they are, and the loop spends each frame accordingly:
-
-```ts
-getConductor().subscribe("render", draw, {
-  priority: "decorative",   // "essential" | "enhanced" | "decorative"
-  hz: 30,                   // optional cadence cap
-  label: "AuroraBackground" // shown in devtools
-});
-```
-
-| Priority | For | Shed when |
-| --- | --- | --- |
-| `essential` | Sensors, governors, direct manipulation | Never |
-| `enhanced` | Interaction feedback *(default)* | Frame is ~70% spent |
-| `decorative` | Ambient garnish | Frame is ~45% spent |
-
-Shedding is per frame and nothing starves: a subscriber skipped four frames
-running is forced through, so heavy pages degrade decorative work to a lower
-cadence instead of freezing it. The budget tracks the measured display refresh
-rate rather than an assumed 60Hz.
-
-Because reads (`input`) run before writes (`render`), the browser recomputes
-layout at most once per frame however many effects subscribe.
-
-## Quality that knows why
-
-Reducing quality only fixes one kind of slow. If a third-party script is
-blocking the main thread, halving your particle count makes the page uglier and
-exactly as slow.
-
-So `useAdaptiveQuality` reads the pressure classifier and degrades for rendering
-pressure and a weak device. It refuses for a blocked main thread and reports
-that refusal as `cause: "held"`.
-
-```ts
-const { tier, cause } = useAdaptiveQuality();
-// cause: "ok" | "device" | "reduced-motion" | "render" | "frame-rate" | "held"
-```
-
-One honest limit worth knowing: the classifier stays quiet on frames less than
-25% over budget, roughly 48fps at 60Hz. A page dipping to 55fps on the GPU reads
-`"none"`, and the budget tier is what covers that band. This is a diagnosis for
-frames that are properly blown, and it is not a general render-pressure
-detector.
-
-## Entry points
-
-```ts
-// Core. No framework, no dependencies.
-import { getConductor, getSensorBus, damp } from "@vectorvesper/motion";
-
-// React. Includes everything above.
-import { useTick, useSceneGate, usePointerIntent } from "@vectorvesper/motion/react";
-
-// React Three Fiber. Imports nothing from three or R3F at runtime.
-import { useRenderQuality } from "@vectorvesper/motion/r3f";
-
-// Plain three.js. Imports nothing from three at runtime either.
-import { useThreeScene } from "@vectorvesper/motion/three";
-
-// The live inspector.
-import { mountDevtools } from "@vectorvesper/motion/devtools";
-```
+[CLI](https://vectorvesper.dev/docs/cli) · [MCP server](https://vectorvesper.dev/docs/mcp) · [check_motion rules](https://vectorvesper.dev/docs/check-motion)
 
 ## Upgrading
 
-Coming from 2.x? See `MIGRATION-3.0.md`, shipped in this package. The short
-version is that `/effects` merged into `/react`, `getStats()` became `.state`,
-and quality decisions now account for what is actually costing the frame.
+- **From 3.x:** in 4.0, `useRenderQuality` changed to return props you spread
+  onto `<Canvas>`. See [4.0.0 in the changelog](./CHANGELOG.md#400).
+- **From 2.x:** see [MIGRATION-3.0.md](./MIGRATION-3.0.md).
 
-## Documentation
+## Contributing
 
-[vectorvesper.dev/runtime](https://vectorvesper.dev/runtime)
+Issues and pull requests are welcome. Start with
+[CONTRIBUTING.md](./CONTRIBUTING.md). Please report security problems
+privately, as described in [SECURITY.md](./SECURITY.md).
 
 ## License
 
