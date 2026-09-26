@@ -1,5 +1,32 @@
 # Changelog
 
+## 4.3.0
+
+### The licence is now Apache 2.0
+
+No code changed. The runtime is byte-identical to 4.2.0.
+
+**Nothing is taken away.** Every version up to and including 4.2.0 was released
+under MIT, and that grant is irrevocable. If you hold one of those versions, or
+install one, your rights under MIT are exactly what they were. Apache 2.0
+applies from this release onward.
+
+**What Apache 2.0 adds**, all of it in your favour as a user of the runtime:
+
+- **An express patent grant.** MIT only implies one, and no court has settled
+  what that implication covers. Legal teams reviewing a dependency ask for this.
+- **Patent retaliation.** Sue anyone over patents in this software and your own
+  licence to it ends.
+- **An explicit trademark carve-out.** Using the code grants no right to the
+  Vector Vesper name. MIT is silent on the question.
+- **A clearer attribution trail.** A fork has to say which files it changed and
+  keep the `NOTICE` file, which now ships in the tarball.
+
+It stays OSI-approved open source, and it stays permissive: you can still use
+the runtime in closed commercial work, with no obligation to publish anything.
+The one practical loss is that Apache 2.0 cannot be combined with GPLv2 code,
+where MIT could. GPLv3 is fine.
+
 ## 4.2.0
 
 ### Closing one R3F canvas no longer rebuilds every other scene

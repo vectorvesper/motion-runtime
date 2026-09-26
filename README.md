@@ -394,4 +394,9 @@ privately, as described in [SECURITY.md](./SECURITY.md).
 
 ## License
 
-[MIT](./LICENSE) © Vector Vesper
+[Apache 2.0](./LICENSE) © Vector Vesper
+
+Up to and including 4.2.0 the runtime was MIT. That grant stands: if you hold
+one of those versions, your rights under MIT do not change. Apache 2.0 applies
+from 4.3.0 onward, and adds an express patent grant, patent retaliation, and an
+explicit statement that the licence conveys no trademark rights.

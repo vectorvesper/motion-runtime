@@ -5,8 +5,9 @@ Thanks for looking. A few things that will save you time.
 ## What lives here
 
 This repository is the **runtime only** — the frame conductor, the sensor and
-governor layer, the scene-policy hooks, and the React/R3F adapters. It is MIT
-and published as [`@vectorvesper/motion`](https://www.npmjs.com/package/@vectorvesper/motion).
+governor layer, the scene-policy hooks, and the React/R3F adapters. It is
+Apache 2.0 from 4.3.0 onward (MIT up to 4.2.0) and published as
+[`@vectorvesper/motion`](https://www.npmjs.com/package/@vectorvesper/motion).
 
 The Vector Vesper *component catalogue* is a separate, commercial product and is
 not in this repository. Issues about a specific component belong on the
