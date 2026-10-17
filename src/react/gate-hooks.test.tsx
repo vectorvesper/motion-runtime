@@ -208,8 +208,10 @@ describe("useSafeToMount", () => {
     const { useSafeToMount } = await import("./useSafeToMount");
     const { getConductor } = await import("../core/conductor");
 
+    // Heavy needs three clean frames, so after two it is still watching. A
+    // light gate would already have opened and let go on its own.
     function Gate() {
-      useSafeToMount({ cost: "light" });
+      useSafeToMount({ cost: "heavy" });
       return null;
     }
 
@@ -221,6 +223,102 @@ describe("useSafeToMount", () => {
 
     view.unmount();
     expect(getConductor().state.subscribers).toHaveLength(0);
+  });
+
+  it("lets go of the frame loop once it has opened", async () => {
+    vi.resetModules();
+    const { useSafeToMount } = await import("./useSafeToMount");
+    const { getConductor } = await import("../core/conductor");
+
+    let safe = false;
+    function Gate() {
+      safe = useSafeToMount({ cost: "light" });
+      return null;
+    }
+
+    render(<Gate />);
+    await act(async () => {
+      crankFrames(4);
+    });
+    expect(safe).toBe(true);
+    // Open is final, so there is nothing left to watch for.
+    expect(getConductor().state.subscribers).toHaveLength(0);
+  });
+});
+
+/**
+ * Frames that never leave time to spare and never settle into a steady
+ * cadence, so neither a free frame nor a battery-saver cap ever opens the gate.
+ */
+function crankRagged(count: number): void {
+  for (let i = 0; i < count; i++) crank(now + (i % 2 === 0 ? 26 : 44));
+}
+
+describe("useSafeToMount — not waiting forever (RB-1)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("opens anyway once it has waited too long for a free frame", async () => {
+    vi.resetModules();
+    const { useSafeToMount, MAX_MOUNT_WAIT_MS } = await import("./useSafeToMount");
+
+    let safe = false;
+    function Gate() {
+      safe = useSafeToMount({ cost: "heavy" });
+      return null;
+    }
+
+    render(<Gate />);
+    await act(async () => {
+      crankRagged(60);
+    });
+    expect(safe).toBe(false);
+
+    await act(async () => {
+      vi.advanceTimersByTime(MAX_MOUNT_WAIT_MS);
+    });
+    expect(safe).toBe(true);
+  });
+
+  it("does not open early: the wait is the whole limit", async () => {
+    vi.resetModules();
+    const { useSafeToMount, MAX_MOUNT_WAIT_MS } = await import("./useSafeToMount");
+
+    let safe = false;
+    function Gate() {
+      safe = useSafeToMount({ cost: "heavy" });
+      return null;
+    }
+
+    render(<Gate />);
+    await act(async () => {
+      crankRagged(20);
+      vi.advanceTimersByTime(MAX_MOUNT_WAIT_MS - 100);
+    });
+    expect(safe).toBe(false);
+  });
+
+  it("still never opens below the core floor, however long it waits", async () => {
+    // The floor is a fact about the hardware, not a wait that might end.
+    vi.spyOn(navigator, "hardwareConcurrency", "get").mockReturnValue(1);
+    vi.resetModules();
+    const { useSafeToMount, MAX_MOUNT_WAIT_MS } = await import("./useSafeToMount");
+
+    let safe = true;
+    function Gate() {
+      safe = useSafeToMount({ cost: "heavy" });
+      return null;
+    }
+
+    render(<Gate />);
+    await act(async () => {
+      vi.advanceTimersByTime(MAX_MOUNT_WAIT_MS * 3);
+    });
+    expect(safe).toBe(false);
   });
 });
 

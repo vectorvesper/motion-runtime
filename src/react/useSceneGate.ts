@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { createHybridRef } from "./hybrid-ref";
 import { useAdaptiveQuality } from "./useAdaptiveQuality";
-import { useSafeToMount, type MountCost } from "./useSafeToMount";
+import { useHeadroom, type MountCost } from "./useSafeToMount";
+import { markSceneDrawing } from "../core/scene-activity";
 import { getConductor } from "../core/conductor";
 import { getSensorBus } from "../core/sensor-bus/SensorBus";
 import { getRendererHealth } from "../core/renderer-health/RendererHealth";
@@ -192,9 +193,17 @@ export function useSceneGate<T extends HTMLElement = HTMLDivElement>({
   const [near, setNear] = useState(false);
   const [settled, setSettled] = useState(false);
 
+  // Once it has run, it has run. This is what keeps a scene alive when the
+  // reader scrolls past it. State rather than a ref, because it changes what
+  // renders — a ref written during render survives a discarded render, which
+  // is a real defect class in this codebase and one eslint already catches.
+  const [started, setStarted] = useState(false);
+
   // One definition of "the page can afford this", shared with every other
-  // caller of useSafeToMount.
-  const safe = useSafeToMount({ cost });
+  // caller of useSafeToMount. The give-up clock only runs while the scene is
+  // near and still waiting: a scene far down the page must not time out unseen
+  // and then mount mid-scroll the moment it arrives.
+  const safe = useHeadroom(cost, near && !started);
 
   // Close enough to be worth existing.
   useEffect(() => {
@@ -229,11 +238,6 @@ export function useSceneGate<T extends HTMLElement = HTMLDivElement>({
 
   const ready = near && safe && settled;
 
-  // Once it has run, it has run. This is what keeps a scene alive when the
-  // reader scrolls past it. State rather than a ref, because it changes what
-  // renders — a ref written during render survives a discarded render, which
-  // is a real defect class in this codebase and one eslint already catches.
-  const [started, setStarted] = useState(false);
   useEffect(() => {
     // A latch, not a cascade: this fires at most once per mount and then the
     // condition can never be true again, so the rule's concern — an effect that
@@ -300,6 +304,11 @@ export function useSceneGate<T extends HTMLElement = HTMLDivElement>({
   const cause: SceneCause = state === verdict.state ? verdict.cause : "frame-rate";
   const mounted =
     state === "active" || state === "constrained" || state === "idle" || state === "recovering";
+
+  // Counted while drawing, so presentation-cap.ts can tell a cadence the
+  // browser imposed from one our own scenes are causing.
+  const drawing = state === "active" || state === "constrained";
+  useEffect(() => (drawing ? markSceneDrawing() : undefined), [drawing]);
 
   return {
     ref,

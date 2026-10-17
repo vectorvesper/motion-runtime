@@ -293,6 +293,34 @@ interface Subscriber {
   warnedError: boolean;
 }
 
+/**
+ * The rate the browser is presenting at when it holds the page below the
+ * display's own rate, or null when it is not. Battery savers do this: an iPhone
+ * in Low Power Mode and Chrome with Energy Saver on run requestAnimationFrame
+ * at 30fps on a 60Hz panel.
+ *
+ * Set only by presentation-cap.ts, which decides when the evidence says the
+ * browser and not the page is setting the pace. Module state rather than a
+ * member on purpose: every public member of FrameConductor is published API
+ * through `getConductor()`, and this is not something a consumer may set.
+ */
+let presentationCapHz: number | null = null;
+
+/** Internal. Not exported from any entry; see presentation-cap.ts. */
+export function setPresentationCap(hz: number | null): void {
+  presentationCapHz = hz;
+}
+
+/**
+ * One presented frame, in ms: the display's own period, or the capped one.
+ * Everything "over budget" is measured against this, so a capped page is
+ * judged against the rate it is allowed to run at rather than one it cannot
+ * reach.
+ */
+function budgetMsFor(refresh: RefreshRateProbe): number {
+  return presentationCapHz !== null ? 1000 / presentationCapHz : refresh.frameBudgetMs;
+}
+
 class FrameConductor {
   private lanes: Record<ConductorLane, Subscriber[]> = {
     input: [],
@@ -340,7 +368,7 @@ class FrameConductor {
 
   /** One presented frame in ms — what "over budget" is measured against. */
   get frameBudgetMs(): number {
-    return this.refresh.frameBudgetMs;
+    return budgetMsFor(this.refresh);
   }
 
   /**
@@ -484,7 +512,7 @@ class FrameConductor {
     return {
       running: this.rafId !== null,
       displayHz: this.refresh.hz,
-      frameBudgetMs: this.refresh.frameBudgetMs,
+      frameBudgetMs: budgetMsFor(this.refresh),
       fps: this.frameMsEma > 0 ? 1000 / this.frameMsEma : 0,
       frameMs: this.frameMsEma,
       workMs: this.workMsEma,
@@ -584,7 +612,7 @@ class FrameConductor {
     this.time += dt;
 
     this.refresh.push(rawIntervalMs);
-    const budgetMs = this.refresh.frameBudgetMs;
+    const budgetMs = budgetMsFor(this.refresh);
 
     // How far the previous frame overran, capped so a single stall doesn't
     // leave us shedding for seconds afterwards. Rises fast, decays slow.

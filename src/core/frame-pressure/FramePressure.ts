@@ -115,6 +115,17 @@ export interface PressureState {
 }
 
 /**
+ * A render verdict below this confidence is not acted on. A realistic heavy
+ * scene measures about 0.52 in a real browser, so the floor has to sit under
+ * that while still rejecting a coin-flip.
+ *
+ * Internal, and shared: AdaptiveQuality uses it to decide whether reducing
+ * quality would help, and presentation-cap.ts to decide whether the main
+ * thread is idle. Two copies of the number would drift.
+ */
+export const RENDER_CONFIDENCE_FLOOR = 0.4;
+
+/**
  * A frame this much over budget is worth explaining. 20.8ms at 60Hz, ~48fps.
  *
  * ## Why this is later than AnimationBudget's line

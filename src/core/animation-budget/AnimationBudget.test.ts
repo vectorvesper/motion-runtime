@@ -162,3 +162,30 @@ describe("BudgetPolicy — the 60fps quality floor", () => {
     expect(p.state.tier).toBe(0);
   });
 });
+
+describe("BudgetPolicy — a new budget (RB-1)", () => {
+  it("says when a new budget discards the window, so listeners hear it at once", () => {
+    const p = new BudgetPolicy();
+    // Negligible change: nothing discarded.
+    expect(p.setFrameBudget(1 / 60)).toBe(false);
+
+    // A battery saver at 30fps, judged against 60: every frame is slow.
+    feed(p, 1000 / 30, 400, 0);
+    expect(p.currentTier).toBe(2);
+
+    // The cap is recognised and becomes the budget. The verdicts were scored
+    // against a line the page could never reach, so they go.
+    expect(p.setFrameBudget(1 / 30)).toBe(true);
+    expect(p.currentTier).toBe(0);
+    expect(p.state.headroom).toBeCloseTo(1000 / 30, 0);
+  });
+
+  it("judges a capped page fairly once the cap is its budget", () => {
+    const p = new BudgetPolicy();
+    p.setFrameBudget(1 / 30);
+    feed(p, 1000 / 30, 400, 0);
+    expect(p.currentTier).toBe(0);
+    // Headroom is what is left of the capped frame, so a mount gate can open.
+    expect(p.state.headroom).toBeGreaterThan(6);
+  });
+});

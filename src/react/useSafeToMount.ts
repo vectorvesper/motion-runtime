@@ -58,6 +58,32 @@ export interface UseSafeToMountOptions {
 }
 
 /**
+ * How long something may wait for headroom before it mounts anyway, in ms.
+ *
+ * Waiting for a free moment is the point of the gate, but waiting forever is a
+ * blank space where the scene should be. Two ways it happened: a battery saver
+ * holding the page at 30fps, which read as a page missing every frame (RB-1,
+ * now recognised by presentation-cap.ts), and a busy landing page that never
+ * shows three quiet frames in a row for a `heavy` scene. This is the net under
+ * both, and under whatever else turns out to keep the gate shut.
+ *
+ * Internal. Not a public option: the value comes from lab measurements of how
+ * long healthy pages actually wait. Across 251 vv-lab runs since the
+ * 2026-09-13 fixes (Chrome, WebKit and the iPhone profile), the slowest first
+ * draw on a healthy page was 1.4s from arriving, and a page held at 30fps took
+ * 1.6s once the cap was recognised. Five seconds sits well clear of both, so it
+ * only ever fires on a gate that really was not going to open.
+ */
+export const MAX_MOUNT_WAIT_MS = 5000;
+
+/** Is this device below the core floor for this cost? */
+function belowCoreFloor(cost: MountCost): boolean {
+  if (typeof navigator === "undefined") return false;
+  const cores = navigator.hardwareConcurrency;
+  return Boolean(cores && cores < COST[cost].minCores);
+}
+
+/**
  * Returns `true` once the page has enough spare frame time to absorb an
  * expensive mount.
  *
@@ -70,6 +96,10 @@ export interface UseSafeToMountOptions {
  * itself the moment it made the page slow would oscillate forever, so the gate
  * is one-way.
  *
+ * It does not wait forever. If no free moment has arrived a few seconds after
+ * the hook mounts, it opens anyway, and the quality governor decides how much
+ * the mounted thing should draw.
+ *
  * On a machine with too few CPU cores for the given cost it stays `false` and
  * stops watching. Cores cannot improve while the page is open, so that is the
  * one condition that ends the story early.
@@ -77,17 +107,37 @@ export interface UseSafeToMountOptions {
 export function useSafeToMount({
   cost = "normal",
 }: UseSafeToMountOptions = {}): boolean {
+  return useHeadroom(cost, true);
+}
+
+/**
+ * The gate behind useSafeToMount, with the wait clock exposed.
+ *
+ * Internal. `waiting` says when the clock may run. useSafeToMount runs it from
+ * mount. useSceneGate runs it only while its element is near the viewport and
+ * not yet started, so a scene far down the page cannot time out unseen and
+ * then mount the instant it scrolls into view, mid-scroll and with no headroom
+ * check at all.
+ */
+export function useHeadroom(cost: MountCost, waiting: boolean): boolean {
   const [safe, setSafe] = useState(false);
+  const [waitedOut, setWaitedOut] = useState(false);
+  const open = safe || waitedOut;
 
   useEffect(() => {
-    const { headroomMs, cleanFrames: required, minCores } = COST[cost];
+    if (!waiting || open || belowCoreFloor(cost)) return;
+    const id = setTimeout(() => setWaitedOut(true), MAX_MOUNT_WAIT_MS);
+    return () => clearTimeout(id);
+  }, [waiting, open, cost]);
+
+  useEffect(() => {
+    // Opened either way: nothing left to watch for.
+    if (open) return;
+    const { headroomMs, cleanFrames: required } = COST[cost];
 
     // Static hardware floor. Unlike the frame signals this can never improve,
     // so it is the one condition that legitimately ends the story early.
-    if (typeof navigator !== "undefined") {
-      const cores = navigator.hardwareConcurrency;
-      if (cores && cores < minCores) return;
-    }
+    if (belowCoreFloor(cost)) return;
 
     const budget = getAnimationBudget();
     // Hold the governor open for as long as we're watching. It only measures
@@ -138,7 +188,7 @@ export function useSafeToMount({
       off();
       releaseBudget();
     };
-  }, [cost]);
+  }, [cost, open]);
 
-  return safe;
+  return open;
 }

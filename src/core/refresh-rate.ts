@@ -35,6 +35,11 @@
  * isn't close to one is rejected in favour of 60 — a page pinned at a steady
  * 30fps on a 60Hz panel must not be mistaken for a 30Hz display, or the
  * governor would congratulate it for keeping up.
+ *
+ * That holds when the page is the reason. When the browser is — a battery
+ * saver holding the page to 30fps — presentation-cap.ts sets the conductor's
+ * budget to the capped rate instead, leaving this estimate alone. See its
+ * header for when that is believed.
  */
 
 /** Display rates we're willing to believe. */

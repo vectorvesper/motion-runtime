@@ -297,3 +297,104 @@ describe("useSceneGate — the constrain dwell", () => {
     expect(gate.last()).toBe("active");
   });
 });
+
+describe("useSceneGate — not waiting forever (RB-1)", () => {
+  beforeEach(() => vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] }));
+  afterEach(() => vi.useRealTimers());
+
+  /**
+   * Frames that never leave time to spare and never settle into a steady
+   * cadence: the page a `heavy` gate used to wait on for the whole visit.
+   */
+  function crankRagged(count: number): void {
+    for (let i = 0; i < count; i++) crank(now + (i % 2 === 0 ? 26 : 44));
+  }
+
+  async function mountHeavy() {
+    vi.resetModules();
+    const { useSceneGate } = await import("./useSceneGate");
+    const { MAX_MOUNT_WAIT_MS } = await import("./useSafeToMount");
+    const seen: string[] = [];
+    function Scene() {
+      const gate = useSceneGate<HTMLDivElement>({ cost: "heavy" });
+      seen.push(gate.state);
+      return <div ref={gate.ref} />;
+    }
+    const view = render(<Scene />);
+    return { view, wait: MAX_MOUNT_WAIT_MS, last: () => seen[seen.length - 1] };
+  }
+
+  it("mounts a scene on screen once it has waited too long", async () => {
+    const gate = await mountHeavy();
+    await act(async () => intersect(true));
+    await act(async () => crankRagged(30));
+    expect(gate.last()).toBe("warming");
+
+    await act(async () => {
+      vi.advanceTimersByTime(gate.wait);
+    });
+    await act(async () => crankRagged(4));
+    // Mounted. The governor still decides how much it draws, and on frames
+    // this slow it draws less.
+    expect(["active", "constrained"]).toContain(gate.last());
+  });
+
+  it("does not run the clock while the scene is far from the screen", async () => {
+    // A scene below the fold must not time out unseen and then mount the
+    // instant it scrolls in, mid-scroll and with no headroom check.
+    const gate = await mountHeavy();
+    await act(async () => {
+      vi.advanceTimersByTime(gate.wait * 3);
+    });
+    await act(async () => crankRagged(10));
+    expect(gate.last()).toBe("dormant");
+
+    await act(async () => intersect(true));
+    await act(async () => crankRagged(4));
+    expect(gate.last()).toBe("warming");
+
+    await act(async () => {
+      vi.advanceTimersByTime(gate.wait);
+    });
+    await act(async () => crankRagged(4));
+    expect(["active", "constrained"]).toContain(gate.last());
+  });
+
+  it("restarts the clock if the scene leaves the screen before it mounts", async () => {
+    const gate = await mountHeavy();
+    await act(async () => intersect(true));
+    await act(async () => {
+      vi.advanceTimersByTime(gate.wait - 500);
+    });
+    await act(async () => intersect(false));
+    await act(async () => intersect(true));
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+    await act(async () => crankRagged(4));
+    expect(gate.last()).toBe("warming");
+  });
+});
+
+describe("useSceneGate — counting itself for the cap detector", () => {
+  it("counts as drawing while it runs, and stops counting when it goes", async () => {
+    const { view, last } = await mountGate();
+    const { scenesDrawing } = await import("../core/scene-activity");
+    expect(scenesDrawing()).toBe(0);
+
+    await act(async () => intersect(true));
+    await act(async () => crankFrames(8));
+    expect(last()).toBe("active");
+    expect(scenesDrawing()).toBe(1);
+
+    // Scrolled away: paused, so not drawing.
+    await act(async () => intersect(false));
+    expect(last()).toBe("idle");
+    expect(scenesDrawing()).toBe(0);
+
+    await act(async () => intersect(true));
+    expect(scenesDrawing()).toBe(1);
+    view.unmount();
+    expect(scenesDrawing()).toBe(0);
+  });
+});

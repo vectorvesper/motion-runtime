@@ -1,4 +1,5 @@
 import { getConductor } from "../conductor";
+import { PresentationCapWatcher } from "../presentation-cap";
 
 /**
  * AnimationBudget — the frame-headroom governor.
@@ -164,13 +165,20 @@ export class BudgetPolicy {
   /**
    * Retarget to a new display refresh rate. The rolling window was scored
    * against the old thresholds, so it is discarded rather than reinterpreted.
-   * No-op when the change is negligible.
+   * No-op when the change is negligible. Returns whether the window was
+   * discarded, so the caller can tell listeners at once.
    */
-  setFrameBudget(frameBudgetS: number): void {
-    if (Math.abs(frameBudgetS - this.frameBudgetS) < 1e-4) return;
+  setFrameBudget(frameBudgetS: number): boolean {
+    if (Math.abs(frameBudgetS - this.frameBudgetS) < 1e-4) return false;
     this.frameBudgetS = frameBudgetS;
     ({ slowS: this.slowS, verySlowS: this.verySlowS } = thresholdsFor(frameBudgetS));
     this.reset();
+    return true;
+  }
+
+  /** The current tier, without building a state object. Read every frame. */
+  get currentTier(): BudgetTier {
+    return this.tier;
   }
 
   get state(): BudgetState {
@@ -274,6 +282,8 @@ class AnimationBudget {
   private policy = new BudgetPolicy();
   private listeners = new Set<BudgetListener>();
   private unsubscribe: (() => void) | null = null;
+  /** Watches for a battery-saver frame cap while this governor is measuring. */
+  private cap: PresentationCapWatcher | null = null;
 
   constructor() {
     if (typeof document !== "undefined") {
@@ -308,6 +318,7 @@ class AnimationBudget {
   subscribe(fn: BudgetListener): () => void {
     this.listeners.add(fn);
     if (this.unsubscribe === null) {
+      this.cap = new PresentationCapWatcher();
       // Measure on the input lane: conductor dt is the rAF-to-rAF interval,
       // i.e. the true cost of the previous full frame. Essential — the
       // governor cannot govern from a sampled subset of frames.
@@ -322,6 +333,8 @@ class AnimationBudget {
       if (this.listeners.size === 0 && this.unsubscribe !== null) {
         this.unsubscribe();
         this.unsubscribe = null;
+        this.cap?.dispose();
+        this.cap = null;
         this.policy.reset();
       }
     };
@@ -332,7 +345,17 @@ class AnimationBudget {
       return;
     }
     const conductor = getConductor();
-    this.policy.setFrameBudget(conductor.frameBudgetMs / 1000);
+    // Before the budget is read: a cap believed on this frame moves the
+    // conductor's budget, and this frame should already be judged against it.
+    this.cap?.frame(dt * 1000, time, this.policy.currentTier === 2);
+    if (this.policy.setFrameBudget(conductor.frameBudgetMs / 1000)) {
+      // The window was scored against the old budget and has been discarded.
+      // Say so now. Left to push(), listeners would hear nothing until
+      // MIN_SAMPLES frames later, and a gate would keep a tier that no longer
+      // describes anything for over a second.
+      const reset = this.policy.state;
+      for (const fn of [...this.listeners]) fn(reset);
+    }
     // The input lane runs first, so the conductor's work figure is the
     // completed previous frame — the same vintage as `dt`.
     const emit = this.policy.push(dt, time, conductor.workMs / 1000);

@@ -1,4 +1,8 @@
-import { getFramePressure, type PressureSource } from "../frame-pressure/FramePressure";
+import {
+  getFramePressure,
+  RENDER_CONFIDENCE_FLOOR,
+  type PressureSource,
+} from "../frame-pressure/FramePressure";
 import {
   getAnimationBudget,
   type BudgetTier,
@@ -82,13 +86,6 @@ export interface AdaptiveState {
 }
 
 const LABELS = ["high", "medium", "low"] as const;
-
-/**
- * A render verdict below this confidence is not acted on. A realistic heavy
- * scene measures about 0.52 in a real browser, so the floor has to sit under
- * that while still rejecting a coin-flip.
- */
-const RENDER_CONFIDENCE_FLOOR = 0.4;
 
 /**
  * Would reducing quality actually help?

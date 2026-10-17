@@ -1,5 +1,45 @@
 # Changelog
 
+## 4.3.1
+
+### Scenes mount on battery saver
+
+On low battery, browsers hold pages to 30fps: an iPhone in Low Power Mode, and
+Chrome with Energy Saver on. The runtime judged every frame against the
+display's 60Hz, so a capped page looked like a page missing every single frame.
+`useSafeToMount` waits for frames with time to spare, never saw one, and every
+scene behind it or behind `useSceneGate` stayed unmounted for the whole visit.
+
+The runtime now recognises the cap. When frames arrive at a steady rate below
+60fps, the main thread is idle, and the slowness isn't coming from your own
+scenes, the capped rate becomes the frame budget. Scenes mount, quality is
+judged fairly, and nothing gets cut back for missing a frame rate the browser
+won't allow. When full-rate frames come back, for example when a charger goes
+in, the runtime switches back straight away.
+
+A page that is slow because of its own work is still judged against the full
+rate, as before.
+
+In the lab, a React Three Fiber hero held at 30fps never drew on 4.3.0. On
+4.3.1 it drew 1.6 seconds after arriving.
+
+### A gate no longer waits forever
+
+`useSafeToMount` and `useSceneGate` wait for a free moment before mounting.
+They now stop waiting after five seconds and mount anyway, with the quality
+governor deciding how much to draw. For `useSceneGate` the wait only counts
+while the scene is near the screen, so a scene further down the page never
+mounts unseen.
+
+This is a safety net. Across 251 lab runs, the slowest healthy page took 1.4
+seconds, so it doesn't change how a healthy page behaves. A device below the
+core floor for a cost still never mounts, as before.
+
+`useSafeToMount` also stops watching frames once it has opened, where before it
+kept watching for the life of the component.
+
+No API changes.
+
 ## 4.3.0
 
 ### The licence is now Apache 2.0
