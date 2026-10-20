@@ -72,9 +72,12 @@ import { getConductor } from "../conductor";
  * how much GPU work exists; it measures how much of the frame the GPU was the
  * thing being waited on.
  *
- * **Nothing acts on this yet.** It reports. Shedding, quality tiers and mount
- * gates are unchanged. A classifier that is wrong is worse than no classifier,
- * so it earns the right to drive decisions by being read first.
+ * **What acts on it.** AdaptiveQuality's `fuse()` reads the verdict to decide
+ * whether lowering quality would help, and holds a subscription for as long
+ * as anything listens to it, because this only measures while subscribed. It
+ * once relied on useSceneGate to keep that subscription, and from 4.0.0 to
+ * 4.3.1 nothing did, so the verdict never left `"none"` (vault RB-2).
+ * Shedding and mount gates still do not read it.
  */
 
 /** What is eating the frame. */

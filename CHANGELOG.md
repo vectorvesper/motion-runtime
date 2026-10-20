@@ -1,5 +1,38 @@
 # Changelog
 
+## 4.3.2
+
+### Quality comes back when the main thread is blocked
+
+`useAdaptiveQuality` and `useSceneGate` are meant to keep full quality when
+frames are slow because of someone else's main-thread work, since a smaller
+scene cannot fix a blocked thread. Since 4.0.0 they lowered it and kept it
+lowered.
+
+The rule reads FramePressure's verdict, and FramePressure only measures while
+something is subscribed. Until 4.0.0 `useSceneGate` subscribed through
+`useFramePressure()`. When the rule moved into AdaptiveQuality that
+subscription was dropped, so the verdict stayed at its starting value and every
+slow frame looked like a rendering problem. AdaptiveQuality now holds the
+subscription itself while it has listeners, and tells them when a verdict
+changes the answer.
+
+The verdict alone is not trusted to refuse a reduction. An overloaded GPU can
+stall the main thread inside WebGL calls, and that reads as main-thread work
+too. So a slow spell is answered as before, by lowering quality, and after two
+seconds the result is checked. If frames got no faster and the main thread is
+to blame, quality comes back to full and stays there until the load is gone,
+with the cause `held`. If frames got faster, quality stays lowered. An
+overloaded GPU always speeds up when reduced, so it is never held by mistake.
+
+When rendering is confidently the bottleneck, quality drops at once and the
+cause reads `render`. That branch was never reached before.
+
+Measured on the scene-gate docs demo, in Chrome at 60Hz, with a 22ms spin on
+every frame for 30 seconds: before, quality dropped within 2 seconds and stayed
+down until about 12 seconds after the block ended. Now it dips for about 4
+seconds, returns to full for the rest of the block, and stays full after it.
+
 ## 4.3.1
 
 ### Scenes mount on battery saver

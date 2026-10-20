@@ -109,6 +109,11 @@ const LABELS = ["high", "medium", "low"] as const;
  * 4. **Refuse only when we can prove it would not help.** A confident
  *    main-thread or runtime verdict is the one case where degrading is known
  *    to be useless, so the budget tier is overruled and reported as `held`.
+ *
+ * This is the answer from what is known at one instant. The AdaptiveQuality
+ * class does not act on a `held` answer straight away: it lowers quality
+ * first, and holds only once that reduction has been tried and did not make
+ * frames faster. See `Trial` below for why.
  */
 /**
  * Why the governor arrived at the tier it did.
@@ -266,22 +271,65 @@ function probeDeviceSignals(): DeviceSignals {
 
 type AdaptiveListener = (state: AdaptiveState) => void;
 
+/** How long a reduction runs before it is judged, ms. */
+const TRIAL_MS = 2000;
+/** A reduction helped if frames came out at least this much faster. */
+const HELPED_RATIO = 0.85;
+
+/**
+ * Whether lowering quality is actually helping, found out by trying it.
+ *
+ * The classifier alone cannot be trusted to say "do not reduce". An overloaded
+ * GPU can stall the main thread inside WebGL calls, and the stall reads as
+ * main-thread or runtime work: in vv-lab on 2026-10-19 a `useThreeScene` hero
+ * on a 3x screen held full resolution at 30fps for twelve seconds because of
+ * it. So a slow spell is answered the way it always was, by reducing, and the
+ * reduction is judged after TRIAL_MS. Only if frames did not get faster, and
+ * the classifier blames the main thread, does quality come back and stay up
+ * until the load is gone. An overloaded GPU always speeds up when reduced, so
+ * it can never be held by mistake. A blocked thread never does (vault RB-2).
+ */
+type Trial =
+  /** Frames are within budget, or a floor decides. Nothing to test. */
+  | { phase: "idle" }
+  /** Quality went down at `since`, when frames were taking `frameBefore` ms. */
+  | { phase: "testing"; since: number; frameBefore: number }
+  /** Reducing did not help and the main thread is to blame: full quality until the budget recovers. */
+  | { phase: "held" }
+  /** Reducing helped, or rendering was named as the cause: stay reduced until the budget recovers. */
+  | { phase: "reduced" };
+
 class AdaptiveQuality {
+  private trial: Trial = { phase: "idle" };
   private device: { tier: BudgetTier; reasons: string[] } | null = null;
   private signals: DeviceSignals | null = null;
   private budgetTier: BudgetTier = 0;
   private listeners = new Set<AdaptiveListener>();
   private offBudget: (() => void) | null = null;
+  private offPressure: (() => void) | null = null;
+  /** What listeners last heard, so a verdict that changes nothing stays quiet. */
+  private emitted: { tier: BudgetTier; cause: QualityCause } | null = null;
 
   get state(): AdaptiveState {
     this.ensureProbe();
     const deviceTier = this.device!.tier;
-    const { effective, cause } = fuse(
-      deviceTier,
-      this.budgetTier,
-      this.signals!.reducedMotion,
-      getFramePressure().state,
-    );
+    const fused = fuse(deviceTier, this.budgetTier, this.signals!.reducedMotion, getFramePressure().state);
+    let { effective, cause } = fused;
+    // A slow frame with no rendering verdict. `fuse()` says "held" when the
+    // main thread is blamed, but that waits for a trial to prove it; until
+    // then, and when a trial shows reducing helps, the budget tier stands.
+    // Once proven, the hold also outlasts its block: the budget tier waits out
+    // eight clean seconds before it recovers, and a scene that was never
+    // reduced has nothing to recover from.
+    if (cause === "held" || cause === "frame-rate") {
+      if (this.trial.phase === "held") {
+        effective = deviceTier;
+        cause = "held";
+      } else {
+        effective = this.budgetTier;
+        cause = "frame-rate";
+      }
+    }
     return {
       tier: effective,
       label: LABELS[effective],
@@ -300,21 +348,81 @@ class AdaptiveQuality {
       this.offBudget = getAnimationBudget().subscribe((budget) => {
         const changed = budget.tier !== this.budgetTier;
         this.budgetTier = budget.tier;
-        if (changed) {
-          const s = this.state;
-          for (const l of [...this.listeners]) l(s);
-        }
+        if (changed) this.emit(true);
       });
+    }
+    // `fuse()` decides from FramePressure's verdict, and FramePressure only
+    // measures while something is subscribed. Until 4.0.0 useSceneGate called
+    // useFramePressure() itself, which kept it running for every gated scene;
+    // when the rule moved in here, that subscription went with the old code and
+    // nothing replaced it. The verdict sat at its initial "none", so a blocked
+    // main thread read as plain slow frames and lowered quality, and the "held"
+    // and "render" branches never ran (vault RB-2). Holding the subscription
+    // here means the rule can no longer depend on some caller remembering to.
+    if (this.offPressure === null) {
+      this.offPressure = getFramePressure().subscribe(() => this.emit(false));
     }
     fn(this.state);
     return () => {
       this.listeners.delete(fn);
-      if (this.listeners.size === 0 && this.offBudget !== null) {
-        this.offBudget();
+      if (this.listeners.size === 0) {
+        this.offBudget?.();
         this.offBudget = null;
+        this.offPressure?.();
+        this.offPressure = null;
         this.budgetTier = 0;
+        this.emitted = null;
+        this.trial = { phase: "idle" };
       }
     };
+  }
+
+  /** Move the trial along. Called on every budget change and every verdict. */
+  private step(): void {
+    this.ensureProbe();
+    const deviceTier = this.device!.tier;
+    const pressure = getFramePressure().state;
+    const { cause } = fuse(deviceTier, this.budgetTier, this.signals!.reducedMotion, pressure);
+
+    // Nothing slow to answer, or a floor already answers it.
+    if (cause !== "held" && cause !== "frame-rate" && cause !== "render") {
+      this.trial = { phase: "idle" };
+      return;
+    }
+    // Rendering named with confidence: reducing is the right answer, and a
+    // later main-thread verdict in the same spell does not get to undo it.
+    if (cause === "render") {
+      this.trial = { phase: "reduced" };
+      return;
+    }
+
+    const now = performance.now();
+    if (this.trial.phase === "idle") {
+      this.trial =
+        pressure.frameMs > 0 ? { phase: "testing", since: now, frameBefore: pressure.frameMs } : { phase: "reduced" };
+    } else if (this.trial.phase === "testing" && now - this.trial.since >= TRIAL_MS) {
+      const faster = pressure.frameMs <= this.trial.frameBefore * HELPED_RATIO;
+      const blamed =
+        pressure.confidence >= RENDER_CONFIDENCE_FLOOR &&
+        (pressure.source === "main-thread" || pressure.source === "runtime");
+      this.trial = !faster && blamed ? { phase: "held" } : { phase: "reduced" };
+    }
+  }
+
+  /**
+   * Tell listeners. A budget tier change always goes out, as it did before.
+   * A new verdict goes out only when it changes the tier or the cause:
+   * FramePressure reports twice a second, and each report is a React render in
+   * every component holding the hook.
+   */
+  private emit(force: boolean): void {
+    if (this.listeners.size === 0) return;
+    this.step();
+    const s = this.state;
+    const same = this.emitted !== null && this.emitted.tier === s.tier && this.emitted.cause === s.cause;
+    if (same && !force) return;
+    this.emitted = { tier: s.tier, cause: s.cause };
+    for (const l of [...this.listeners]) l(s);
   }
 
   private ensureProbe(): void {
