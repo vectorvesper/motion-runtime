@@ -103,6 +103,8 @@ export class PointerIntent {
   private releaseBus: () => void;
 
   private cachedRect: { left: number; top: number; right: number; bottom: number } | null = null;
+  /** The cached rect clipped to the viewport, rewritten each frame in place. */
+  private visibleRect = { left: 0, top: 0, right: 0, bottom: 0 };
   private lastScrollX = 0;
   private lastScrollY = 0;
   private lastWidth = 0;
@@ -194,15 +196,29 @@ export class PointerIntent {
         this.measureRect(time);
       }
 
-      const rect = this.cachedRect!;
+      // Only the part of the element on screen can be pointed at: a pointer
+      // never leaves the viewport. Up to 4.3.2 the ray met the whole rect, so a
+      // fast pointer, projected up to 0.8s ahead, could "head for" a button
+      // scrolled thousands of pixels out of view. `useMagneticIntent` then
+      // pulled that button, unseen, on every frame (vault RB-5), and
+      // `usePointerIntent` could prefetch for it. A viewport not yet measured
+      // (0) clips nothing.
+      const cached = this.cachedRect!;
+      const rect = this.visibleRect;
+      rect.left = Math.max(cached.left, 0);
+      rect.top = Math.max(cached.top, 0);
+      rect.right = Math.min(cached.right, viewport.width || Infinity);
+      rect.bottom = Math.min(cached.bottom, viewport.height || Infinity);
+      const onScreen = rect.right > rect.left && rect.bottom > rect.top;
 
       const inside =
+        onScreen &&
         pointer.x >= rect.left && pointer.x <= rect.right &&
         pointer.y >= rect.top && pointer.y <= rect.bottom;
 
       if (inside) {
         target = 1;
-      } else if (pointer.speed > this.tuning.minSpeed) {
+      } else if (onScreen && pointer.speed > this.tuning.minSpeed) {
         const tHit = rayRectIntersect(pointer.x, pointer.y, pointer.vx, pointer.vy, rect);
         if (tHit !== null && tHit <= this.tuning.horizon) {
           target = Math.max(0.2, 1 - tHit / this.tuning.horizon);

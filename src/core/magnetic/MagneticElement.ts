@@ -76,6 +76,9 @@ export class MagneticElement {
   /** Resting centre of the element, with our own translation removed. */
   private anchorX = 0;
   private anchorY = 0;
+  /** Half the element's measured size, to tell when it is off screen. */
+  private halfW = 0;
+  private halfH = 0;
   private haveAnchor = false;
   private lastScrollX = 0;
   private lastScrollY = 0;
@@ -174,6 +177,8 @@ export class MagneticElement {
     // Scale is centre-origin, so it doesn't shift the centre.
     this.anchorX = rect.left + rect.width / 2 - this.ox;
     this.anchorY = rect.top + rect.height / 2 - this.oy;
+    this.halfW = rect.width / 2;
+    this.halfH = rect.height / 2;
     this.lastScrollX = scroll.x;
     this.lastScrollY = scroll.y;
     this.lastWidth = viewport.width;
@@ -184,15 +189,25 @@ export class MagneticElement {
 
   private frame = (dt: number): void => {
     if (!this.haveAnchor) return; // nothing measured yet — wait for the input lane
-    const { pointer } = getSensorBus().state;
+    const { pointer, viewport } = getSensorBus().state;
     const cx = this.anchorX;
     const cy = this.anchorY;
+
+    // An element entirely off screen is not pulled (vault RB-5). It eases back
+    // to rest, and once at rest the transform it writes stops changing, so the
+    // page sees no more writes. A viewport not yet measured (0) counts as
+    // unbounded.
+    const onScreen =
+      cx + this.halfW > 0 &&
+      cx - this.halfW < (viewport.width || Infinity) &&
+      cy + this.halfH > 0 &&
+      cy - this.halfH < (viewport.height || Infinity);
 
     let targetX = 0;
     let targetY = 0;
     let targetEngagement = 0;
 
-    if (pointer.seen) {
+    if (pointer.seen && onScreen) {
       const dx = pointer.x - cx;
       const dy = pointer.y - cy;
       const dist = Math.hypot(dx, dy);

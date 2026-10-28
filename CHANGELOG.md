@@ -44,8 +44,27 @@ reduced quality and the live frame rate decides from there. A desktop with
 2 GB or less now gets the poster, where it used to start at reduced quality.
 
 On a Galaxy F23 (Adreno 619, reported as 4 GB), vv-site's landing hero never
-mounted on 4.3.2. When it was allowed to, it held 59 to 60 fps for three
-minutes at reduced quality, which is where 4.3.3 starts it.
+mounted on 4.3.2. On 4.3.3 it mounts at reduced quality and draws at 60 fps,
+on the same phone with nothing faked.
+
+### A button off screen stays still
+
+`useMagneticIntent` and `usePointerIntent` work out where the pointer is
+heading by projecting its path ahead, up to 0.8 seconds at high sensitivity. A
+fast pointer projected that far can reach a button scrolled thousands of pixels
+out of view. A pointer can't leave the screen, so that guess was always wrong.
+A magnetic button was pulled while nobody could see it, its transform rewritten
+on every frame, and `usePointerIntent` could report intent, and prefetch, for a
+link off screen.
+
+Only the part of an element on screen counts now. A magnetic button entirely
+off screen is not pulled at all, and settles at rest.
+
+In the lab, a magnetic button scrolled out of view, with the pointer moving,
+was rewritten 15 to 31 times a second in five runs since September, on every
+release since at least 4.3.0. On 4.3.3 it read 0 in all five runs, in Chrome
+and WebKit, while the button still leaned 14px towards a pointer close by and
+prefetched its link about 260ms before the pointer arrived.
 
 ## 4.3.2
 

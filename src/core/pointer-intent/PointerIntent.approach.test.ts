@@ -83,16 +83,17 @@ async function replay(
   path: { from: Point; to: Point; ms: number; steps: number },
   sensitivity: Sensitivity,
   tailMs = 1200,
+  rect = RECT,
 ): Promise<number | null> {
   vi.resetModules();
   const { PointerIntent } = await import("./PointerIntent");
   const el = {
     getBoundingClientRect: () => ({
-      ...RECT,
-      x: RECT.left,
-      y: RECT.top,
-      width: RECT.right - RECT.left,
-      height: RECT.bottom - RECT.top,
+      ...rect,
+      x: rect.left,
+      y: rect.top,
+      width: rect.right - rect.left,
+      height: rect.bottom - rect.top,
     }),
   } as unknown as HTMLElement;
 
@@ -177,6 +178,17 @@ describe("PointerIntent — a real approach", () => {
     // Parallel to the button, 120px below it, at the same speed.
     const y = RECT.bottom + 120;
     const firedAt = await replay({ from: { x: BUTTON.cx - 500, y }, to: { x: BUTTON.cx + 500, y }, ms: 1200, steps: 58 }, "normal");
+
+    expect(firedAt).toBeNull();
+  });
+
+  it("stays quiet for a button scrolled out of view, with the pointer racing towards it", async () => {
+    // RB-5. jsdom's viewport is 1024 x 768, and this button sits 630px below
+    // it. A pointer can't leave the viewport, so it can't be heading there,
+    // however fast it moves. Up to 4.3.2 the ray met the off-screen rect, and
+    // at high sensitivity (0.8s ahead) a fast downward sweep fired.
+    const below = { left: 620, right: 780, top: 1400, bottom: 1444 };
+    const firedAt = await replay({ from: { x: 700, y: 40 }, to: { x: 700, y: 760 }, ms: 150, steps: 9 }, "high", 1200, below);
 
     expect(firedAt).toBeNull();
   });

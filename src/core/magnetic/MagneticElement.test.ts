@@ -167,3 +167,60 @@ describe("MagneticElement — anticipation", () => {
     expect(getConductor().state.subscribers).toHaveLength(0);
   });
 });
+
+describe("MagneticElement — off screen", () => {
+  // What the magnet writes at rest: no offset, no scale.
+  const REST = "translate3d(0.00px, 0.00px, 0) scale(1.0000)";
+
+  const move = (x: number, y: number) =>
+    window.dispatchEvent(new MouseEvent("pointermove", { clientX: x, clientY: y }));
+
+  /** Move the pointer in a straight line, one event per frame, and return every transform written. */
+  function sweep(el: HTMLElement, from: { x: number; y: number }, to: { x: number; y: number }, frames: number): string[] {
+    const seen: string[] = [];
+    for (let i = 1; i <= frames; i++) {
+      const k = i / frames;
+      move(from.x + (to.x - from.x) * k, from.y + (to.y - from.y) * k);
+      crank(now + 16);
+      seen.push(el.style.transform);
+    }
+    return seen;
+  }
+
+  it("pulls a button on screen when the pointer comes close", async () => {
+    const { MagneticElement } = await fresh();
+    const el = target();
+    const magnet = new MagneticElement(el, { reach: 120 });
+    crankFrames(2);
+
+    const seen = sweep(el, { x: 400, y: 400 }, { x: 160, y: 130 }, 20);
+    magnet.destroy();
+
+    expect(seen.some((t) => t !== REST)).toBe(true);
+  });
+
+  it("leaves a button scrolled out of view at rest, even with the pointer racing towards it", async () => {
+    // RB-5: the lab saw a magnetic button 15 to 31 transform writes a second
+    // while scrolled away. Its approach detector projected a fast pointer up
+    // to 0.8s ahead, past the edge of the screen, onto the button. jsdom's
+    // viewport is 1024 x 768; this button sits 630px below it.
+    const { MagneticElement } = await fresh();
+    const el = document.createElement("button");
+    el.getBoundingClientRect = () =>
+      ({ left: 450, top: 1400, right: 550, bottom: 1450, width: 100, height: 50, x: 450, y: 1400 }) as DOMRect;
+    document.body.appendChild(el);
+    const magnet = new MagneticElement(el, { reach: 120 });
+    crankFrames(2);
+
+    const seen: string[] = [];
+    for (let k = 0; k < 4; k++) {
+      seen.push(...sweep(el, { x: 500, y: 40 }, { x: 500, y: 760 }, 8));
+      seen.push(...sweep(el, { x: 500, y: 760 }, { x: 500, y: 40 }, 8));
+    }
+    // Then parked at the bottom edge, as close as a pointer can get.
+    seen.push(...sweep(el, { x: 500, y: 760 }, { x: 500, y: 767 }, 30));
+    magnet.destroy();
+
+    expect([...new Set(seen)]).toEqual([REST]);
+  });
+});
