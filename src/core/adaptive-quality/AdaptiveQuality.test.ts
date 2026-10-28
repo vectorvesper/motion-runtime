@@ -55,16 +55,30 @@ describe("deviceTierFromSignals", () => {
     expect(deviceTierFromSignals({ ...capable, renderer: "Apple GPU", touch: true }).tier).toBe(1);
   });
 
-  it("bumps constrained devices one tier", () => {
+  it("starts constrained devices at reduced quality", () => {
     expect(deviceTierFromSignals({ ...capable, deviceMemory: 4 }).tier).toBe(1);
-    // mobile GPU + low memory stacks to 2
-    expect(
-      deviceTierFromSignals({
-        ...capable,
-        renderer: "Mali-G78",
-        deviceMemory: 4,
-      }).tier,
-    ).toBe(2);
+    expect(deviceTierFromSignals({ ...capable, cores: 4 }).tier).toBe(1);
+  });
+
+  // RB-4. Up to 4.3.2 a mobile GPU and modest memory stacked to tier 2, the
+  // poster, and Chrome reports a 6 GB phone as 4. The lab's Galaxy F23 was
+  // refused the hero this way and then held 60 fps with it.
+  it("does not stack a mobile GPU and modest memory into the poster tier", () => {
+    const f23 = { ...capable, renderer: "Adreno (TM) 619", deviceMemory: 4, cores: 8, touch: true };
+    const { tier, reasons } = deviceTierFromSignals(f23);
+    expect(tier).toBe(1);
+    expect(reasons).toEqual(["mobile-class GPU", "constrained memory/cores"]);
+    expect(deviceTierFromSignals({ ...capable, renderer: "Mali-G78", deviceMemory: 4 }).tier).toBe(1);
+    expect(deviceTierFromSignals({ ...capable, renderer: "Mali-G57", cores: 4 }).tier).toBe(1);
+  });
+
+  it("keeps 2 GB or less at the poster tier, mobile or not", () => {
+    for (const renderer of ["Mali-G52", "ANGLE (Intel UHD Graphics)"]) {
+      const { tier, reasons } = deviceTierFromSignals({ ...capable, renderer, deviceMemory: 2 });
+      expect(tier).toBe(2);
+      expect(reasons.at(-1)).toMatch(/2 GB or less/);
+    }
+    expect(deviceTierFromSignals({ ...capable, deviceMemory: 1 }).tier).toBe(2);
   });
 
   it("treats unknown signals as capable rather than punishing them", () => {

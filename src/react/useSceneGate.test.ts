@@ -90,6 +90,28 @@ describe("scene gate — content a visitor came for", () => {
   });
 });
 
+/**
+ * RB-3. A browser that refuses WebGL mid-visit fires webglcontextcreationerror,
+ * AdaptiveQuality hears it, and the gate reads it here. Up to 4.3.2 nothing
+ * heard it, and the visitor got an empty box where the scene's still belonged.
+ */
+describe("scene gate — WebGL refused by the browser", () => {
+  it("shows the still, even for a scene that was already running", () => {
+    const out = decide({ ...base, webglRefused: true });
+    expect(out.state).toBe("poster");
+    expect(out.cause).toBe("device-floor");
+    expect(out.reason).toMatch(/refused a WebGL context/);
+  });
+
+  it("outranks a lost context, so a refused rebuild is not retried", () => {
+    expect(decide({ ...base, contextLost: true, webglRefused: true }).state).toBe("poster");
+  });
+
+  it("sends content to its still too, since nothing can be drawn", () => {
+    expect(decide({ ...base, content: true, webglRefused: true }).state).toBe("poster");
+  });
+});
+
 describe("scene gate — surviving a scroll", () => {
   it("pauses instead of tearing down when scrolled off screen", () => {
     const out = decide({ ...base, near: false });

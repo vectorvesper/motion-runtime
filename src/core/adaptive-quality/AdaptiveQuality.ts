@@ -168,7 +168,23 @@ export function fuse(
   return { effective: deviceTier, cause: deviceTier > 0 ? "device" : "ok" };
 }
 
-/** Pure signals→tier heuristic (exported for tests). Conservative on purpose. */
+/**
+ * Pure signals→tier heuristic (exported for tests). Conservative on purpose,
+ * but only tier 2 withholds a scene, so tier 2 is kept for devices that really
+ * cannot run one.
+ *
+ * Tier 2 is the poster tier: `useSceneGate` never mounts the scene. It is for
+ * what cannot render at all or will not cope: no WebGL2, a software renderer,
+ * or 2 GB of memory or less. Everything else that looks modest starts at tier
+ * 1, reduced quality, and the live frame rate decides from there.
+ *
+ * Up to 4.3.2 a mobile GPU and 4 GB of memory stacked, one tier each, to tier
+ * 2. Chrome rounds `navigator.deviceMemory` down to a power of two, so a 6 GB
+ * phone reports 4, and nearly every Android phone under 8 GB got the poster.
+ * On 2026-10-27 a Galaxy F23 (Adreno 619, reported 4 GB) was refused vv-site's
+ * landing hero, then held 60 fps with it for three minutes once allowed (vault
+ * RB-4). Safari reports no memory, so iPhones were never affected.
+ */
 export function deviceTierFromSignals(s: DeviceSignals): {
   tier: BudgetTier;
   reasons: string[];
@@ -195,12 +211,19 @@ export function deviceTierFromSignals(s: DeviceSignals): {
     reasons.push("mobile-class GPU");
   }
 
-  const constrained =
-    (s.deviceMemory !== null && s.deviceMemory <= 4) ||
-    (s.cores !== null && s.cores <= 4);
-  if (constrained && tier < 2) {
-    tier = (tier + 1) as BudgetTier;
-    reasons.push("constrained memory/cores");
+  if (tier < 2 && s.deviceMemory !== null && s.deviceMemory <= 2) {
+    tier = 2;
+    reasons.push("very little memory (2 GB or less)");
+  } else {
+    // A floor, not a step: modest memory or cores mean reduced quality, and
+    // they no longer stack with a mobile GPU into the poster tier.
+    const constrained =
+      (s.deviceMemory !== null && s.deviceMemory <= 4) ||
+      (s.cores !== null && s.cores <= 4);
+    if (constrained) {
+      if (tier < 1) tier = 1;
+      reasons.push("constrained memory/cores");
+    }
   }
 
   if (reasons.length === 0) reasons.push("capable GPU");
@@ -229,6 +252,57 @@ const SERVER_SIGNALS: DeviceSignals = {
   cores: null,
   reducedMotion: false,
 };
+
+/**
+ * A WebGL context the browser refused while the page was open.
+ *
+ * The device probe runs once, when the page loads. If WebGL is refused later
+ * (Chrome blocks it for a tab after a GPU reset: "Web page caused context loss
+ * and was blocked"), a gated scene still believed the device could render: R3F
+ * failed to create its context, never called `onCreated`, and the visitor got
+ * an empty box instead of the scene's still. vv-site's footer did exactly that
+ * on 2026-10-25 (vault RB-3).
+ *
+ * A browser that refuses a context fires `webglcontextcreationerror` at the
+ * canvas, whatever asked for it: R3F, three.js or hand-written code. One
+ * capture-phase listener on the document hears it from every canvas on the
+ * page, so no adapter has to be wired for it. It is attached while anything
+ * subscribes to AdaptiveQuality, which every gate does, and removed with the
+ * last subscriber, so the page is left as it was found. The refusal sends the
+ * device to tier 2, so every gate shows its still, and it lasts until the page
+ * reloads: a browser that has blocked WebGL for a tab does not unblock it, and
+ * asking again would only log more errors.
+ *
+ * Internal: exported for useSceneGate and the tests, and from no entry point.
+ */
+let refusal: string | null = null;
+const refusalWatchers = new Set<() => void>();
+
+/** Mark WebGL refused for the rest of the visit. The first refusal wins. */
+export function reportWebGLRefused(detail?: string): void {
+  if (refusal !== null) return;
+  refusal = detail ? `WebGL refused by the browser: ${detail}` : "WebGL refused by the browser";
+  for (const watch of [...refusalWatchers]) watch();
+}
+
+/** True once the browser has refused a WebGL context on this page. */
+export function isWebGLRefused(): boolean {
+  return refusal !== null;
+}
+
+/** Listen on the whole page. Returns the removal. */
+function listenForRefusals(): () => void {
+  if (typeof document === "undefined") return () => {};
+  const onRefused = (event: Event) =>
+    reportWebGLRefused((event as Event & { statusMessage?: string }).statusMessage || undefined);
+  document.addEventListener("webglcontextcreationerror", onRefused, true);
+  return () => document.removeEventListener("webglcontextcreationerror", onRefused, true);
+}
+
+/** Tests only: forget a refusal. */
+export function resetWebGLRefusalForTests(): void {
+  refusal = null;
+}
 
 /** Whether there is a DOM to interrogate at all. */
 function isBrowser(): boolean {
@@ -307,12 +381,26 @@ class AdaptiveQuality {
   private listeners = new Set<AdaptiveListener>();
   private offBudget: (() => void) | null = null;
   private offPressure: (() => void) | null = null;
+  private offRefusal: (() => void) | null = null;
   /** What listeners last heard, so a verdict that changes nothing stays quiet. */
   private emitted: { tier: BudgetTier; cause: QualityCause } | null = null;
 
-  get state(): AdaptiveState {
+  constructor() {
+    // A refusal changes the device tier, so every listener has to hear it now,
+    // not at the next budget or pressure change.
+    refusalWatchers.add(() => this.emit(true));
+  }
+
+  /** The probed device, or the poster tier once WebGL has been refused. */
+  private currentDevice(): { tier: BudgetTier; reasons: string[] } {
     this.ensureProbe();
-    const deviceTier = this.device!.tier;
+    if (refusal === null) return this.device!;
+    return { tier: 2, reasons: [...this.device!.reasons, refusal] };
+  }
+
+  get state(): AdaptiveState {
+    const device = this.currentDevice();
+    const deviceTier = device.tier;
     const fused = fuse(deviceTier, this.budgetTier, this.signals!.reducedMotion, getFramePressure().state);
     let { effective, cause } = fused;
     // A slow frame with no rendering verdict. `fuse()` says "held" when the
@@ -336,7 +424,7 @@ class AdaptiveQuality {
       deviceTier,
       budgetTier: this.budgetTier,
       cause,
-      reasons: this.device!.reasons,
+      reasons: device.reasons,
       reducedMotion: this.signals!.reducedMotion,
     };
   }
@@ -362,6 +450,7 @@ class AdaptiveQuality {
     if (this.offPressure === null) {
       this.offPressure = getFramePressure().subscribe(() => this.emit(false));
     }
+    if (this.offRefusal === null) this.offRefusal = listenForRefusals();
     fn(this.state);
     return () => {
       this.listeners.delete(fn);
@@ -370,6 +459,8 @@ class AdaptiveQuality {
         this.offBudget = null;
         this.offPressure?.();
         this.offPressure = null;
+        this.offRefusal?.();
+        this.offRefusal = null;
         this.budgetTier = 0;
         this.emitted = null;
         this.trial = { phase: "idle" };
@@ -379,8 +470,7 @@ class AdaptiveQuality {
 
   /** Move the trial along. Called on every budget change and every verdict. */
   private step(): void {
-    this.ensureProbe();
-    const deviceTier = this.device!.tier;
+    const deviceTier = this.currentDevice().tier;
     const pressure = getFramePressure().state;
     const { cause } = fuse(deviceTier, this.budgetTier, this.signals!.reducedMotion, pressure);
 

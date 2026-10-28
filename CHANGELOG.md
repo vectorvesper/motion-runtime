@@ -1,5 +1,52 @@
 # Changelog
 
+## 4.3.3
+
+### A scene the browser refuses shows its still
+
+A browser can refuse WebGL to a page that is already open. Chrome does it to a
+tab after a GPU reset ("Web page caused context loss and was blocked"). The
+runtime checks the device once, when the page loads, so a gate that had passed
+that check mounted its scene anyway. React Three Fiber failed to create a
+context, never reported back, and the visitor saw an empty box where the scene
+should be, instead of its still.
+
+A refused context fires `webglcontextcreationerror` at its canvas, whoever
+asked for it: React Three Fiber, three.js or your own code. While anything
+subscribes to adaptive quality, which every `useSceneGate` does, the runtime
+now listens for it on the whole page. One refusal sends the device to the
+poster tier for the rest of the visit, with the reason "WebGL refused by the
+browser", and every gate shows its still with the cause `device-floor`,
+content included. A browser that has blocked WebGL for a tab does not unblock
+it, so nothing asks again until the page reloads. The listener is removed with
+the last subscriber.
+
+One "Error creating WebGL context" is still logged: the attempt that discovers
+the refusal.
+
+In the lab, with WebGL refused mid-visit, a React Three Fiber hero left an
+empty box on 4.3.0, in Chrome and in WebKit. On 4.3.3 it shows its still in
+both, and so do the lab's other gated heroes.
+
+### Capable phones get the scene
+
+The device check counted against a phone twice. A mobile GPU started it at
+reduced quality, and 4 GB of memory or 4 cores took it one tier further, to
+the poster, where `useSceneGate` never mounts the scene. Chrome rounds
+`navigator.deviceMemory` down to a power of two, so a 6 GB phone reports 4,
+and nearly every Android phone under 8 GB got the poster. Safari doesn't
+report memory, so iPhones were not affected.
+
+The poster tier is now kept for devices that can't run a scene: no WebGL2, a
+software renderer, or 2 GB of memory or less. Modest memory or cores now mean
+reduced quality, not one tier lower, so a mobile GPU with 4 GB starts at
+reduced quality and the live frame rate decides from there. A desktop with
+2 GB or less now gets the poster, where it used to start at reduced quality.
+
+On a Galaxy F23 (Adreno 619, reported as 4 GB), vv-site's landing hero never
+mounted on 4.3.2. When it was allowed to, it held 59 to 60 fps for three
+minutes at reduced quality, which is where 4.3.3 starts it.
+
 ## 4.3.2
 
 ### Quality comes back when the main thread is blocked

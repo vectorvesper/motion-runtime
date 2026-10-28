@@ -1,6 +1,6 @@
 {
   "name": "@vectorvesper/motion",
-  "version": "4.3.2",
+  "version": "4.3.3",
   "description": "An open-source runtime for WebGL, three.js and motion on the web. One frame loop for the whole page, work that stops off screen, quality that follows the device, and scenes that rebuild when the browser takes the GPU away. Zero dependencies.",
   "license": "Apache-2.0",
   "author": "Vector Vesper",

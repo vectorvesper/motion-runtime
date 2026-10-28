@@ -8,6 +8,7 @@ import { markSceneDrawing } from "../core/scene-activity";
 import { getConductor } from "../core/conductor";
 import { getSensorBus } from "../core/sensor-bus/SensorBus";
 import { getRendererHealth } from "../core/renderer-health/RendererHealth";
+import { isWebGLRefused } from "../core/adaptive-quality/AdaptiveQuality";
 
 /** Where a heavy scene is in its life. */
 export type SceneState =
@@ -266,6 +267,9 @@ export function useSceneGate<T extends HTMLElement = HTMLDivElement>({
     qualityCause: quality.cause,
     contextLost: health.lost,
     content,
+    // Read during render on purpose: it only ever changes together with an
+    // AdaptiveQuality emit, which is what re-renders this hook.
+    webglRefused: isWebGLRefused(),
   });
 
   let state = verdict.state;
@@ -345,6 +349,8 @@ interface Inputs {
   qualityCause: "ok" | "device" | "reduced-motion" | "render" | "frame-rate" | "held";
   /** Content the visitor came for, which is never sent to the poster. */
   content?: boolean;
+  /** The browser refused a WebGL context on this page. */
+  webglRefused?: boolean;
 }
 
 /** The decision, with no React in it, so it can be tested directly. */
@@ -354,6 +360,12 @@ export function decide(i: Inputs): { state: SceneState; reason: string; cause: S
   // because a visitor who asked for less motion still came for it. It waits
   // like anything else, and once mounted reads as constrained, since the fused
   // tier is at its lowest in both cases.
+  // Nothing can be drawn at all, so even content gets its still. A refusal also
+  // sends the device tier to 2; this check exists so the reason says what
+  // actually happened, and so content is not mounted onto a dead canvas.
+  if (i.webglRefused) {
+    return { state: "poster", reason: "the browser refused a WebGL context", cause: "device-floor" };
+  }
   if (!i.content && i.reducedMotion) {
     return { state: "poster", reason: "reduced motion is turned on", cause: "reduced-motion" };
   }
