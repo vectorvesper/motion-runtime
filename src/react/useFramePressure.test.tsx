@@ -3,11 +3,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup, act } from "@testing-library/react";
 
 /**
- * The React adapter for the pressure classifier.
- *
- * The policy has its own tests and the measurement layer has a real-browser
- * harness. This is the thin part in between — and the thin part is where the
- * lifecycle bugs in this codebase have consistently been.
+ * The React adapter for the pressure classifier, the thin layer between the
+ * policy's tests and the real-browser harness.
  */
 
 let rafCallbacks = new Map<number, FrameRequestCallback>();
@@ -73,8 +70,8 @@ describe("useFramePressure", () => {
 
     const view = render(<Consumer />);
     await act(async () => crankFrames(2));
-    // It only measures while something is subscribed — reading `.state`
-    // without holding it open shows a permanently healthy page.
+    // It only measures while something is subscribed. Reading `.state` without
+    // holding it open shows a permanently healthy page.
     expect(getConductor().state.subscribers.length).toBeGreaterThan(0);
 
     view.unmount();

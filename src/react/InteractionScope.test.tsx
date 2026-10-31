@@ -5,11 +5,9 @@ import { render, cleanup, act } from "@testing-library/react";
 import { fireEvent } from "@testing-library/dom";
 
 /**
- * InteractionScope and useTick.
- *
- * The conductor is a module singleton driven by rAF, so each test imports a
- * fresh copy (vi.resetModules) with rAF stubbed and hand-cranked — the same
- * pattern the core conductor tests use.
+ * InteractionScope and useTick. The conductor is a module singleton driven by
+ * rAF, so each test imports a fresh copy (vi.resetModules) with rAF stubbed and
+ * hand-cranked.
  */
 
 let rafCallback: FrameRequestCallback | null = null;
@@ -434,9 +432,7 @@ describe("InteractionScope — drags that leave, multi-touch, and stopPropagatio
 describe("InteractionScope — active as three named values", () => {
   it('accepts an explicit "pointer" and behaves exactly like omitting the prop', async () => {
     const { InteractionScope, getConductor } = await freshModule();
-    // The point of the 3.0 shape. In 2.x, opting back into pointer activation
-    // meant passing `undefined`, so an A/B toggle read
-    // `active={on ? undefined : false}`. Now the on-state has a name.
+    // The on-state has a name, so an A/B toggle reads naturally.
     const view = render(
       <InteractionScope active="pointer" label="explicit">
         <div data-testid="region" />

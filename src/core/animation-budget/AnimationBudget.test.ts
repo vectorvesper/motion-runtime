@@ -18,9 +18,9 @@ function feed(
   return { t, emits };
 }
 
-const FAST = 16.6; // ms — healthy 60fps
-const SLOW = 25;   // ms — ~40fps, slow but not very-slow
-const PANIC = 50;  // ms — 20fps
+const FAST = 16.6; // ms, healthy 60fps
+const SLOW = 25;   // ms, ~40fps, slow but not very-slow
+const PANIC = 50;  // ms, 20fps
 
 describe("BudgetPolicy", () => {
   it("gives no verdict before MIN_SAMPLES", () => {
@@ -61,11 +61,11 @@ describe("BudgetPolicy", () => {
     t = feed(p, PANIC, 80, t).t; // now tier 2
     expect(p.state.tier).toBe(2);
 
-    // ~9 seconds of healthy frames → one step up, not a jump to 0
+    // ~9 seconds of healthy frames: one step up, not a jump to 0
     t = feed(p, FAST, 550, t).t;
     expect(p.state.tier).toBe(1);
 
-    // another ~9 seconds → back to full quality
+    // another ~9 seconds: back to full quality
     feed(p, FAST, 550, t);
     expect(p.state.tier).toBe(0);
   });
@@ -118,12 +118,10 @@ describe("BudgetPolicy", () => {
 
 describe("BudgetPolicy — the 60fps quality floor", () => {
   /**
-   * Purely refresh-relative thresholds inverted the mechanism: the better the
-   * display, the harsher the verdict. A steady 100fps scored tier 0 on a 60Hz
-   * panel and tier 2 on a 240Hz one — survival mode on hardware that needed no
-   * help at all, which is the opposite of what adaptive quality is for.
+   * Purely refresh-relative thresholds would invert the mechanism: a steady
+   * 100fps would score tier 0 on a 60Hz panel and tier 2 on a 240Hz one.
    */
-  const HUNDRED_FPS = 10; // ms — excellent for a 3D scene on any display
+  const HUNDRED_FPS = 10; // ms, excellent for a 3D scene on any display
 
   for (const [label, hz] of [["120Hz", 120], ["144Hz", 144], ["240Hz", 240]] as const) {
     it(`stays at tier 0 on a ${label} display running a steady 100fps`, () => {
@@ -138,7 +136,7 @@ describe("BudgetPolicy — the 60fps quality floor", () => {
   it("still degrades a high-refresh display that is genuinely janky", () => {
     const p = new BudgetPolicy();
     p.setFrameBudget(1 / 144);
-    feed(p, PANIC, 200, 0); // 20fps — bad on any display
+    feed(p, PANIC, 200, 0); // 20fps, bad on any display
     expect(p.state.tier).toBe(2);
   });
 
@@ -158,7 +156,7 @@ describe("BudgetPolicy — the 60fps quality floor", () => {
     // The floor only ever raises the target; a 30Hz panel keeps its own budget.
     const p = new BudgetPolicy();
     p.setFrameBudget(1 / 30);
-    feed(p, 25, 200, 0); // 40fps — faster than this display can present
+    feed(p, 25, 200, 0); // 40fps, faster than this display can present
     expect(p.state.tier).toBe(0);
   });
 });

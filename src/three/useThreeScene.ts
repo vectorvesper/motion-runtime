@@ -9,11 +9,9 @@ import { watchGPUDevice } from "../core/renderer-health/watchGPUDevice";
 import { gpuDeviceOf, isContextLost } from "../core/renderer-health/rendererChecks";
 
 /**
- * The part of a three.js renderer this drives.
- *
- * `WebGLRenderer` and `WebGPURenderer` both fit. Structural on purpose: three
- * is an optional peer this package never imports, and your renderer's own type
- * flows through to `setup` untouched.
+ * The part of a three.js renderer this drives. `WebGLRenderer` and
+ * `WebGPURenderer` both fit. Structural, because three is an optional peer this
+ * package never imports, and your renderer's own type flows through to `setup`.
  */
 export interface ThreeRendererLike {
   domElement: HTMLCanvasElement;
@@ -160,7 +158,7 @@ export interface ThreeScene {
 }
 
 /**
- * A plain three.js scene, made production-safe in one call.
+ * A plain three.js scene, with its lifecycle handled.
  *
  * ```tsx
  * "use client";
@@ -192,41 +190,28 @@ export interface ThreeScene {
  * }
  * ```
  *
- * You write the scene. Everything else a hand-written hero has to get right,
- * and that the vv-lab stranger tests watched capable models skip, is done
- * here:
+ * You write the scene. This handles the rest:
  *
- * - **Starts late.** Nothing is built until the element is near the viewport
- *   and the page can afford it, and never mid-scroll (`useSceneGate`).
- * - **Draws on the shared frame loop**, never a `requestAnimationFrame` of its
- *   own, and not at all while the element is off screen. The context and every
- *   buffer stay put, so coming back is instant.
- * - **Sizes itself to the screen.** The pixel ratio never exceeds the screen's
- *   own and drops when the frame rate cannot hold. It changes on the renderer
- *   it already has: nothing is rebuilt for a quality change.
- * - **Follows the element's size**, and a `PerspectiveCamera`'s aspect with it.
- * - **Survives a lost graphics context.** It listens from the moment the
- *   renderer exists, reports the loss, builds a fresh renderer and scene, and
- *   says when the new one has drawn.
- * - **Cleans up completely.** Every geometry, material and texture in the
- *   scene, the renderer, and the context itself, which the browser caps per
- *   page and takes back oldest first.
- * - **Respects reduced motion** and devices below the floor. The scene is
- *   never built there, and `mounted` stays false so your still image shows.
- *
- * ## Why the renderer is yours to make
+ * - Starts late. Nothing is built until the element is near the viewport and
+ *   the page can afford it, and never mid-scroll (`useSceneGate`).
+ * - Draws on the shared frame loop, and not at all while the element is off
+ *   screen. The context and every buffer stay put, so coming back is instant.
+ * - Caps the pixel ratio at the screen's own, and lowers it when the frame rate
+ *   can't hold, on the renderer it already has.
+ * - Follows the element's size, and a `PerspectiveCamera`'s aspect with it.
+ * - Recovers from a lost graphics context by building a fresh renderer and
+ *   scene.
+ * - Frees every geometry, material and texture in the scene, the renderer and
+ *   the context itself.
+ * - Skips the scene under reduced motion and on devices below the floor, so
+ *   `mounted` stays false and your still image shows.
  *
  * This package imports nothing from three. Your `renderer()` decides which
- * renderer and which options, and its type flows through to `setup`, so a
- * `WebGPURenderer` works the same way: a lost WebGPU device is recovered
- * exactly as a lost WebGL context is.
+ * renderer and which options, so a `WebGPURenderer` works the same way.
  *
- * ## What it does not do
- *
- * It does not decide what "reduced" looks like beyond the pixel ratio. Read
- * `frame.quality` in `update` for anything else. It does not load models or
- * textures for you either; load them inside `setup`, so a rebuild loads them
- * onto the new context.
+ * "reduced" means a lower pixel ratio and nothing else: read `frame.quality` in
+ * `update` for more. Load models and textures inside `setup`, so a rebuild
+ * loads them onto the new context.
  */
 export function useThreeScene<R extends ThreeRendererLike>(options: UseThreeSceneOptions<R>): ThreeScene {
   const { label, cost, preload } = options;
@@ -237,8 +222,7 @@ export function useThreeScene<R extends ThreeRendererLike>(options: UseThreeScen
   });
 
   // The latest options, read when a scene is built. Callbacks written inline
-  // are new functions on every render, and rebuilding the scene for that would
-  // be exactly the churn this exists to prevent.
+  // are new on every render, and the scene shouldn't rebuild for that.
   const optionsRef = useRef(options);
   useEffect(() => {
     optionsRef.current = options;
@@ -251,7 +235,7 @@ export function useThreeScene<R extends ThreeRendererLike>(options: UseThreeScen
   }, [state, quality]);
 
   // The scene's clock, kept across rebuilds so an animation carries on from
-  // where it was rather than jumping back to its first frame.
+  // where it was.
   const elapsedRef = useRef(0);
 
   // One build per graphics context. `generation` moves when the context is
@@ -300,10 +284,8 @@ function warnOnce(key: string, message: string): void {
 
 /**
  * One scene on one graphics context, from renderer to teardown. Returns the
- * teardown.
- *
- * All of it happens again from the start after a lost context: a new renderer,
- * a new scene, nothing carried over from the dead one but the clock.
+ * teardown. After a lost context all of it happens again, and only the clock
+ * carries over.
  */
 function build<R extends ThreeRendererLike>(
   host: HTMLElement,
@@ -314,7 +296,7 @@ function build<R extends ThreeRendererLike>(
   const name = optionsRef.current.label ?? "three scene";
   const health = getRendererHealth();
   // The generation this build belongs to, so losing its context moments after
-  // the loss that caused the build still counts as a new failure (vv-lab R10).
+  // the loss that caused the build still counts as a new failure.
   const builtAt = health.state.generation;
 
   let stopped = false;
@@ -346,9 +328,8 @@ function build<R extends ThreeRendererLike>(
     host.appendChild(canvas);
     undo.push(() => {
       renderer.dispose();
-      // Hands the context back now rather than whenever the collector reaches
-      // the canvas. The browser caps live contexts per page and evicts the
-      // oldest first, which on a landing page is the hero (vv-lab T5).
+      // Hands the context back now, because the browser caps live contexts per
+      // page and evicts the oldest first, which on a landing page is the hero.
       (renderer as { forceContextLoss?: () => void }).forceContextLoss?.();
       canvas.remove();
     });
@@ -404,10 +385,9 @@ function build<R extends ThreeRendererLike>(
     }
     undo.push(() => free(handle));
 
-    // Measured here, never in the frame: reading layout in the render lane
-    // forces a synchronous reflow every frame. Applied at the next draw rather
-    // than here, because resizing clears the canvas, and a scene that is off
-    // screen would sit cleared until it drew again.
+    // Measured here and never in the frame, where reading layout forces a
+    // reflow. Applied at the next draw, because resizing clears the canvas and
+    // an off-screen scene would sit cleared until it drew again.
     let resized = true;
     if (typeof ResizeObserver !== "undefined") {
       const observer = new ResizeObserver(() => {
@@ -442,7 +422,7 @@ function build<R extends ThreeRendererLike>(
           const quality = live.quality === "full" ? "full" : "reduced";
           const pixelRatio = pixelRatioFor(quality, optionsRef.current.maxDpr);
           // A quality change resizes the renderer it already has. Rebuilding
-          // for it would mean a new context every time (vv-lab T4).
+          // for it would mean a new context every time.
           if (resized || pixelRatio !== frame.pixelRatio) {
             renderer.setPixelRatio(pixelRatio);
             renderer.setSize(size.width, size.height);
@@ -473,8 +453,8 @@ function build<R extends ThreeRendererLike>(
           if (handle.render) handle.render(frame);
           else renderer.render(handle.scene, handle.camera);
 
-          // The first frame this context draws is the proof it works, and
-          // saying so is what ends the recovery.
+          // The first frame this context draws proves it works, and saying so
+          // ends the recovery.
           if (!announced) {
             announced = true;
             health.reportHealthy();
@@ -512,11 +492,8 @@ function free(handle: ThreeSceneHandle): void {
 
 /**
  * Free what a scene holds on the GPU: every geometry, every material and the
- * textures it uses, and the background and environment maps.
- *
- * three frees none of it on its own. Without this, a scene rebuilt after a
- * lost context would leave the whole previous one behind, and so would every
- * visit to a page that mounts one.
+ * textures it uses, and the background and environment maps. three frees none
+ * of it on its own, so a rebuilt scene would leave the previous one behind.
  */
 function disposeScene(root: ThreeSceneLike): void {
   const freed = new Set<unknown>();

@@ -4,18 +4,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 /**
  * PointerIntent against a real approach, end to end.
  *
- * PointerIntent.test.ts mocks the conductor and hands the sensor bus a fixed
- * velocity, which checks the geometry and nothing else. The lateness vv-lab
- * measured (R8: firing 131–357ms after the pointer would have arrived, or not
- * at all) lives in what those mocks skip: the bus deriving a velocity from
- * pointer events that land between frames, and the confidence smoothing on top
- * of it. So this drives the real conductor, the real bus and the real
- * PointerIntent with pointermove events on the lab probe's own schedule, and
- * measures when intent fires against when the pointer would have reached the
- * element.
+ * PointerIntent.test.ts mocks the conductor and hands the bus a fixed velocity,
+ * which checks the geometry. Lateness lives in what those mocks skip: the bus
+ * deriving a velocity from pointer events that land between frames, and the
+ * confidence smoothing on top. So this drives the real conductor, bus and
+ * PointerIntent with timed pointermove events, and measures when intent fires
+ * against when the pointer would have reached the element.
  *
- * The hook promises to know the pointer is coming "100–300ms before it
- * arrives". 100ms is the floor asserted here.
+ * The hook promises to know the pointer is coming 100-300ms before it arrives.
+ * 100ms is the floor asserted here.
  */
 
 let rafCallbacks = new Map<number, FrameRequestCallback>();
@@ -46,7 +43,7 @@ const FRAME_MS = 1000 / 60;
 type Point = { x: number; y: number };
 type Sensitivity = "low" | "normal" | "high";
 
-/** A pill-shaped call to action, the size of the lab's "Start a project". */
+/** A pill-shaped call to action. */
 const BUTTON = { cx: 700, cy: 400, w: 160, h: 44 };
 const RECT = {
   left: BUTTON.cx - BUTTON.w / 2,
@@ -56,11 +53,9 @@ const RECT = {
 };
 
 /**
- * The lab's `intent-prefetch` approach (probes/dom-probes.mjs), in the same
- * geometry: from 520px left and 220px below the centre, straight at it, 22
- * pointer events over 450ms, stopping 110px short of the edge. `arrivalMs` is
- * computed exactly as the probe computes it: when the pointer would have
- * reached the button's edge had it kept its speed.
+ * A straight approach from 520px left and 220px below the centre: 22 pointer
+ * events over 450ms, stopping 110px short of the edge. `arrivalMs` is when the
+ * pointer would have reached the button's edge had it kept its speed.
  */
 function labApproach(): { from: Point; to: Point; ms: number; steps: number; arrivalMs: number } {
   const from = { x: BUTTON.cx - 520, y: BUTTON.cy + 220 };
@@ -75,7 +70,7 @@ function labApproach(): { from: Point; to: Point; ms: number; steps: number; arr
 
 /**
  * Replay a move and report when intent first fired, in ms from the start of the
- * move, or null if it never did. Pointer events go out on the probe's cadence
+ * move, or null if it never did. Pointer events go out on a fixed cadence
  * (dispatch, then wait ms/steps) and frames run at 60Hz, each seeing whatever
  * events landed since the last one, as a browser would.
  */
@@ -183,10 +178,9 @@ describe("PointerIntent — a real approach", () => {
   });
 
   it("stays quiet for a button scrolled out of view, with the pointer racing towards it", async () => {
-    // RB-5. jsdom's viewport is 1024 x 768, and this button sits 630px below
-    // it. A pointer can't leave the viewport, so it can't be heading there,
-    // however fast it moves. Up to 4.3.2 the ray met the off-screen rect, and
-    // at high sensitivity (0.8s ahead) a fast downward sweep fired.
+    // jsdom's viewport is 1024 x 768, and this button sits 630px below it. A
+    // pointer can't leave the viewport, so it can't be heading there, however
+    // fast it moves.
     const below = { left: 620, right: 780, top: 1400, bottom: 1444 };
     const firedAt = await replay({ from: { x: 700, y: 40 }, to: { x: 700, y: 760 }, ms: 150, steps: 9 }, "high", 1200, below);
 

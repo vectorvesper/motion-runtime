@@ -4,11 +4,9 @@ import React from "react";
 import { render, cleanup, act } from "@testing-library/react";
 
 /**
- * The self-contained effects.
- *
- * The recurring defect across this catalogue is lifecycle, not maths — work
- * that outlives its component. So the contract tested here is: does it start,
- * and does it let go of everything on unmount.
+ * The self-contained effects. The recurring defect here is work that outlives
+ * its component, so the contract tested is: does it start, and does it let go
+ * of everything on unmount.
  */
 
 let rafCallbacks = new Map<number, FrameRequestCallback>();
@@ -200,10 +198,8 @@ describe("useNumberTicker", () => {
   });
 
   /**
-   * R4 in vv-lab's findings. After landing, the subscription stayed and every
-   * frame assigned the same text again, for the life of the page: 105 text
-   * writes a second on a page of three counters with nothing moving, and 180
-   * for an agent's integration of the same page.
+   * After landing, the subscription must go. Otherwise every frame assigns the
+   * same text again for the life of the page.
    */
   it("stops ticking once it lands", async () => {
     vi.resetModules();
@@ -239,10 +235,9 @@ describe("useNumberTicker", () => {
       crankFrames(150);
     });
 
-    // What the lab's dom-rest probe watches for: a text write while nothing moves.
-    // Records are delivered in a microtask, which act() flushes, so collect
-    // them in the callback as well as taking whatever is still queued. Reading
-    // only takeRecords() here passed against the broken hook.
+    // A text write while nothing moves. Records are delivered in a microtask,
+    // which act() flushes, so collect them in the callback as well as taking
+    // whatever is still queued.
     const span = view.container.querySelector("span")!;
     const writes: MutationRecord[] = [];
     const mo = new MutationObserver((records) => writes.push(...records));
@@ -310,10 +305,8 @@ describe("useNumberTicker", () => {
 
   /**
    * The element arriving on a later commit: a hydration guard, a loading
-   * branch, `next/dynamic`. The effect read `ref.current` once, found nothing,
-   * and waited for a value change that might never come, so the counter stayed
-   * blank. The arrangement matrix only checks cleanup, which a hook that never
-   * started passes.
+   * branch, `next/dynamic`. The arrangement matrix only checks cleanup, which a
+   * hook that never started passes.
    */
   it("starts when its element arrives on a later commit", async () => {
     vi.resetModules();
@@ -429,14 +422,9 @@ function finePointerNoReducedMotion(): void {
 }
 
 /**
- * The element arriving on a later commit, for every hook that takes one.
- *
- * R9 found `useNumberTicker` reading `ref.current` once in an effect keyed only
- * on its value, so a counter behind a hydration guard, a loading branch or
- * `next/dynamic` never started. Up to 4.1.0 these three read their element the
- * same way, in an effect keyed on mount-time options that never change, and
- * every late variant below failed. The arrangement matrix only checks cleanup,
- * which a hook that never started passes, so liveness is checked here.
+ * The element arriving on a later commit, for every hook that takes one. The
+ * arrangement matrix only checks cleanup, which a hook that never started
+ * passes, so liveness is checked here.
  */
 describe("a ref that arrives on a later commit", () => {
   /** The real element from the first commit, or a placeholder first when `late`. */

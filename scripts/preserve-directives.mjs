@@ -1,32 +1,17 @@
 /**
  * Put `"use client"` back on the entries whose source declares it.
  *
- * esbuild strips module-level directives when bundling — it warns
- * `"use client" in "dist/react.js" was ignored` and drops the line. So
- * entry.react.ts has said `"use client"` since 1.0, and **every published
- * bundle up to and including 1.0.4 shipped without it.**
+ * esbuild strips module-level directives when bundling. Without this, importing
+ * a hook into a React Server Component gives a confusing failure from inside a
+ * `useState` call in a bundled chunk, where it should be a clear client-boundary
+ * error.
  *
- * Nobody noticed because every component that consumes these hooks already
- * declares `"use client"` itself, which establishes the boundary anyway. It
- * surfaces the first time someone imports a hook into a React Server Component:
- * instead of the clear "this needs a client boundary" error, they get a
- * confusing failure from inside a `useState` call in a bundled chunk.
+ * This is a post-build step because tsup's `banner` applies per output format,
+ * so it would stamp `"use client"` onto `index.js` too, and the core has to stay
+ * usable from a server.
  *
- * ## Why a post-build step and not tsup's `banner`
- *
- * `banner` applies per output FORMAT, not per entry — it would stamp
- * `"use client"` onto `index.js` too. The core is deliberately
- * framework-agnostic and usable from a server, vanilla JS, Vue or Svelte;
- * marking it client-only would be a real regression to fix a cosmetic one.
- *
- * A plugin (esbuild-plugin-preserve-directives) would also work, at the cost of
- * a build dependency for something this file does in twenty lines.
- *
- * ## What it does
- *
- * The directive is read FROM THE SOURCE rather than hardcoded, so this cannot
- * drift: add or remove `"use client"` in an entry and the built output follows.
- * Idempotent — running twice does not stack directives.
+ * The directive is read from the source, so the built output follows any
+ * change. Running twice doesn't stack directives.
  */
 
 import fs from "fs";
@@ -37,18 +22,11 @@ const DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(DIR, "..");
 
 /**
- * Source entry → built basename, read straight out of tsup.config.ts.
+ * Source entry to built basename, read straight out of tsup.config.ts.
  *
- * This used to be a hand-written list, and it silently rotted the moment the
- * build grew an entry. The effects and r3f entries were added to the build in
- * the 2.0 work and never added here, so four bundles full of React hooks
- * shipped with no client boundary — the exact bug this file exists to prevent,
- * reintroduced by the one change the file could not see.
- *
- * A list that has to be kept in step with another file will eventually not be.
- * So there is no list: the config is parsed, and anything it builds is covered
- * automatically. A shape this script cannot parse is a hard error, because
- * silently covering nothing is how the first version failed.
+ * A hand-written list would have to stay in step with that file, so the config
+ * is parsed and anything it builds is covered. A shape this script can't parse
+ * is a hard error, because silently covering nothing is the failure to avoid.
  */
 function readTsupEntries() {
   const configPath = path.join(ROOT, "tsup.config.ts");
@@ -97,7 +75,7 @@ for (const [srcRel, base] of Object.entries(ENTRIES)) {
   }
 
   const match = DIRECTIVE_RE.exec(fs.readFileSync(srcPath, "utf8"));
-  if (!match) continue; // no directive in source — nothing to restore
+  if (!match) continue; // no directive in source, nothing to restore
   const directive = `"${match[2]}";`;
 
   for (const ext of [".js", ".cjs"]) {

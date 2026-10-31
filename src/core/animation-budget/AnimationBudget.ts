@@ -2,60 +2,33 @@ import { getConductor } from "../conductor";
 import { PresentationCapWatcher } from "../presentation-cap";
 
 /**
- * AnimationBudget — the frame-headroom governor.
+ * AnimationBudget: the frame-headroom governor.
  *
- * Measures real frame intervals on the shared conductor and collapses them
- * into a coarse quality tier every effect can consume. The contract:
+ * Measures real frame intervals on the shared conductor and collapses them into
+ * a coarse quality tier every effect can consume:
  *
- * - tier 0 "high":   frames are healthy, run the designed look
- * - tier 1 "medium": sustained drops below ~54fps — shed extras
- * - tier 2 "low":    sustained drops below ~30fps — survival mode
+ * - tier 0 "high": frames are healthy, run the designed look
+ * - tier 1 "medium": sustained drops below about 54fps, shed extras
+ * - tier 2 "low": sustained drops below about 30fps, survival mode
  *
- * Those lines are absolute, not a fraction of the display rate. See
- * QUALITY_FLOOR_S: a display faster than 60Hz does not get a stricter test,
- * because "not saturating a 240Hz panel" is not the same as "struggling".
+ * These lines are multiples of one presented frame, floored at 1/60 so a faster
+ * display never gets a stricter test (see QUALITY_FLOOR_S).
  *
- * Hysteresis is asymmetric BY DESIGN: degrading is fast (users feel jank
- * within a second), upgrading is slow and cautious (8s of clean frames),
- * with a cooldown so quality never flaps. A burst of very-slow frames can
- * jump straight to tier 2.
+ * Degrading is fast, because users feel jank within a second. Upgrading takes
+ * 8s of clean frames, with a cooldown so quality never flaps. A burst of very
+ * slow frames can jump straight to tier 2.
  *
- * The decision logic lives in BudgetPolicy — a pure class with no browser
- * dependencies, unit-tested by feeding synthetic frame times. The exported
- * singleton is just conductor plumbing around it.
+ * The decision logic lives in BudgetPolicy, a pure class tested by feeding
+ * synthetic frame times. The exported singleton is conductor plumbing around
+ * it.
  *
- * ## Refresh-rate relative (v0.3)
- *
- * Thresholds were absolute (54fps / 30fps), which told a 120Hz display
- * limping at 70fps that everything was fine. They became multiples of the
- * measured frame budget, chosen to reproduce the old constants EXACTLY at
- * 60Hz (18.5ms and 34ms).
- *
- * ## Floored again (v4.0.1)
- *
- * Purely relative thresholds inverted the whole mechanism on good hardware:
- * a steady 100fps read as tier 0 on a 60Hz panel and tier 2 on a 240Hz one.
- * The multiples remain, but the budget they multiply is floored at 1/60 —
- * so a slow display still gets a relaxed line and a fast one never gets a
- * stricter one. See QUALITY_FLOOR_S for the reasoning and what it gives up.
- *
- * ## Honest headroom (v0.3)
- *
- * `headroom` used to be `frameBudget - dt`. Because rAF is pinned to vsync,
- * dt on a healthy 60Hz page is 16.6ms — so a perfectly idle page reported
- * ~0ms of headroom and the whole signal was unusable below 60Hz. It now
- * answers the question it always claimed to: **how much of this frame is
- * still free?**
- *
- * - While frames are landing on time, the only consumption we can attribute
- *   is the runtime's own measured work, so headroom is `budget - work`.
- * - Once a frame runs slow, the wall clock is the truth — something off our
- *   books is eating the frame — so consumption is the whole interval and
- *   headroom goes negative by the overrun.
- *
- * Smoothed as an EMA so one spike doesn't tank it. Use it with
- * `useSafeToMount` to pre-check before mounting expensive components,
- * rather than waiting for the tier to degrade.
+ * `headroom` answers how much of this frame is still free. rAF is pinned to
+ * vsync, so dt on a healthy page says nothing about consumption. While frames
+ * land on time, the only consumption we can attribute is the runtime's own
+ * work, so headroom is `budget - work`. Once a frame runs slow the wall clock
+ * takes over and headroom goes negative by the overrun. It is smoothed so one
+ * spike doesn't tank it. Use it with `useSafeToMount` to check before mounting
+ * expensive components.
  */
 
 export type BudgetTier = 0 | 1 | 2;
@@ -69,9 +42,8 @@ export interface BudgetState {
   slowRatio: number;
   /**
    * Estimated milliseconds still free in the current frame budget, smoothed.
-   * Positive = room available; zero or negative = already over budget. Use
-   * this as a leading indicator before mounting expensive components — see
-   * `useSafeToMount`.
+   * Zero or negative means already over budget. Use it as a leading indicator
+   * before mounting expensive components: see `useSafeToMount`.
    */
   headroom: number;
   /**
@@ -92,11 +64,11 @@ const VERY_SLOW_TRIGGER = 0.15; // very-slow share that forces a degradation
 const UP_RATIO = 0.06;        // upgrade only when almost nothing is slow
 const DOWN_COOLDOWN = 1.5;    // s between degradations
 const UP_DELAY = 8;           // s of stability before an upgrade
-const EMIT_INTERVAL = 0.5;    // s — heartbeat emits for HUDs/debug
+const EMIT_INTERVAL = 0.5;    // s, heartbeat emits for HUDs/debug
 
 /**
- * Slow / very-slow lines as multiples of one presented frame. At 60Hz these
- * land on 18.5ms and 34ms — the exact absolute constants used in v0.1.
+ * Slow and very-slow lines as multiples of one presented frame. At 60Hz these
+ * land on 18.5ms and 34ms.
  */
 const SLOW_FACTOR = 1.11;
 const VERY_SLOW_FACTOR = 2.04;
@@ -104,21 +76,17 @@ const VERY_SLOW_FACTOR = 2.04;
 /**
  * The tier never judges a device against a target faster than 60fps.
  *
- * Scoring purely against the detected refresh rate asks "are we hitting this
- * monitor's maximum?" and treats "no" as "this device is struggling". Those are
- * different questions. Measured on a 240Hz panel, a rock-steady 100fps scored
- * every frame as slow AND very slow and reported tier 2 — survival mode on a
- * machine that needed no help, while the same 100fps on a 60Hz panel reported
- * tier 0. The better the display, the worse the verdict: exactly backwards for
- * a mechanism whose job is protecting weak hardware.
+ * Scoring against the detected refresh rate asks whether we hit the monitor's
+ * maximum, which is a different question from whether the device is struggling.
+ * A steady 100fps on a 240Hz panel would score every frame as very slow and
+ * report tier 2, while the same 100fps on a 60Hz panel reports tier 0.
  *
- * So the comparison floors here. Below 60fps is jank on any display and still
- * degrades; above it nobody is suffering, and dropping quality to chase 144Hz
- * makes the experience worse rather than better. A display SLOWER than 60Hz
- * keeps its own budget, since the floor only ever raises the line.
+ * So the comparison floors here. Below 60fps is jank on any display, and above
+ * it dropping quality to chase 144Hz only makes things worse. A display slower
+ * than 60Hz keeps its own budget, since the floor only raises the line.
  *
- * The cost is deliberate: a 120Hz page steady at 80fps no longer reads as
- * degraded. That is the correct call — 80fps is not a quality emergency.
+ * The cost: a 120Hz page steady at 80fps doesn't read as degraded, which is
+ * right, because 80fps isn't a quality emergency.
  */
 const QUALITY_FLOOR_S = 1 / 60;
 
@@ -130,7 +98,7 @@ function thresholdsFor(frameBudgetS: number): { slowS: number; verySlowS: number
 
 const LABELS = ["high", "medium", "low"] as const;
 
-// 3-frame EMA alpha for headroom smoothing — fast response.
+// 3-frame EMA alpha for headroom smoothing, for a fast response.
 const HEADROOM_ALPHA = 2 / (3 + 1); // α = 0.5
 /** Default frame budget in seconds (16.6ms at 60fps) until the probe settles. */
 const DEFAULT_FRAME_BUDGET_S = 1 / 60;
@@ -238,9 +206,9 @@ export class BudgetPolicy {
 
     this.workEma += (workS - this.workEma) * HEADROOM_ALPHA;
 
-    // While frames land on time, the interval is vsync, not consumption — the
-    // only thing we can honestly account for is our own work. Once a frame
-    // runs slow the wall clock IS the consumption, whoever caused it.
+    // While frames land on time, the interval is vsync, not consumption, so the
+    // only thing we can account for is our own work. Once a frame runs slow the
+    // wall clock is the consumption, whoever caused it.
     const consumedS = dt > this.slowS ? dt : workS;
     const sample = this.frameBudgetS - consumedS;
     this.headroomEma += (sample - this.headroomEma) * HEADROOM_ALPHA;
@@ -319,9 +287,9 @@ class AnimationBudget {
     this.listeners.add(fn);
     if (this.unsubscribe === null) {
       this.cap = new PresentationCapWatcher();
-      // Measure on the input lane: conductor dt is the rAF-to-rAF interval,
-      // i.e. the true cost of the previous full frame. Essential — the
-      // governor cannot govern from a sampled subset of frames.
+      // Measure on the input lane: conductor dt is the rAF-to-rAF interval, the
+      // true cost of the previous full frame. Essential, because the governor
+      // can't govern from a sampled subset of frames.
       this.unsubscribe = getConductor().subscribe("input", this.measure, {
         priority: "essential",
         label: "AnimationBudget",
@@ -350,14 +318,13 @@ class AnimationBudget {
     this.cap?.frame(dt * 1000, time, this.policy.currentTier === 2);
     if (this.policy.setFrameBudget(conductor.frameBudgetMs / 1000)) {
       // The window was scored against the old budget and has been discarded.
-      // Say so now. Left to push(), listeners would hear nothing until
-      // MIN_SAMPLES frames later, and a gate would keep a tier that no longer
-      // describes anything for over a second.
+      // Say so now: left to push(), listeners would hear nothing for MIN_SAMPLES
+      // frames, and a gate would keep a stale tier for over a second.
       const reset = this.policy.state;
       for (const fn of [...this.listeners]) fn(reset);
     }
     // The input lane runs first, so the conductor's work figure is the
-    // completed previous frame — the same vintage as `dt`.
+    // completed previous frame, the same vintage as `dt`.
     const emit = this.policy.push(dt, time, conductor.workMs / 1000);
     if (emit !== null) {
       for (const fn of [...this.listeners]) fn(emit);
@@ -367,7 +334,7 @@ class AnimationBudget {
 
 let instance: AnimationBudget | null = null;
 
-/** Lazy singleton — client-only construction, SSR-import-safe. */
+/** Lazy singleton: client-only construction, safe to import in SSR. */
 export function getAnimationBudget(): AnimationBudget {
   if (instance === null) instance = new AnimationBudget();
   return instance;

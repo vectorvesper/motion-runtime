@@ -1,8 +1,8 @@
 /** Shared math for the motion core. */
 
 /**
- * Frame-rate-independent exponential damping — identical feel at 30 and
- * 120fps. `k` is responsiveness per second; higher = tighter tracking.
+ * Frame-rate-independent exponential damping, identical at 30 and 120fps.
+ * `k` is responsiveness per second: higher tracks tighter.
  */
 export function damp(current: number, target: number, k: number, dt: number): number {
   return current + (target - current) * (1 - Math.exp(-k * dt));

@@ -2,14 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { CapPolicy, type CapContext } from "./presentation-cap";
 
 /**
- * The battery-saver cap (RB-1).
+ * The battery-saver cap.
  *
- * A browser on battery saver presents the page at 30fps on a 60Hz panel. The
- * runtime read that as a page missing every frame, and a gate waiting for a
- * free frame waited for the whole visit. CapPolicy decides when the evidence
- * says the browser, not the page, set that pace. These tests pin both halves:
- * it must believe a real cap, and it must not hand a page that is slow because
- * of its own load the same pass.
+ * A browser on battery saver presents the page at 30fps on a 60Hz panel.
+ * CapPolicy decides when the evidence says the browser set that pace. These
+ * tests pin both halves: it must believe a real cap and must not pass a page
+ * that is slow because of its own load.
  */
 
 const CAPPED = 1000 / 30;

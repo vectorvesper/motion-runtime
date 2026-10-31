@@ -6,41 +6,23 @@ import { render, cleanup, act } from "@testing-library/react";
 /**
  * The arrangement matrix.
  *
- * ## Why this file exists
+ * Every other test mounts a hook in the simplest tree: one component, rendered
+ * directly. Real bugs live elsewhere, such as a ref target that arrives on a
+ * later commit behind a spinner, a Suspense fallback or a `next/dynamic`
+ * placeholder.
  *
- * Every other test in this package mounts a hook in the simplest possible
- * tree: one component, rendered directly, nothing above it. The logic is well
- * covered that way, and the logic has never been where the field bugs were.
- *
- * 2.0.0 shipped a `useSceneGate` that silently did nothing whenever its ref
- * target arrived on a later commit, which is what happens behind a spinner, a
- * Suspense fallback, or a `next/dynamic` placeholder. The effect read
- * `ref.current` once, found nothing, and never ran again. No error, no warning,
- * a scene stuck in `dormant` forever. Every unit test passed, because every
- * unit test attached the ref on the first commit.
- *
- * The claim this package makes is that it works with any framework and in many
- * component arrangements. The framework half is already testable: eleven test
- * files run in a node environment with no React present at all. This file is
- * the other half.
- *
- * ## What it asserts
- *
- * Every hook, in every arrangement, must leave the page exactly as it found
- * it. Three things are checked after unmount, and they are the same three for
- * every cell:
+ * Every hook, in every arrangement, must leave the page as it found it. After
+ * unmount:
  *
  *   1. the conductor has no subscribers left
  *   2. every IntersectionObserver has been disconnected
  *   3. every window and document listener added has been removed
  *
- * That last one is how a leaked SensorBus retain shows up. The bus refcount is
- * private and stripped from the published types, so the honest way to observe
- * it is the listeners it attaches.
+ * The last one is how a leaked SensorBus retain shows up, because the bus
+ * refcount is private.
  *
- * Liveness is checked separately, and only where an arrangement could
- * plausibly break it. A hook that cleans up perfectly while doing nothing
- * would pass the three checks above, which is exactly the 2.0.0 failure.
+ * Liveness is checked separately, where an arrangement could break it: a hook
+ * that cleans up perfectly while doing nothing would pass all three.
  */
 
 // ── frame + observer stubs ──────────────────────────────────────────
@@ -121,22 +103,16 @@ function trackListeners(): void {
 }
 
 /**
- * Listeners that legitimately outlive the component that triggered them.
+ * Listeners that legitimately outlive the component that triggered them. Both
+ * are page-lifetime and attach at most once, so the allowance is a count: a
+ * second one means something is attaching per component.
  *
- * Both entries are page-lifetime and attach at most once, so the allowance is
- * a count rather than a blanket exemption: a second one means something is
- * attaching per component, and the matrix should say so.
+ *   document:visibilitychange   AnimationBudget's constructor, a page singleton
+ *                               with no destroy. `vi.resetModules()` builds a
+ *                               fresh one per test.
  *
- *   document:visibilitychange   AnimationBudget's constructor. The governor is
- *                               a page singleton with no destroy, by design.
- *                               `vi.resetModules()` builds a fresh one per
- *                               test, so exactly one appears in each.
- *
- *   document:selectionchange    React DOM's own. Verified by the control test
- *                               at the bottom of this file, which renders a
- *                               bare div with no runtime code and still sees
- *                               it. If that test ever goes quiet, delete this
- *                               line rather than trusting the comment.
+ *   document:selectionchange    React DOM's own: it shows up on a bare div with
+ *                               no runtime import.
  */
 const PAGE_LIFETIME_LISTENERS: Readonly<Record<string, number>> = {
   "document:visibilitychange": 1,
@@ -232,11 +208,9 @@ afterEach(() => {
  */
 interface SubjectProps {
   /**
-   * Attach the hook's ref on a later commit rather than the first.
-   *
-   * The hook itself still runs on the first render. Only its element arrives
-   * late, which is the shape a spinner or a `next/dynamic` placeholder
-   * produces, and the shape that broke 2.0.0.
+   * Attach the hook's ref on a later commit. The hook itself still runs on the
+   * first render, and only its element arrives late, the shape a spinner or a
+   * `next/dynamic` placeholder produces.
    */
   deferRef?: boolean;
 }
@@ -513,9 +487,9 @@ describe("arrangements: every hook leaves the page as it found it", () => {
 // ── liveness, where an arrangement could plausibly break it ─────────
 
 /**
- * Cleaning up perfectly while doing nothing passes every check above. That is
- * precisely what 2.0.0 did. So the arrangements that can strand a hook get a
- * second assertion: it still reached the state that makes it useful.
+ * Cleaning up perfectly while doing nothing passes every check above. So the
+ * arrangements that can strand a hook get a second assertion: it still reached
+ * the state that makes it useful.
  */
 describe("arrangements: the hook still works", () => {
   it("useSceneGate reaches active when its ref arrives on a later commit", async () => {
@@ -671,7 +645,7 @@ describe("arrangements: the hook still works", () => {
 /**
  * The server has no frame timings, no pointer and no GPU, so any hook that
  * opened on its first render would produce markup the client disagrees with.
- * Both of these start closed on purpose, and this is the test that says so.
+ * Both of these start closed, and this test says so.
  */
 describe("arrangements: server render and hydration", () => {
   it("useSafeToMount renders closed on the server", async () => {
@@ -742,17 +716,13 @@ describe("arrangements: server render and hydration", () => {
 
 describe("arrangements: the harness itself", () => {
   /**
-   * The check that keeps the matrix meaningful: with no runtime code in the
-   * tree at all, the accounting comes out clean. If this ever fails, the
-   * harness is measuring React or jsdom rather than us, and every other
-   * result in the file is worth less than it looks.
+   * With no runtime code in the tree, the accounting comes out clean. If this
+   * ever fails, the harness is measuring React or jsdom and not the runtime.
    *
-   * It is also what justifies the `selectionchange` allowance. React attaches
-   * that one per document on its first render, which is why this test cannot
-   * assert the count directly: by the time it runs, the matrix above has
-   * already triggered it and React will not attach it twice. Verified instead
-   * by rendering a bare div as the only test in a throwaway file, where
-   * `selectionchange` shows up with no runtime import anywhere.
+   * React attaches `selectionchange` per document on its first render, so this
+   * test can't assert the count directly: the matrix above has already
+   * triggered it. Rendering a bare div as the only test in a file shows it with
+   * no runtime import.
    */
   it("a bare render leaves nothing the runtime is answerable for", () => {
     render(<div>no runtime here</div>);

@@ -1,48 +1,36 @@
 /**
- * RendererHealth — has the graphics context died, and how many times.
+ * RendererHealth: has the graphics context died, and how many times.
  *
  * A browser can take a WebGL context away at any moment: a GPU driver reset, a
- * tab backgrounded on a phone, too many live contexts on one page, the OS
- * reclaiming memory. When it happens the canvas fires `webglcontextlost`, three
- * passes the event along, and **React Three Fiber does nothing with it** —
- * verified against 9.6.1, there is no handler anywhere in the bundle. The
- * result is a permanently black canvas with no error in the console.
+ * tab backgrounded on a phone, too many live contexts, the OS reclaiming
+ * memory. The canvas fires `webglcontextlost`, and React Three Fiber has no
+ * handler for it (checked against 9.6.1), so the result is a permanently black
+ * canvas with no console error.
  *
- * ## Why this is a page-level singleton and not per-canvas
+ * This is a page-level singleton because a driver reset takes every context at
+ * once, and because it must be readable from outside the canvas: R3F runs its
+ * own reconciler, so React context doesn't cross the `<Canvas>` boundary. The
+ * cost is that one lost context bumps the generation for every scene on the
+ * page, which is acceptable: a loss is rare, and a remount is cheap next to a
+ * black canvas.
  *
- * A driver reset takes every context on the page at once, so a page-level
- * signal is the truthful one for the common case. It also has to be readable
- * from *outside* the canvas — R3F runs its own reconciler, so React context
- * does not cross the `<Canvas>` boundary, and the component that decides what
- * to render instead is on the other side of it.
+ * Recovery is a generation counter. `webglcontextrestored` only helps if every
+ * buffer, texture, program and render target is rebuilt by hand, which R3F
+ * doesn't do. Instead the counter increments on loss, a scene puts it on its
+ * `<Canvas key>`, React unmounts the dead tree, and R3F builds a new context
+ * from the React tree it already has.
  *
- * The cost is that a single lost context bumps the generation for every scene
- * on the page. Given a lost context is rare and a remount is cheap next to a
- * black canvas, that trade is deliberate.
- *
- * ## What recovery actually is
- *
- * Not `webglcontextrestored`. That event only helps if every buffer, texture,
- * program and render target is rebuilt by hand in the right order, which
- * almost nothing does correctly, and R3F does not do at all.
- *
- * The recovery here is a **generation counter**. It increments on loss, a
- * scene puts it on its `<Canvas key>`, React unmounts the dead tree and mounts
- * a fresh one, and R3F builds a new context with every resource re-created
- * from the React tree it already has. The rebuild is something React is
- * already good at; the only missing piece was knowing when to ask for it.
- *
- * `preventDefault()` on the lost event still matters and the adapter calls it —
- * without it the browser will not even attempt a restore, and some drivers
- * refuse a new context on the same page afterwards.
+ * The adapter still calls `preventDefault()` on the lost event: without it the
+ * browser won't attempt a restore, and some drivers refuse a new context on the
+ * same page.
  */
 
 export interface RendererHealthState {
   /** True between a context being lost and a replacement being mounted. */
   lost: boolean;
   /**
-   * Increments once per loss. Put it on a `<Canvas key>` — changing it is what
-   * makes React throw away the dead tree and build a working one.
+   * Increments once per loss. Put it on a `<Canvas key>`: changing it makes
+   * React throw away the dead tree and build a working one.
    */
   generation: number;
   /** When the most recent loss happened, or `null` if there has not been one. */
@@ -52,14 +40,13 @@ export interface RendererHealthState {
 /** What a reporter can say about the canvas it lost. */
 export interface ReportLostOptions {
   /**
-   * The `generation` that was current when the lost canvas's renderer was
-   * created. Read `getRendererHealth().state.generation` at that moment and
-   * keep it with the renderer.
+   * The `generation` current when the lost canvas's renderer was created. Read
+   * `getRendererHealth().state.generation` at that moment and keep it with the
+   * renderer.
    *
-   * It is how the runtime tells a replacement from the canvas it replaced. A
-   * loss from a canvas built under the current generation always counts, even
-   * inside the window that folds one reset reaching several canvases into one
-   * rebuild, because that canvas did not exist yet when the reset happened.
+   * It tells a replacement from the canvas it replaced. A loss from a canvas
+   * built under the current generation always counts, even inside the
+   * coalescing window, because that canvas didn't exist when the reset happened.
    *
    * `useRenderQuality` and `watchGPUDevice` pass it for you.
    */
@@ -67,11 +54,9 @@ export interface ReportLostOptions {
 }
 
 /**
- * How long after a loss another loss is treated as the same reset.
- *
- * A driver reset reaches every canvas on the page within a frame or two, so
- * this only has to be longer than that. Kept short so a genuinely separate
- * failure moments later still registers as one.
+ * How long after a loss another loss is treated as the same reset. A driver
+ * reset reaches every canvas within a frame or two. Kept short so a separate
+ * failure moments later still registers.
  */
 const LOSS_COALESCE_MS = 250;
 
@@ -79,12 +64,11 @@ const LOSS_COALESCE_MS = 250;
  * How many rebuilds in a row freshly built canvases may trigger, each inside
  * the coalescing window of the one before.
  *
- * One is the case `builtAt` exists for: a replacement lost moments after it
- * was built. A long run means every rebuild is killing its own canvases, which
- * is what a page keeping more live contexts than the browser allows does: each
- * rebuild creates a full set, the browser evicts the oldest, and the eviction
- * reads as a fresh loss. Without a limit that loops for as long as the page is
- * open.
+ * One is the case `builtAt` exists for: a replacement lost moments after it was
+ * built. A long run means a page is keeping more live contexts than the browser
+ * allows: each rebuild creates a full set, the browser evicts the oldest, and
+ * the eviction reads as a fresh loss. Without a limit that loops for as long as
+ * the page is open.
  */
 const MAX_RAPID_REBUILDS = 3;
 
@@ -126,55 +110,27 @@ class RendererHealth {
   /**
    * Report a lost context. Called by the R3F adapter.
    *
-   * Calls inside the coalescing window do not stack. A driver reset fires the
-   * event on every canvas on the page, and one reset should mean one rebuild,
-   * not one rebuild per canvas.
-   *
-   * Pass `builtAt` and a canvas the last rebuild built is exempt: its loss is
-   * new wherever it falls in the window. Up to 4.1.0 the window swallowed it,
-   * so a replacement lost within 250ms of the loss that built it stayed black
-   * with nothing left to rebuild it. Two quick clicks on vv-site's "Drop
-   * Context" did exactly that (vv-lab R10). A report without `builtAt` is
-   * judged by the window alone, as before.
+   * Calls inside the coalescing window don't stack: a driver reset fires on
+   * every canvas, and one reset should mean one rebuild. Pass `builtAt` and a
+   * canvas the last rebuild built is exempt, because its loss is new wherever
+   * it falls in the window. A report without `builtAt` is judged by the window
+   * alone.
    *
    * A later loss always counts, whether or not anything reported healthy in
-   * between. Up to 4.1.0 this returned early while `lost` was still set, so a
-   * scene whose code never called `reportHealthy()` survived exactly one loss:
-   * the second was swallowed and the canvas stayed black for good. vv-site's
-   * own landing demo died that way on its second "Drop Context". A forgotten
-   * call should cost a stale badge, not a dead scene, and the grace timer
-   * below clears the badge as well.
+   * between, so a forgotten `reportHealthy()` can't kill a scene. The grace
+   * timer below clears the stale badge.
    */
   reportLost(options?: ReportLostOptions): void {
-    /**
-     * Why a time window and not a flag.
-     *
-     * A `lost` flag only holds until a replacement mounts and calls `reportHealthy()`,
-     * and with N canvases that happens *between* the queued
-     * `webglcontextlost` events, because those are async and the remount is
-     * synchronous. So the sequence is lost, healthy, lost, healthy — and every
-     * one of those losses looks like a fresh failure.
-     *
-     * Measured: sixteen canvases, one driver reset, **generation 16**. Each
-     * bump remounts every scene on the page, so a single reset produced
-     * sixteen full rebuilds and up to 256 context creations against a browser
-     * that keeps about sixteen. Cards lose that race and stay black, which is
-     * the failure this class exists to prevent.
-     *
-     * A loss arriving this soon after the last one is normally the same reset
-     * reaching another canvas. The canvas reporting it has already been
-     * replaced by the rebuild the first report triggered, so its event is about
-     * an element that is no longer in the document. Ignored outright rather
-     * than merely not counted: flipping `lost` back to true would report LOST
-     * for a page whose replacements are already up.
-     *
-     * The exception is a report whose `builtAt` is the current generation.
-     * Only the rebuild can have built that canvas, after the reset, so the
-     * reset is not what killed it.
-     *
-     * The window is deliberately short. A genuinely new failure a second later
-     * is a new failure and still counts.
-     */
+    // A time window, because a `lost` flag only holds until a replacement mounts
+    // and calls `reportHealthy()`, which happens between the queued loss events.
+    // Every loss would look new: one reset across sixteen canvases would mean
+    // sixteen rebuilds and up to 256 context creations.
+    //
+    // A loss this soon after the last is normally the same reset reaching a
+    // canvas already replaced, so it is ignored outright: setting `lost` again
+    // would report LOST for a page whose replacements are up. A report whose
+    // `builtAt` is the current generation is the exception, because only the
+    // rebuild can have built that canvas.
     const now = Date.now();
     if (this.lastLostAt !== null && now - this.lastLostAt < LOSS_COALESCE_MS) {
       if (options?.builtAt !== this.generation) return;
@@ -207,13 +163,11 @@ class RendererHealth {
 
   /**
    * If nothing reports healthy within the grace period, assume the rebuild
-   * worked, and say so once.
+   * worked and say so once.
    *
-   * `lost` is what a scene gate reads to hold its scene in `recovering`, and a
-   * scene held there draws at reduced quality. Without this, one forgotten
-   * `reportHealthy()` kept every gated scene on the page reduced for the rest
-   * of the visit. The warning names the call to add. A replacement that really
-   * is still building reports healthy later, which by then changes nothing.
+   * A scene gate reads `lost` to hold its scene in `recovering`, at reduced
+   * quality, so one forgotten `reportHealthy()` would keep every gated scene
+   * reduced for the rest of the visit. The warning names the call to add.
    */
   private armGrace(): void {
     this.clearGrace();

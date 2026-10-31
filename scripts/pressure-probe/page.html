@@ -75,7 +75,7 @@
   const hasGL = initGL();
   sizeCanvas();
 
-  /** Burn `ms` of main-thread time. Deliberately not optimisable away. */
+  /** Burn `ms` of main-thread time. Can't be optimised away. */
   function burn(ms) {
     const end = performance.now() + ms;
     let x = 0;
@@ -99,8 +99,8 @@
     },
 
     /**
-     * Main-thread work that is NOT a VV subscriber — its own rAF loop, which
-     * is exactly what an uncooperative third-party library looks like.
+     * Main-thread work that isn't a VV subscriber: its own rAF loop, which is
+     * what an uncooperative third-party library looks like.
      */
     "main-thread": () => {
       let alive = true;
@@ -112,23 +112,13 @@
     /**
      * Heavy fragment shader, one draw call. Almost no main-thread cost.
      *
-     * The iteration count STEERS ITSELF, and that is the whole point.
+     * The iteration count steers itself, because a fixed count stops being a
+     * load as GPUs get faster, and the classifier would then answer "none".
      *
-     * This was a fixed 420, chosen because it produced 30-40ms frames on the
-     * machine it was written on. GPUs got faster; the same 420 iterations
-     * later produced 17-19ms frames — a real dip to 52-58fps, but comfortably
-     * inside the classifier's slow line, which only speaks for frames 25% over
-     * budget. So the classifier correctly answered "none", the harness
-     * asserted "render", and three rows failed for a load that had quietly
-     * stopped being a load. A hard-coded number cannot survive the hardware
-     * moving underneath it.
-     *
-     * The band is derived from the measured frame budget rather than from
-     * FramePressure's SLOW_FACTOR directly: the test should demand a frame
-     * that is *unambiguously* blown, not one that sits a hair over whatever
-     * the current threshold happens to be. 2x-3.2x budget clears any plausible
-     * slow line with margin, and stops well short of the point where the
-     * driver starts taking the context away.
+     * The band comes from the measured frame budget, so the test demands a
+     * frame that is clearly blown. 2x-3.2x budget clears any plausible slow
+     * line with margin and stops well short of the driver taking the context
+     * away.
      */
     render: () => {
       if (!hasGL) throw new Error("no webgl2");

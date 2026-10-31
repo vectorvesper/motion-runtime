@@ -9,41 +9,33 @@ import {
 } from "../animation-budget/AnimationBudget";
 
 /**
- * AdaptiveQuality — the complete quality signal: static device heuristics
- * fused with the live AnimationBudget.
+ * AdaptiveQuality: the quality signal, fusing device heuristics with the live
+ * AnimationBudget.
  *
- * Why both: the budget measures TRUTH but only after frames accumulate —
- * the first seconds are blind. Device signals guess instantly but never
- * learn. Fusion rule: `tier = max(deviceTier, budgetTier)` — the device
- * tier is a FLOOR. Without it, weak devices oscillate: degrade → frames
- * recover (because we degraded) → upgrade → jank → degrade, forever.
- * A software renderer stays a software renderer; the floor encodes that.
+ * The budget measures real frames but is blind for the first seconds. Device
+ * signals answer at once but never learn. The device tier is a floor: without
+ * it a weak device oscillates, degrading until frames recover, then upgrading
+ * into jank again.
  *
- * Own heuristics, zero deps (no GPU benchmark databases): conservative,
- * explainable (`reasons`), refined by measurement rather than trusted.
+ * Heuristics only, no GPU benchmark database. Every tier carries `reasons`.
  */
 
 export interface DeviceSignals {
   webgl2: boolean;
   /**
-   * Whether the browser exposes WebGPU at all.
+   * Whether the browser exposes WebGPU, read from `navigator.gpu`.
    *
-   * Detected synchronously from `navigator.gpu`, which says the API exists and
-   * nothing more. Adapter limits and the device tier behind them need
-   * `requestAdapter()`, which is async and therefore cannot inform the first
-   * synchronous probe. This flag is here so a scene can choose a WebGPU path
-   * before that answer arrives; it deliberately does not move the tier.
+   * This says the API exists and nothing more. Adapter limits need
+   * `requestAdapter()`, which is async, so the flag doesn't move the tier. It
+   * lets a scene pick a WebGPU path before that answer arrives.
    */
   webgpu: boolean;
   /** GPU renderer string (unmasked where available), "" if unknown. */
   renderer: string;
   /**
-   * Whether the device has a touch screen (touch points or touch events), or
-   * null when unknown.
-   *
-   * Read only to tell Apple devices apart: Safari reports "Apple GPU" on a Mac
-   * and on an iPhone alike. Optional, so signals built by hand elsewhere still
-   * type-check; absent reads as unknown.
+   * Whether the device has a touch screen, or null when unknown. Used only to
+   * tell Apple devices apart: Safari reports "Apple GPU" on a Mac and an iPhone
+   * alike. Absent reads as unknown.
    */
   touch?: boolean | null;
   /** navigator.deviceMemory in GB, null if unsupported. */
@@ -55,16 +47,12 @@ export interface DeviceSignals {
 
 export interface AdaptiveState {
   /**
-   * Effective tier. Consume THIS one.
+   * Effective tier. Consume this one.
    *
-   * Up to 2.x this was `max(deviceTier, budgetTier)` and nothing more, which
-   * meant it degraded whenever the frame rate sagged, including when the cause
-   * was somebody else's script blocking the main thread. A smaller scene does
-   * nothing for that: it makes the page uglier and exactly as slow.
-   *
-   * Since 3.0 the budget half is ignored while the classifier can prove the
-   * frame is blocked by something reducing quality cannot fix. The device floor
-   * is never ignored.
+   * The budget half is ignored while the classifier can prove the frame is
+   * blocked by something reducing quality can't fix, such as another script on
+   * the main thread. A smaller scene does nothing for that. The device floor
+   * always applies.
    */
   tier: BudgetTier;
   label: "high" | "medium" | "low";
@@ -73,11 +61,11 @@ export interface AdaptiveState {
   /**
    * Why `tier` is what it is, in one machine-readable word. Branch on this.
    *
-   * `device` and `reduced-motion` are floors. `render` means rendering is
-   * measurably the bottleneck, which is the one case reducing quality helps.
-   * `frame-rate` means the frame is slow but the classifier cannot attribute
-   * it yet, so the budget tier is trusted. `held` means the budget tier wants
-   * to degrade and was overruled because the frame is blocked elsewhere.
+   * `device` and `reduced-motion` are floors. `render` means rendering is the
+   * bottleneck, the one case reducing quality helps. `frame-rate` means the
+   * frame is slow but not yet attributed, so the budget tier stands. `held`
+   * means the budget tier wants to degrade and was overruled because the frame
+   * is blocked elsewhere.
    */
   cause: QualityCause;
   /** Human-readable trail of why the device tier is what it is. */
@@ -88,40 +76,10 @@ export interface AdaptiveState {
 const LABELS = ["high", "medium", "low"] as const;
 
 /**
- * Would reducing quality actually help?
- *
- * Pure, and exported for tests, because this is the rule the whole runtime is
- * built around and it used to live inside useSceneGate where only one caller
- * could reach it. Twenty-one components read the governor directly and got the
- * naive answer.
- *
- * The order matters:
- *
- * 1. **Floors first.** Reduced motion and a weak device are not opinions about
- *    the current frame, they are standing facts, and no frame measurement
- *    overrules them.
- * 2. **Then the specific diagnosis.** Rendering being the bottleneck is the one
- *    case a smaller scene fixes.
- * 3. **Then the general one.** If the budget tier wants to degrade and the
- *    classifier has no verdict, trust the budget tier. Silence from the
- *    classifier means the frame is under its attribution line, not that
- *    nothing is wrong.
- * 4. **Refuse only when we can prove it would not help.** A confident
- *    main-thread or runtime verdict is the one case where degrading is known
- *    to be useless, so the budget tier is overruled and reported as `held`.
- *
- * This is the answer from what is known at one instant. The AdaptiveQuality
- * class does not act on a `held` answer straight away: it lowers quality
- * first, and holds only once that reduction has been tried and did not make
- * frames faster. See `Trial` below for why.
- */
-/**
- * Why the governor arrived at the tier it did.
- *
- * Branch on this when a slow device and a slow frame call for different
- * responses. `held` is the interesting one: frames are dropping, but something
- * other than drawing is to blame, so reducing quality would make the page
- * uglier without making it faster.
+ * Why the governor arrived at the tier it did. Branch on this when a slow device
+ * and a slow frame call for different responses. `held` means frames are
+ * dropping but drawing isn't to blame, so reducing quality would only make the
+ * page uglier.
  */
 export type QualityCause =
   | "ok"
@@ -132,14 +90,24 @@ export type QualityCause =
   | "held";
 
 /**
- * The fusion rule, as a pure function.
+ * The fusion rule: would reducing quality help? Exported so tests, devtools and
+ * docs use the real rule instead of a copy.
  *
- * Exported for the same reason `SAFE_TO_MOUNT_COST` and
- * `POINTER_INTENT_SENSITIVITY` are: a devtools panel or a docs page explaining
- * a verdict needs the real rule, and the alternative is every such surface
- * keeping a copy that drifts out of date. The adaptive-quality documentation
- * page had exactly that, still computing `max(deviceTier, budgetTier)` long
- * after 3.0 replaced it.
+ * The order matters:
+ *
+ * 1. Floors first. Reduced motion and a weak device are standing facts that no
+ *    frame measurement overrules.
+ * 2. Then the specific diagnosis. Rendering being the bottleneck is the one
+ *    case a smaller scene fixes.
+ * 3. Then the general one. If the budget tier wants to degrade and the
+ *    classifier has no verdict, trust the budget tier. Silence only means the
+ *    frame is under the attribution line.
+ * 4. Refuse only on proof. A confident main-thread or runtime verdict overrules
+ *    the budget tier and reports `held`.
+ *
+ * This answers for one instant. The AdaptiveQuality class lowers quality first
+ * and holds only once that reduction was tried and frames got no faster: see
+ * `Trial`.
  */
 export function fuse(
   deviceTier: BudgetTier,
@@ -169,21 +137,17 @@ export function fuse(
 }
 
 /**
- * Pure signals→tier heuristic (exported for tests). Conservative on purpose,
- * but only tier 2 withholds a scene, so tier 2 is kept for devices that really
- * cannot run one.
+ * Pure signals-to-tier heuristic, exported for tests.
  *
- * Tier 2 is the poster tier: `useSceneGate` never mounts the scene. It is for
- * what cannot render at all or will not cope: no WebGL2, a software renderer,
- * or 2 GB of memory or less. Everything else that looks modest starts at tier
- * 1, reduced quality, and the live frame rate decides from there.
+ * Tier 2 is the poster tier: `useSceneGate` never mounts the scene. It is kept
+ * for devices that can't render or won't cope: no WebGL2, a software renderer,
+ * or 2 GB of memory or less. Anything else that looks modest starts at tier 1,
+ * reduced quality, and the live frame rate decides from there.
  *
- * Up to 4.3.2 a mobile GPU and 4 GB of memory stacked, one tier each, to tier
- * 2. Chrome rounds `navigator.deviceMemory` down to a power of two, so a 6 GB
- * phone reports 4, and nearly every Android phone under 8 GB got the poster.
- * On 2026-10-27 a Galaxy F23 (Adreno 619, reported 4 GB) was refused vv-site's
- * landing hero, then held 60 fps with it for three minutes once allowed (vault
- * RB-4). Safari reports no memory, so iPhones were never affected.
+ * A mobile GPU and low memory must not stack into tier 2. Chrome rounds
+ * `navigator.deviceMemory` down to a power of two, so a 6 GB phone reports 4,
+ * and stacking would refuse nearly every Android phone under 8 GB. A Galaxy F23
+ * (Adreno 619, reports 4 GB) holds 60fps with a full hero scene.
  */
 export function deviceTierFromSignals(s: DeviceSignals): {
   tier: BudgetTier;
@@ -200,10 +164,9 @@ export function deviceTierFromSignals(s: DeviceSignals): {
   } else if (
     /mali|adreno|powervr|videocore/i.test(s.renderer) ||
     // Safari reports "Apple GPU" for every Apple device, an M3 Max included, so
-    // the string alone cannot tell a phone from a Mac: up to 4.1.0 every Mac on
-    // Safari started at tier 1. Touch can. No Mac has a touch screen, and an
-    // iPad asking for the desktop site still reports touch points. When touch
-    // is unknown the old, cautious reading stands.
+    // the string can't tell a phone from a Mac. Touch can: no Mac has a touch
+    // screen, and an iPad asking for the desktop site still reports touch
+    // points. When touch is unknown, stay cautious.
     (/apple gpu/i.test(s.renderer) && s.touch !== false)
   ) {
     // Mobile-class GPUs run GL well but live in a thermal envelope.
@@ -215,8 +178,8 @@ export function deviceTierFromSignals(s: DeviceSignals): {
     tier = 2;
     reasons.push("very little memory (2 GB or less)");
   } else {
-    // A floor, not a step: modest memory or cores mean reduced quality, and
-    // they no longer stack with a mobile GPU into the poster tier.
+    // A floor: modest memory or cores mean reduced quality, and they don't stack
+    // with a mobile GPU into the poster tier.
     const constrained =
       (s.deviceMemory !== null && s.deviceMemory <= 4) ||
       (s.cores !== null && s.cores <= 4);
@@ -231,18 +194,14 @@ export function deviceTierFromSignals(s: DeviceSignals): {
 }
 
 /**
- * What the server reports, and why it is optimistic.
+ * What the server reports. There is no device to probe during SSR, and assuming
+ * the worst would map to the poster tier: a capable machine would render the
+ * fallback, hydrate, and swap to a full scene, a flash and a layout shift on
+ * every good device.
  *
- * There is no device to probe during SSR. The tempting default is the honest
- * one, "we know nothing, assume the worst", but `deviceTierFromSignals` maps
- * `webgl2: false` to tier 2, which is the poster tier. A Nuxt or SvelteKit page
- * would render the static fallback, hydrate, probe a perfectly capable GPU and
- * swap to a full scene: a flash and a layout shift on every good machine.
- *
- * So the server reports tier 0, which is exactly what `useAdaptiveQuality`'s
- * INITIAL already renders on the React side. Server output and first client
- * render agree, and the real probe corrects it a frame later if the device
- * deserves it. Same reasoning as `useSafeToMount` starting `false`.
+ * So the server reports tier 0, matching `useAdaptiveQuality`'s INITIAL. Server
+ * output and first client render agree, and the real probe corrects it a frame
+ * later. `useSafeToMount` starts `false` for the same reason.
  */
 const SERVER_SIGNALS: DeviceSignals = {
   webgl2: false,
@@ -256,24 +215,19 @@ const SERVER_SIGNALS: DeviceSignals = {
 /**
  * A WebGL context the browser refused while the page was open.
  *
- * The device probe runs once, when the page loads. If WebGL is refused later
- * (Chrome blocks it for a tab after a GPU reset: "Web page caused context loss
- * and was blocked"), a gated scene still believed the device could render: R3F
- * failed to create its context, never called `onCreated`, and the visitor got
- * an empty box instead of the scene's still. vv-site's footer did exactly that
- * on 2026-10-25 (vault RB-3).
+ * The device probe runs once, at load. If WebGL is refused later (Chrome blocks
+ * it for a tab after a GPU reset), a gated scene would still believe the device
+ * can render: R3F fails to create its context, never calls `onCreated`, and the
+ * visitor gets an empty box instead of the scene's still.
  *
  * A browser that refuses a context fires `webglcontextcreationerror` at the
- * canvas, whatever asked for it: R3F, three.js or hand-written code. One
- * capture-phase listener on the document hears it from every canvas on the
- * page, so no adapter has to be wired for it. It is attached while anything
- * subscribes to AdaptiveQuality, which every gate does, and removed with the
- * last subscriber, so the page is left as it was found. The refusal sends the
- * device to tier 2, so every gate shows its still, and it lasts until the page
- * reloads: a browser that has blocked WebGL for a tab does not unblock it, and
- * asking again would only log more errors.
+ * canvas, whatever asked for it, so one capture-phase listener on the document
+ * hears every canvas and no adapter needs wiring. It is attached while anything
+ * subscribes to AdaptiveQuality. A refusal sends the device to tier 2 until the
+ * page reloads, because a browser that has blocked WebGL for a tab doesn't
+ * unblock it, and asking again would only log more errors.
  *
- * Internal: exported for useSceneGate and the tests, and from no entry point.
+ * Internal: exported for useSceneGate and the tests, from no entry point.
  */
 let refusal: string | null = null;
 const refusalWatchers = new Set<() => void>();
@@ -324,16 +278,16 @@ function probeDeviceSignals(): DeviceSignals {
       gl.getExtension("WEBGL_lose_context")?.loseContext();
     }
   } catch {
-    /* webgl2 stays false — fail toward the floor */
+    /* webgl2 stays false: fail toward the floor */
   }
   const nav = navigator as Navigator & { deviceMemory?: number; gpu?: unknown };
   return {
     webgl2,
     webgpu: typeof nav.gpu === "object" && nav.gpu !== null,
     renderer,
-    // Touch points or touch events, either one. A real iPhone reports five
-    // touch points, but Playwright's iPhone emulation reports none while still
-    // exposing touch events; Safari on a Mac has neither.
+    // Touch points or touch events. A real iPhone reports five touch points, but
+    // Playwright's iPhone emulation reports none while still exposing touch
+    // events. Safari on a Mac has neither.
     touch: navigator.maxTouchPoints > 0 || "ontouchstart" in window,
     deviceMemory: typeof nav.deviceMemory === "number" ? nav.deviceMemory : null,
     cores: typeof navigator.hardwareConcurrency === "number"
@@ -351,17 +305,18 @@ const TRIAL_MS = 2000;
 const HELPED_RATIO = 0.85;
 
 /**
- * Whether lowering quality is actually helping, found out by trying it.
+ * Whether lowering quality is helping, found out by trying it.
  *
- * The classifier alone cannot be trusted to say "do not reduce". An overloaded
+ * The classifier alone can't be trusted to say "do not reduce". An overloaded
  * GPU can stall the main thread inside WebGL calls, and the stall reads as
- * main-thread or runtime work: in vv-lab on 2026-10-19 a `useThreeScene` hero
- * on a 3x screen held full resolution at 30fps for twelve seconds because of
- * it. So a slow spell is answered the way it always was, by reducing, and the
- * reduction is judged after TRIAL_MS. Only if frames did not get faster, and
- * the classifier blames the main thread, does quality come back and stay up
- * until the load is gone. An overloaded GPU always speeds up when reduced, so
- * it can never be held by mistake. A blocked thread never does (vault RB-2).
+ * main-thread or runtime work, which would leave a hero on a 3x screen at full
+ * resolution and 30fps.
+ *
+ * So a slow spell is answered by reducing, and the reduction is judged after
+ * TRIAL_MS. Only if frames got no faster, and the classifier blames the main
+ * thread, does quality come back and stay up until the load is gone. An
+ * overloaded GPU always speeds up when reduced, so it can't be held by mistake.
+ * A blocked thread never does.
  */
 type Trial =
   /** Frames are within budget, or a floor decides. Nothing to test. */
@@ -386,8 +341,7 @@ class AdaptiveQuality {
   private emitted: { tier: BudgetTier; cause: QualityCause } | null = null;
 
   constructor() {
-    // A refusal changes the device tier, so every listener has to hear it now,
-    // not at the next budget or pressure change.
+    // A refusal changes the device tier, so every listener must hear it at once.
     refusalWatchers.add(() => this.emit(true));
   }
 
@@ -403,11 +357,10 @@ class AdaptiveQuality {
     const deviceTier = device.tier;
     const fused = fuse(deviceTier, this.budgetTier, this.signals!.reducedMotion, getFramePressure().state);
     let { effective, cause } = fused;
-    // A slow frame with no rendering verdict. `fuse()` says "held" when the
-    // main thread is blamed, but that waits for a trial to prove it; until
-    // then, and when a trial shows reducing helps, the budget tier stands.
-    // Once proven, the hold also outlasts its block: the budget tier waits out
-    // eight clean seconds before it recovers, and a scene that was never
+    // `fuse()` says "held" when the main thread is blamed, but that waits for a
+    // trial to prove it. Until then, and when a trial shows reducing helps, the
+    // budget tier stands. Once proven, the hold outlasts its block: the budget
+    // tier needs eight clean seconds to recover, and a scene that was never
     // reduced has nothing to recover from.
     if (cause === "held" || cause === "frame-rate") {
       if (this.trial.phase === "held") {
@@ -440,13 +393,8 @@ class AdaptiveQuality {
       });
     }
     // `fuse()` decides from FramePressure's verdict, and FramePressure only
-    // measures while something is subscribed. Until 4.0.0 useSceneGate called
-    // useFramePressure() itself, which kept it running for every gated scene;
-    // when the rule moved in here, that subscription went with the old code and
-    // nothing replaced it. The verdict sat at its initial "none", so a blocked
-    // main thread read as plain slow frames and lowered quality, and the "held"
-    // and "render" branches never ran (vault RB-2). Holding the subscription
-    // here means the rule can no longer depend on some caller remembering to.
+    // measures while something is subscribed. Holding the subscription here
+    // means the rule can't depend on some caller remembering to.
     if (this.offPressure === null) {
       this.offPressure = getFramePressure().subscribe(() => this.emit(false));
     }
@@ -500,10 +448,10 @@ class AdaptiveQuality {
   }
 
   /**
-   * Tell listeners. A budget tier change always goes out, as it did before.
-   * A new verdict goes out only when it changes the tier or the cause:
-   * FramePressure reports twice a second, and each report is a React render in
-   * every component holding the hook.
+   * Tell listeners. A budget tier change always goes out. A new verdict goes out
+   * only when it changes the tier or the cause: FramePressure reports twice a
+   * second, and each report is a React render in every component holding the
+   * hook.
    */
   private emit(force: boolean): void {
     if (this.listeners.size === 0) return;
@@ -518,12 +466,9 @@ class AdaptiveQuality {
   private ensureProbe(): void {
     if (this.device !== null) return;
 
-    // Reading `.state` during SSR used to throw "window is not defined": the
-    // canvas probe was inside a try/catch but `navigator.hardwareConcurrency`
-    // and `window.matchMedia` were not. This entry carries no "use client" and
-    // is advertised as framework-agnostic, so a Vue or Svelte page reading the
-    // governor on the server crashed the render. React consumers never saw it,
-    // because the hook sits behind a client boundary.
+    // `navigator.hardwareConcurrency` and `window.matchMedia` don't exist on a
+    // server, and this entry is framework-agnostic, so a Vue or Svelte page can
+    // read the governor during SSR.
     if (!isBrowser()) {
       this.signals = SERVER_SIGNALS;
       this.device = { tier: 0, reasons: ["not probed: no browser environment"] };
@@ -537,7 +482,7 @@ class AdaptiveQuality {
 
 let instance: AdaptiveQuality | null = null;
 
-/** Lazy singleton — client-only construction, SSR-import-safe. */
+/** Lazy singleton: client-only construction, safe to import in SSR. */
 export function getAdaptiveQuality(): AdaptiveQuality {
   if (instance === null) instance = new AdaptiveQuality();
   return instance;

@@ -4,12 +4,10 @@ import { StrictMode } from "react";
 import { render, cleanup } from "@testing-library/react";
 
 /**
- * The kernel-adjacent React adapters: useSensorBus, useAnimationBudget,
- * useAdaptiveQuality.
- *
- * These are thin wrappers whose whole job is lifecycle, so that is what is
- * tested — subscribe on mount, let go on unmount, and survive the StrictMode
- * double invoke. rAF is stubbed and hand-cranked as elsewhere.
+ * The kernel-adjacent React adapters: useSensorBus, useAnimationBudget and
+ * useAdaptiveQuality. They are thin wrappers, so what is tested is lifecycle:
+ * subscribe on mount, let go on unmount, and survive the StrictMode double
+ * invoke. rAF is stubbed and hand-cranked.
  */
 
 let rafCallbacks = new Map<number, FrameRequestCallback>();
@@ -163,10 +161,8 @@ describe("useAdaptiveQuality", () => {
 
     render(<Consumer />);
 
-    // The whole point of the device floor is that the budget is blind for the
-    // first seconds. If this arrived only once frames had degraded, a weak
-    // device would render the expensive path for exactly as long as it takes
-    // to hurt. jsdom has no WebGL2, so the floor here is the bottom tier.
+    // The budget is blind for the first seconds, so the device floor has to
+    // arrive first. jsdom has no WebGL2, so the floor here is the bottom tier.
     expect(seen!.tier).toBe(2);
     expect(seen!.reasons).toContain("no WebGL2");
   });

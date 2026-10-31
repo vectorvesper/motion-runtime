@@ -1,11 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 /**
- * The renderer-health signal.
- *
- * Small, but it is the thing standing between a lost WebGL context and a
- * permanently black canvas, so its edges are worth pinning down — particularly
- * that one driver reset means one rebuild, not one per canvas on the page.
+ * The renderer-health signal. One driver reset has to mean one rebuild, and not
+ * one per canvas on the page.
  */
 
 async function fresh() {
@@ -56,14 +53,13 @@ describe("RendererHealth", () => {
     health.reportHealthy();
 
     expect(health.state.lost).toBe(false);
-    // The generation does not go back — the new canvas is keyed on it.
+    // The generation doesn't go back: the new canvas is keyed on it.
     expect(health.state.generation).toBe(1);
   });
 
-  // This asserted the bug until 4.0.3. A second loss *does* count separately,
-  // but "immediately, with a healthy in between" is not a second loss — it is
-  // the same reset reaching the next canvas. So the intent stays and the clock
-  // moves past the coalescing window to express it.
+  // "Immediately, with a healthy in between" isn't a second loss: it's the same
+  // reset reaching the next canvas. So the clock moves past the coalescing
+  // window.
   it("counts a genuinely later loss separately", async () => {
     vi.useFakeTimers();
     try {
@@ -83,10 +79,7 @@ describe("RendererHealth", () => {
   });
 
   /**
-   * R2 in vv-lab's findings. `reportLost()` returned early while `lost` was
-   * still set, so code that never called `reportHealthy()` survived exactly one
-   * loss: the next was swallowed and the scene stayed black. vv-site's landing
-   * demo died on its second "Drop Context" this way.
+   * Code that never calls `reportHealthy()` must survive more than one loss.
    */
   it("still rebuilds on a later loss when nothing reported healthy", async () => {
     vi.useFakeTimers();
@@ -149,14 +142,9 @@ describe("RendererHealth", () => {
    * The failure this window exists for.
    *
    * The `lost` flag alone only holds until a replacement mounts and reports
-   * healthy. With several canvases that happens BETWEEN the queued
-   * `webglcontextlost` events, so the sequence is lost, healthy, lost,
-   * healthy — and every loss looked like a fresh failure.
-   *
-   * Measured on vv-site's /lab/context-loss before the fix: sixteen canvases,
-   * one click, **generation 16**. Every bump remounts every scene, so one
-   * reset produced sixteen rebuilds and up to 256 context creations against a
-   * browser that keeps about sixteen. Cards lost that race and stayed black.
+   * healthy. With several canvases that happens between the queued
+   * `webglcontextlost` events, so every loss would look new: sixteen canvases
+   * and one reset would give sixteen rebuilds.
    */
   it("survives replacements reporting healthy between queued losses", async () => {
     const health = await fresh();
@@ -185,11 +173,9 @@ describe("RendererHealth", () => {
 });
 
 /**
- * R10 in vv-lab's findings. The window above folds one reset reaching several
- * canvases into one rebuild, and it also swallowed a real loss: the
- * replacement that rebuild had just built, lost inside the same quarter
- * second. vv-site's landing demo went black on two quick clicks of "Drop
- * Context". `builtAt` tells the two apart.
+ * The window above folds one reset reaching several canvases into one rebuild,
+ * and must not swallow a real loss: the replacement that rebuild just built,
+ * lost inside the same quarter second. `builtAt` tells the two apart.
  */
 describe("RendererHealth — a replacement lost moments after it was built", () => {
   const at = (ms: number) => vi.setSystemTime(new Date(Date.UTC(2026, 0, 1) + ms));

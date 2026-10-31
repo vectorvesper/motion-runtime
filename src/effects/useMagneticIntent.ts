@@ -8,24 +8,21 @@ import {
 } from "../core/magnetic/MagneticElement";
 
 /**
- * Magnetic attraction with anticipation — the element starts reaching
- * while the cursor is still approaching (PointerIntent confidence drives
- * pre-touch pull; proximity takes over up close).
+ * Magnetic attraction with anticipation: PointerIntent confidence drives the
+ * pull while the cursor approaches, and proximity takes over up close.
  *
  *   const { ref } = useMagneticIntent<HTMLButtonElement>();
  *   <button ref={ref}>Get started</button>
  *
- * Owns the element's inline `transform` while mounted (restored exactly on
- * unmount). Inactive on touch devices and under reduced motion — this one
- * IS motion, so it fails open to a perfectly normal element.
+ * Owns the element's inline `transform` while mounted and restores it on
+ * unmount. Inactive on touch devices and under reduced motion.
  */
 export function useMagneticIntent<T extends HTMLElement = HTMLElement>(
   options: MagneticOptions = {},
 ): { ref: RefObject<T | null>; active: boolean } {
-  // A hybrid ref, so the magnet attaches when its element arrives rather than
-  // only on the first commit. A button behind a hydration guard, a loading
-  // branch or `next/dynamic` has no element there yet; up to 4.1.0 the effect
-  // bailed, nothing re-ran it, and the magnet never attached. See hybrid-ref.ts.
+  // A hybrid ref, so the magnet attaches when its element arrives. A button
+  // behind a hydration guard, a loading branch or `next/dynamic` has no element
+  // on the first commit. See hybrid-ref.ts.
   const elementRef = useRef<T | null>(null);
   const [element, setElement] = useState<T | null>(null);
   // The factory only wires deferred getters/setters onto a function; it never
@@ -42,9 +39,9 @@ export function useMagneticIntent<T extends HTMLElement = HTMLElement>(
     // itself comes from the ref, because the compiler treats state as immutable.
     const el = elementRef.current;
     if (!element || !el) return;
-    // Bail only when there's NO fine pointer at all (pure touch). Using
-    // `(any-pointer: fine)` — not `(pointer: coarse)` — keeps the effect alive
-    // on a touchscreen laptop that also has a mouse/trackpad.
+    // Bail only when there's no fine pointer at all. `(any-pointer: fine)` keeps
+    // the effect alive on a touchscreen laptop that also has a mouse or
+    // trackpad.
     if (!window.matchMedia("(any-pointer: fine)").matches) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const instance = new MagneticElement(el, initial);
@@ -58,8 +55,7 @@ export function useMagneticIntent<T extends HTMLElement = HTMLElement>(
     };
   }, [element, initial]);
 
-  // `anticipate` is forwarded too. It used to be readable only at construction,
-  // so changing it after mount silently did nothing.
+  // `anticipate` is forwarded too, so changing it after mount takes effect.
   const { strength, reach, speed, scale, anticipate } = options;
   useEffect(() => {
     instanceRef.current?.update({ strength, reach, speed, scale, anticipate });

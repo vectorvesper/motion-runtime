@@ -17,15 +17,16 @@ const INITIAL: AdaptiveState = {
 };
 
 /**
- * The complete quality signal: device floor, live budget, and what is
+ * The complete quality signal: device floor, live budget and what is eating the
+ * frame.
  *
  *   const quality = useAdaptiveQuality();
  *   {quality.tier === 0 && <VolumetricLayer />}
  *   {quality.reducedMotion ? <Poster /> : <Scene />}
  *
- * Tier changes are rare (hysteresis + static floor), so this is React
- * state by design — the gatekeeper for conditional rendering of expensive
- * work. `reasons` explains the device verdict for HUDs and support.
+ * Tier changes are rare, so this is React state: the gatekeeper for conditional
+ * rendering of expensive work. `reasons` explains the device verdict for HUDs
+ * and support.
  */
 export function useAdaptiveQuality(): AdaptiveState {
   const [state, setState] = useState<AdaptiveState>(INITIAL);

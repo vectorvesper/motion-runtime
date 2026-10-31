@@ -18,21 +18,20 @@ export type SceneState =
   | "warming"
   /** Running, full quality. */
   | "active"
-  /** Running, reduced quality — the device or the frame rate cannot take more. */
+  /** Running, reduced quality: the device or frame rate can't take more. */
   | "constrained"
   /**
    * Started, currently off screen. Still alive, drawing nothing.
    *
-   * Scrolling past a scene must not destroy it. Rebuilding a WebGL context and
-   * re-uploading its textures costs far more than leaving it mounted and
-   * paused, so once a scene has started it never returns to `dormant`.
+   * Rebuilding a WebGL context and re-uploading its textures costs far more
+   * than leaving it mounted and paused, so a started scene never returns to
+   * `dormant`.
    */
   | "idle"
   /**
-   * The graphics context was taken away and a replacement is being built.
-   *
-   * Still `mounted` — the rebuild happens by remounting the canvas under a new
-   * `generation`, so hiding it here would prevent the very thing that fixes it.
+   * The graphics context was taken away and a replacement is being built. Still
+   * `mounted`, because the rebuild happens by remounting the canvas under a new
+   * `generation`.
    */
   | "recovering"
   /** Not running at all. Show a still image instead. */
@@ -46,26 +45,19 @@ export interface UseSceneGateOptions {
   /** How far before the viewport to start warming, in px. Default 200. */
   preload?: number;
   /**
-   * What is behind the gate is content the visitor came for, not decoration.
-   * Default false.
+   * What is behind the gate is content the visitor came for. Default false.
    *
    * It still waits to be near the viewport, for the scroll to settle and for
-   * frame headroom, which is why a heavy chart wants this gate at all. What
-   * changes is that it is never withheld. Reduced motion and a device below
-   * the floor otherwise send the gate straight to `poster`, and `mounted`
-   * never turns true: right for a scene, and for a chart it means the visitor
-   * who asked for less motion never sees the chart. vv-lab's own D1 reference
-   * shipped exactly that, unnoticed, because no probe asked.
+   * frame headroom, but it is never withheld. Reduced motion and a device below
+   * the floor otherwise send the gate straight to `poster`, so a visitor who
+   * asked for less motion would never see a chart.
    */
   content?: boolean;
 }
 
 /**
- * Why the gate is in its current state, in one machine-readable word.
- *
- * Branch on this. `reason` is the same fact written for a human and is not
- * stable enough to switch on, which up to 2.x the docs had to say out loud
- * because there was nothing else to offer.
+ * Why the gate is in its current state, in one machine-readable word. Branch on
+ * this: `reason` is the same fact for humans and isn't stable to switch on.
  */
 export type SceneCause =
   | "ok"
@@ -82,33 +74,23 @@ export interface SceneGate<T extends HTMLElement> {
   /**
    * Attach to the element that holds the scene.
    *
-   * **Destructure this hook's result.** `<div ref={gate.ref}>` — reaching the
-   * ref through a member expression — is a lint error under the React Compiler
-   * rules, and it takes the rest of the object with it: `gate.generation` is a
-   * number and gets reported as a ref read during render too. See hybrid-ref.ts
-   * for why, and `compiler-lint.test.ts` for the check that keeps it true.
+   * Destructure this hook's result. `<div ref={gate.ref}>` is a lint error
+   * under the React Compiler rules, and it takes the rest of the object with
+   * it: `gate.generation` gets reported as a ref read during render too. See
+   * hybrid-ref.ts, and `compiler-lint.test.ts` for the check.
    */
   ref: RefObject<T | null>;
   state: SceneState;
   /**
-   * Should the scene exist? True for `active`, `constrained` and `idle` —
-   * `idle` included, because a scene that is merely off screen should be
-   * paused, not torn down.
+   * Should the scene exist? True for `active`, `constrained` and `idle`,
+   * because a scene that is merely off screen should be paused and kept.
    */
   mounted: boolean;
-  /**
-   * How much scene to build, or `null` when there is no scene.
-   *
-   * Up to 2.x this read `"reduced"` in `dormant` and `warming`, not because
-   * quality was reduced but because nothing was running, and the docs carried
-   * a rule telling you to check `mounted` first. A value that needs a rule to
-   * read correctly is a defect, so it is `null` when it does not apply.
-   */
+  /** How much scene to build, or `null` when there is no scene. */
   quality: "full" | "reduced" | null;
   /**
    * Put this on the `<Canvas key>`. It changes when the graphics context is
-   * lost, which is what makes React throw away the dead tree and build a
-   * working one — the rebuild React is already good at.
+   * lost, which makes React throw away the dead tree and build a working one.
    */
   generation: number;
   /** Machine-readable counterpart to `reason`. Branch on this one. */
@@ -138,34 +120,19 @@ export interface SceneGate<T extends HTMLElement> {
  *   </div>
  * );
  * ```
+ * Destructure it, as above: see `ref` on {@link SceneGate}.
  *
- * Destructure it, as above. Holding the result as one object and writing
- * `<div ref={gate.ref}>` is a lint error in any app running the React Compiler
- * rules — see `ref` on {@link SceneGate}.
+ * It answers three questions: is this scene close enough to matter, can the
+ * page afford to start it, and once running, would reducing quality fix
+ * anything going wrong. Reduced quality only helps when rendering is the slow
+ * part, so the gate reads AdaptiveQuality's fused tier, which covers that.
  *
- * It answers three questions the page cannot answer for itself: is this scene
- * close enough to matter, can the page afford to start it, and once running,
- * is anything going wrong that reducing quality would actually fix.
+ * It decides and doesn't apply. Nothing here touches a renderer, a device pixel
+ * ratio or a post-processing pass: you own what `"full"` and `"reduced"` look
+ * like. The adapters in `/r3f` and `/three` apply them.
  *
- * That last word matters. **Reduced quality is only a fix for rendering being
- * slow.** If a third-party script is blocking the main thread, halving the
- * particle count makes the page uglier and just as slow — so this gate reads
- * the pressure classifier and only responds to `"render"`. Nothing else
- * degrades the scene.
- *
- * ## What it does not do
- *
- * It decides; it does not apply. Nothing here touches a renderer, a device
- * pixel ratio or a post-processing pass — you own what `"full"` and
- * `"reduced"` look like. The renderer adapter that applies these decisions to
- * a real three.js scene is a separate piece.
- *
- * It composes `useSafeToMount` and `useAdaptiveQuality` rather than
- * reimplementing either, and both still work on their own. The pressure
- * classifier reaches it through `useAdaptiveQuality`, which since 3.0 fuses
- * that verdict into the tier. It replaced `useLazyScene` outright: that hook carried a second,
- * differently-behaved answer to "is the page healthy enough to mount", which
- * is the one shape this codebase cannot afford to keep duplicating.
+ * It composes `useSafeToMount` and `useAdaptiveQuality`, and both still work on
+ * their own.
  */
 export function useSceneGate<T extends HTMLElement = HTMLDivElement>({
   label,
@@ -173,37 +140,33 @@ export function useSceneGate<T extends HTMLElement = HTMLDivElement>({
   preload = 200,
   content = false,
 }: UseSceneGateOptions = {}): SceneGate<T> {
-  // A hybrid ref, not a plain one. Reading `ref.current` from an effect keyed
-  // only on [preload] means the element is looked for exactly once, on the
-  // first commit — and any component that renders a spinner, a Suspense
-  // fallback or a `next/dynamic` placeholder before its real tree has no
-  // element there yet. The effect bailed, nothing re-ran it, and the gate sat
-  // in `dormant` forever with no error to explain why. See hybrid-ref.ts.
+  // A hybrid ref: a component that renders a spinner, a Suspense fallback or a
+  // `next/dynamic` placeholder first has no element on the first commit, and an
+  // effect keyed only on [preload] would never look again, leaving the gate in
+  // `dormant` for good. See hybrid-ref.ts.
   const elementRef = useRef<T | null>(null);
   const [element, setElement] = useState<T | null>(null);
-  // The factory only wires deferred getters/setters onto a function; it never
-  // reads elementRef.current during render. The compiler cannot see that
-  // through an opaque call, so it assumes the worst.
+  // The factory only wires deferred getters and setters onto a function and
+  // never reads elementRef.current during render, but the compiler can't see
+  // that through an opaque call.
   //
-  // The directive has to sit on the line immediately above the code. Written as
-  // `-- reason` with the reason wrapping onto a second comment line, it targets
-  // the comment instead and silently suppresses nothing.
+  // The directive must sit on the line above the code. A `-- reason` wrapping
+  // onto a second comment line targets the comment and suppresses nothing.
   // eslint-disable-next-line react-hooks/refs
   const ref = useMemo(() => createHybridRef<T>(elementRef, setElement), []);
 
   const [near, setNear] = useState(false);
   const [settled, setSettled] = useState(false);
 
-  // Once it has run, it has run. This is what keeps a scene alive when the
-  // reader scrolls past it. State rather than a ref, because it changes what
-  // renders — a ref written during render survives a discarded render, which
-  // is a real defect class in this codebase and one eslint already catches.
+  // Once it has run, it has run. This keeps a scene alive when the reader
+  // scrolls past it. State, because it changes what renders, and a ref written
+  // during render survives a discarded render.
   const [started, setStarted] = useState(false);
 
   // One definition of "the page can afford this", shared with every other
   // caller of useSafeToMount. The give-up clock only runs while the scene is
-  // near and still waiting: a scene far down the page must not time out unseen
-  // and then mount mid-scroll the moment it arrives.
+  // near and still waiting, so a scene far down the page can't time out unseen
+  // and then mount mid-scroll.
   const safe = useHeadroom(cost, near && !started);
 
   // Close enough to be worth existing.
@@ -217,9 +180,8 @@ export function useSceneGate<T extends HTMLElement = HTMLDivElement>({
     return () => io.disconnect();
   }, [element, preload]);
 
-  // Mounting a scene while the reader is mid-scroll is what they feel as a
-  // stutter, whatever the frame numbers say. Only the first mount waits for
-  // this — once the scene exists, scrolling past it is free.
+  // Mounting a scene mid-scroll feels like a stutter, whatever the numbers
+  // say. Only the first mount waits for this.
   useEffect(() => {
     if (settled) return;
     const release = getSensorBus().retain();
@@ -240,9 +202,8 @@ export function useSceneGate<T extends HTMLElement = HTMLDivElement>({
   const ready = near && safe && settled;
 
   useEffect(() => {
-    // A latch, not a cascade: this fires at most once per mount and then the
-    // condition can never be true again, so the rule's concern — an effect that
-    // re-renders on every pass — does not apply.
+    // A latch: this fires at most once per mount, so the rule's concern, an
+    // effect that re-renders on every pass, doesn't apply.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (ready) setStarted(true);
   }, [ready]);
@@ -251,10 +212,9 @@ export function useSceneGate<T extends HTMLElement = HTMLDivElement>({
   const [health, setHealth] = useState(() => getRendererHealth().state);
   useEffect(() => getRendererHealth().subscribe(setHealth), []);
 
-  // Once quality drops, hold it down for a moment. Every input here already
-  // has its own smoothing, but they can still disagree frame to frame, and a
-  // scene that rebuilds its detail level twice a second is worse than one that
-  // is simply a bit too plain for four.
+  // Once quality drops, hold it down for a moment. The inputs can disagree
+  // frame to frame, and a scene that rebuilds its detail level twice a second
+  // is worse than one that stays a bit too plain for four.
   const [dwelling, setDwelling] = useState(false);
 
   const verdict = decide({
@@ -267,36 +227,30 @@ export function useSceneGate<T extends HTMLElement = HTMLDivElement>({
     qualityCause: quality.cause,
     contextLost: health.lost,
     content,
-    // Read during render on purpose: it only ever changes together with an
-    // AdaptiveQuality emit, which is what re-renders this hook.
+    // Read during render: it only changes together with an AdaptiveQuality
+    // emit, which is what re-renders this hook.
     webglRefused: isWebGLRefused(),
   });
 
   let state = verdict.state;
   if (state === "active" && dwelling) state = "constrained";
 
-  // The dwell is owned entirely by the two effects below. Keeping the clock out
-  // of render is deliberate, for the reason already given on `started`: a ref
-  // written during render survives a discarded render, so an interrupted render
-  // could start or clear the hold without ever committing. Date.now() in render
-  // is impure besides, and the compiler flags both.
+  // The dwell is owned by the two effects below. A ref written during render
+  // survives a discarded render, so an interrupted render could start or clear
+  // the hold without committing, and Date.now() in render is impure.
   //
-  // Raise on the way in. The verdict already reports "constrained" at that
-  // point, so the flag only becomes load-bearing once the verdict recovers —
-  // which is why this cannot flicker back to "active" for a frame first.
+  // Raise on the way in. The verdict already reports "constrained" then, so
+  // this can't flicker back to "active" for a frame first.
   useEffect(() => {
-    // Keyed on verdict.state, so this runs only when the verdict actually
-    // changes band — not every render. Writing the flag from render instead is
-    // what this whole block exists to avoid.
+    // Keyed on verdict.state, so this runs only when the verdict changes band.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (verdict.state === "constrained") setDwelling(true);
     else if (verdict.state !== "active") setDwelling(false);
   }, [verdict.state]);
 
-  // Fall on its own after the full window, whatever the verdict does meanwhile.
-  // The timer is keyed on the flag rather than the verdict, so recovering
-  // mid-dwell does not cancel it. Without a timer, a page that recovers while
-  // nothing else changes would stay constrained until the next unrelated
+  // Fall on its own after the full window. The timer is keyed on the flag, so
+  // recovering mid-dwell doesn't cancel it. Without a timer, a page that
+  // recovers while nothing else changes would stay constrained until the next
   // re-render.
   useEffect(() => {
     if (!dwelling) return;
@@ -337,10 +291,8 @@ interface Inputs {
   /** Has the graphics context been taken away? */
   contextLost: boolean;
   /**
-   * The FUSED tier from AdaptiveQuality, which since 3.0 already accounts for
-   * what is actually costing the frame. The gate used to read the classifier
-   * itself and apply the "only rendering is worth degrading for" rule here,
-   * which meant the rule was reachable from this hook and nowhere else.
+   * The fused tier from AdaptiveQuality, which already accounts for what is
+   * costing the frame.
    */
   tier: 0 | 1 | 2;
   deviceTier: 0 | 1 | 2;
@@ -356,13 +308,13 @@ interface Inputs {
 /** The decision, with no React in it, so it can be tested directly. */
 export function decide(i: Inputs): { state: SceneState; reason: string; cause: SceneCause } {
   // Both of these outrank position and timing: there is no point warming a
-  // scene that is never going to be allowed to run. Content is the exception,
-  // because a visitor who asked for less motion still came for it. It waits
-  // like anything else, and once mounted reads as constrained, since the fused
-  // tier is at its lowest in both cases.
-  // Nothing can be drawn at all, so even content gets its still. A refusal also
-  // sends the device tier to 2; this check exists so the reason says what
-  // actually happened, and so content is not mounted onto a dead canvas.
+  // scene that will never be allowed to run. Content is the exception, because
+  // a visitor who asked for less motion still came for it. It waits like
+  // anything else, and once mounted reads as constrained.
+  //
+  // Nothing can be drawn at all here, so even content gets its still. A refusal
+  // also sends the device tier to 2. This check keeps the reason accurate and
+  // keeps content off a dead canvas.
   if (i.webglRefused) {
     return { state: "poster", reason: "the browser refused a WebGL context", cause: "device-floor" };
   }
@@ -373,9 +325,9 @@ export function decide(i: Inputs): { state: SceneState; reason: string; cause: S
     return { state: "poster", reason: "this device cannot render it smoothly", cause: "device-floor" };
   }
 
-  // A dead context outranks everything except never running at all. It is also
-  // only meaningful for a scene that has actually started — a context lost
-  // elsewhere on the page says nothing about one that was never built.
+  // A dead context outranks everything except never running at all. It only
+  // matters for a scene that has started: a context lost elsewhere on the page
+  // says nothing about one never built.
   if (i.started && i.contextLost) {
     return { state: "recovering", reason: "the graphics context was lost, rebuilding", cause: "context-lost" };
   }
@@ -384,32 +336,24 @@ export function decide(i: Inputs): { state: SceneState; reason: string; cause: S
     if (!i.near) return { state: "dormant", reason: "not near the viewport yet", cause: "not-near" };
     if (!i.ready) return { state: "warming", reason: "waiting for a free moment", cause: "waiting-for-headroom" };
   } else if (!i.near) {
-    // Alive but off screen. The renderer adapter stops the render loop here;
-    // unmounting instead would throw away the WebGL context and every texture
-    // on it, to save nothing.
+    // Alive but off screen. The renderer adapter stops the render loop here.
+    // Unmounting would throw away the WebGL context and every texture on it.
     return { state: "idle", reason: "scrolled off screen, paused", cause: "off-screen" };
   }
 
-  // One input now, where 2.x read three.
+  // `tier` arrives already knowing whether reducing quality would help, and the
+  // governor says why, so this can report it.
   //
-  // The "only rendering is worth degrading for" rule used to live here, which
-  // meant it was reachable from this hook and nowhere else. It is in
-  // AdaptiveQuality now, so `tier` arrives already knowing whether reducing
-  // quality would help, and the governor tells us why so this can report it
-  // rather than re-derive it.
-  //
-  // Tier 2 included. Up to 4.1.0 this read `tier === 1`, so the worst tier fell
-  // through to "active" and the harder a page struggled, the more the gate
-  // asked of it: in vv-lab a managed R3F hero ran at 10–12fps at full
-  // resolution while the governor said tier 2 for the whole run. The fused
-  // tier only reaches 2 when reducing would help or cannot be ruled out; a main
-  // thread blocked elsewhere arrives as "held" at the device's own tier, so
-  // that rule is untouched. The gate has one reduced level and tier 2 gets it.
-  // A scene that wants a deeper cut reads `useAdaptiveQuality().tier`.
+  // Tier 2 counts too, or the worst tier would fall through to "active" and the
+  // harder a page struggled the more the gate asked of it. The fused tier only
+  // reaches 2 when reducing would help or can't be ruled out: a main thread
+  // blocked elsewhere arrives as "held" at the device's own tier. The gate has
+  // one reduced level. A scene that wants a deeper cut reads
+  // `useAdaptiveQuality().tier`.
   if (i.tier >= 1) {
     // Only content reaches here under reduced motion or on a device below the
-    // floor, since a scene went to its poster above. Say which, rather than
-    // blaming a frame rate that may be perfectly fine.
+    // floor, since a scene went to its poster above. Say which, because the
+    // frame rate may be fine.
     if (i.qualityCause === "reduced-motion") {
       return { state: "constrained", reason: "reduced motion is turned on", cause: "reduced-motion" };
     }

@@ -2,14 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { PressureSource } from "../frame-pressure/FramePressure";
 
 /**
- * The governor keeps FramePressure running itself, and tests a reduction
- * before it refuses one.
- *
- * `fuse()` was always tested with a verdict handed straight to it, so nothing
- * noticed when, from 4.0.0, the verdict it read in production was the initial
- * "none" forever: FramePressure only measures while subscribed, and the one
- * subscriber left with useSceneGate's old code (vault RB-2). These drive the
- * class through its subscriptions, the way every page does.
+ * The governor keeps FramePressure running itself, and tests a reduction before
+ * it refuses one. These drive the class through its subscriptions, the way
+ * every page does, because FramePressure only measures while subscribed.
  */
 
 type Verdict = { source: PressureSource; confidence: number; frameMs: number };

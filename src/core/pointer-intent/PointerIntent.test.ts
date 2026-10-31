@@ -105,9 +105,7 @@ describe("PointerIntent", () => {
     } as unknown as HTMLElement;
 
     conductorCallbacks = [];
-    // Default sensitivity. This used to pass `{ enter: 0.3 }`, a field 2.0
-    // folded into the sensitivity presets — so the option was already being
-    // dropped and the test was already measuring the default. Saying so.
+    // Default sensitivity.
     const p = new PointerIntent(mockElement);
 
     // Pointer is outside the box (at x=50, y=150) moving right (vx=400, vy=0) straight towards it
@@ -189,15 +187,10 @@ describe("PointerIntent — edge cases", () => {
   };
 
   it("update() with partial options never clobbers the unspecified ones", () => {
-    // Regression: a naive { ...opts, ...partial } spread sets the unmentioned
-    // fields to undefined. The React adapter spreads possibly-undefined props
-    // whenever any option changes, so this is the normal case, not an edge one.
-    //
-    // In 2.0 the field that must survive is `sensitivity`, because the tuning
-    // is looked up by it — clobber it and `SENSITIVITY[undefined]` leaves
-    // `this.tuning` undefined, and the next frame throws reading `.enter`.
-    // Before 2.0 the same bug wiped the `enter` threshold and intent could
-    // never be gained. Different field, same spread, same test.
+    // A naive { ...opts, ...partial } spread sets unmentioned fields to
+    // undefined, and the React adapter spreads possibly-undefined props when
+    // any option changes. Clobbering `sensitivity` leaves `this.tuning`
+    // undefined, and the next frame throws reading `.enter`.
     conductorCallbacks = [];
     sensorState.pointer = { seen: true, x: 0, y: 0, vx: 0, vy: 0, speed: 0, down: false };
     sensorState.scroll = { x: 0, y: 0, vx: 0, vy: 0 };
@@ -207,11 +200,9 @@ describe("PointerIntent — edge cases", () => {
       sensitivity: "high",
     });
 
-    // The exact shape the React adapter sends: it destructures both options
-    // and passes both keys, so the one the dev did not set arrives as an
-    // explicit undefined rather than being absent. That distinction is the
-    // whole test — a naive spread survives a missing key and is destroyed by
-    // a present-but-undefined one, which is the case that actually ships.
+    // The exact shape the React adapter sends: it passes both keys, so the one
+    // the dev didn't set arrives as an explicit undefined. A naive spread
+    // survives a missing key and is destroyed by a present-but-undefined one.
     p.update({ sensitivity: undefined, dynamic: true });
 
     sensorState.pointer = { seen: true, x: 150, y: 150, vx: 0, vy: 0, speed: 0, down: false };
@@ -232,7 +223,7 @@ describe("PointerIntent — edge cases", () => {
     drive(conductorCallbacks[0]);
     expect(p.intent).toBe(true);
 
-    // Jump far away, stationary → target 0 → confidence decays below exit.
+    // Jump far away, stationary: target 0, confidence decays below exit.
     sensorState.pointer = { seen: true, x: 900, y: 40, vx: 0, vy: 0, speed: 0, down: false };
     drive(conductorCallbacks[0]);
     expect(p.confidence).toBeLessThan(0.18);
@@ -263,11 +254,11 @@ describe("PointerIntent — edge cases", () => {
     rect = { left: 600, top: 100, right: 700, bottom: 200 };
     sensorState.pointer = { seen: true, x: 650, y: 150, vx: 0, vy: 0, speed: 0, down: false };
 
-    // Within the 1s heartbeat window the cache is stale → reads as outside.
+    // Inside the 1s heartbeat window the cache is stale: reads as outside.
     drive(conductorCallbacks[0], 30, 0.12);
     expect(p.confidence).toBeLessThan(0.1);
 
-    // Past the heartbeat the rect re-measures to the new spot → inside.
+    // Past the heartbeat the rect re-measures to the new spot: reads as inside.
     drive(conductorCallbacks[0], 30, 1.2);
     expect(p.confidence).toBeGreaterThan(0.9);
     p.destroy();
@@ -308,8 +299,8 @@ describe("PointerIntent — edge cases", () => {
     drive(conductorCallbacks[0], 20, 0.02); // confidence climbs, active tracking engages
     expect(p.confidence).toBeGreaterThan(0.9);
 
-    // Element translates; pointer rides along. No scroll, no resize, and well
-    // inside the heartbeat window — only per-frame re-measure can stay locked on.
+    // Element translates and the pointer rides along, with no scroll or resize,
+    // inside the heartbeat window. Only a per-frame re-measure stays locked on.
     rect = { left: 600, top: 100, right: 700, bottom: 200 };
     sensorState.pointer = { seen: true, x: 650, y: 150, vx: 0, vy: 0, speed: 0, down: false };
     drive(conductorCallbacks[0], 20, 0.4);

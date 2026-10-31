@@ -1,21 +1,17 @@
 /**
- * FramePressure — real-browser validation.
+ * FramePressure: real-browser validation.
  *
  *   node scripts/pressure-probe/harness.mjs
  *
  * The classifier's decision logic is unit-tested against synthetic frames. Its
- * *measurement* layer cannot be: the main-thread share is a claim about how the browser
+ * measurement layer can't be: the main-thread share depends on how the browser
  * schedules a MessageChannel task relative to the rendering steps, and jsdom
  * has no rendering steps. This runs it against a real Chrome, under four loads
- * whose true cause we already know, and checks the verdict.
+ * whose true cause is known, and checks the verdict.
  *
- * It drives Chrome over CDP with the built-in WebSocket. No Playwright, no
- * Puppeteer — the whole thing is one dependency-free file so it can be run on
- * a machine that has nothing installed but Chrome.
- *
- * The browser is launched HEADED on purpose. A hidden or headless page pauses
- * requestAnimationFrame, so every measurement would be zero and every check
- * would pass while proving nothing.
+ * The browser runs headed because a hidden or headless page pauses rAF, so
+ * every measurement would be zero and every check would pass while proving
+ * nothing.
  */
 
 import { createServer } from "node:http";
@@ -45,31 +41,22 @@ const EXPECTED = {
   idle: () => ["none"],
   runtime: () => ["runtime"],
   "main-thread": () => ["main-thread"],
-  // At heavy CPU throttling this scenario legitimately stops being GPU bound.
-  // The shader load is unchanged, but a CPU six times slower cannot feed the
-  // GPU fast enough, so the main thread genuinely becomes the bottleneck and
-  // "main-thread" is the correct answer rather than a misclassification.
-  // Asserting "render" at every rate would be asserting something untrue about
-  // the machine.
+  // At heavy CPU throttling this scenario stops being GPU bound. The shader load
+  // is unchanged, but a CPU six times slower can't feed the GPU fast enough, so
+  // "main-thread" is the correct answer.
   render: (rate) => (rate >= 6 ? ["render", "main-thread"] : ["render"]),
 };
 
 /**
  * CPU throttling rates to repeat the whole set at.
  *
- * The claim being tested is that a verdict does not change just because the
- * machine got slower. The load in each scenario is unchanged — the same 24ms
- * burn, the same shader — so a classifier that starts blaming the main thread
- * at 6x is reacting to the machine rather than to the cause, and anything
- * consuming it would then degrade scenes on slow hardware for no reason.
+ * A verdict shouldn't change just because the machine got slower. The load in
+ * each scenario is unchanged, so a classifier that starts blaming the main
+ * thread at 6x is reacting to the machine, and consumers would degrade scenes
+ * on slow hardware for no reason. The render row is the sharp one.
  *
- * The render row is the sharp one. A throttled CPU with an unchanged GPU load
- * is the case most likely to produce a false "main-thread".
- *
- * What this cannot reach, and a real device still can: thermal throttling. A
- * mobile GPU is fine for twenty seconds and then is not, and no desktop
- * throttle reproduces that — which matters, because the device floor in
- * useAdaptiveQuality is a bet on exactly that behaviour.
+ * Thermal throttling is out of reach: no desktop throttle reproduces a mobile
+ * GPU that is fine for twenty seconds and then isn't.
  */
 const CPU_RATES = [1, 4, 6];
 
@@ -224,9 +211,8 @@ async function main() {
     for (const [name, allowedFor] of Object.entries(EXPECTED)) {
       const allowed = allowedFor(rate);
       const expected = allowed.join(" | ");
-      // Anything stealing focus mid-run makes the tab hidden, which pauses
-      // rAF and turns every later measurement into zeros. Re-front the page
-      // before each scenario rather than hoping nothing interrupts.
+      // Anything stealing focus mid-run hides the tab, which pauses rAF and
+      // zeroes later measurements, so re-front the page before each scenario.
       await cdp.send("Page.bringToFront");
       for (let i = 0; i < 20 && (await evaluate(cdp, "document.hidden")); i++) {
         await new Promise((r) => setTimeout(r, 250));

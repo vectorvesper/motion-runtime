@@ -1,5 +1,5 @@
 /**
- * Public API guard — the photo of the menu taped to the wall.
+ * Public API guard.
  *
  *   node scripts/check-api.mjs           # fail if the built surface drifted
  *   node scripts/check-api.mjs --update  # accept the current surface as the new truth
@@ -7,23 +7,13 @@
  * Every exported name is a support commitment, and so is every field on an
  * exported type. This reads the built .d.ts for each published entry and diffs
  * both against the committed api-surface.json: the list of exported names, and
- * the shape of each one.
+ * the shape of each one. Shapes matter because renaming a field on an exported
+ * type changes no exported name.
  *
- * Wired into prepublishOnly, so a drifted surface cannot be published.
+ * Wired into prepublishOnly, so a drifted surface can't be published.
  *
- * ## Why shapes, not just names
- *
- * The name-only version missed an entire class of breaking change. On
- * 2026-08-23 a pass over the hook options renamed or replaced fields on seven
- * exported types — `minHeadroomMs` and `requiredCleanFrames` off
- * UseSafeToMountOptions, `smooth` to `speed` on VideoScrubberOptions, five
- * fields off PointerIntentOptions — and every one of them was invisible here,
- * because no exported *name* changed. A customer upgrading would have got a
- * broken build that this script had just called clean.
- *
- * Comments are deliberately excluded. Rewording a doc comment is not an API
- * change, and a guard that cries wolf on prose gets run with --update
- * reflexively, which is how a real change slips through.
+ * Comments are excluded. Rewording a doc comment isn't an API change, and a
+ * guard that cries wolf gets run with --update reflexively.
  */
 
 import fs from "fs";
@@ -50,10 +40,9 @@ const ENTRIES = {
 /**
  * Normalise a declaration's text: strip comments, collapse whitespace.
  *
- * Comments have to go explicitly rather than by relying on getText() skipping
- * leading trivia, because some of them are not leading trivia. A doc comment
- * between two members of a union type sits *inside* the type node, so it lands
- * in the text and a reworded sentence would read as an API change.
+ * Comments go explicitly because some aren't leading trivia: a doc comment
+ * between two members of a union type sits inside the type node, so it lands in
+ * the text and a reworded sentence would read as an API change.
  */
 const norm = (s) =>
   s
@@ -123,12 +112,10 @@ function describe(node, sf) {
 /**
  * Parsed .d.ts files, by absolute path.
  *
- * The entries are not self-contained. tsup emits the core entry as a pure
+ * The entries aren't self-contained. tsup emits the core entry as a pure
  * re-export barrel (`export { j as damp } from './chunk.js'`), and the react
  * entry imports from the same chunk under an alias and re-binds it
- * (`declare const damp: typeof damp$1`). Reading one file in isolation, which
- * is what the first version of this script did, yields "unresolved" for every
- * name that matters.
+ * (`declare const damp: typeof damp$1`).
  */
 const files = new Map();
 
@@ -216,7 +203,7 @@ function shapeOfLocal(abs, name, seen = new Set()) {
 
   const decl = f.decls.get(name);
   if (decl) {
-    // `declare const damp: typeof damp$1` — the shape lives wherever damp$1 does.
+    // `declare const damp: typeof damp$1`: the shape lives wherever damp$1 does.
     if (
       ts.isVariableDeclaration(decl) &&
       decl.type &&
@@ -250,12 +237,9 @@ function readSurface(file) {
   for (const [exported, spec] of f.exports) {
     const shape = shapeOfExport(abs, exported);
     shapes[exported] = shape;
-    // Classified by what the declaration IS, not by whether the emitted export
-    // carried a `type` modifier. Adding the /r3f entry made tsup move some
-    // declarations into a shared chunk, and the cross-chunk re-export drops
-    // the modifier — so the syntax-based split flipped five exports from type
-    // to value with no source change at all. Harmless for a consumer, useless
-    // for a guard.
+    // Classified by what the declaration is, because a cross-chunk re-export
+    // drops the `type` modifier, which can flip exports from type to value with
+    // no source change.
     const isType = shape.isType ?? spec.isType;
     (isType ? types : values).add(exported);
   }

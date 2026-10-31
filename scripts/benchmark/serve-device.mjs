@@ -3,13 +3,9 @@
  *
  *   npm run bench:device
  *
- * The CDP harness binds to 127.0.0.1, which a phone cannot reach — and there is
- * no debugging protocol for someone's iPhone anyway. So the same scenarios get
- * a page with buttons on it, served on the LAN, and the device reports its own
- * numbers back.
- *
- * Nothing is published for this. It serves the local `dist/`, so whatever was
- * last built is what the phone runs.
+ * The CDP harness binds to 127.0.0.1, which a phone can't reach. So the same
+ * scenarios get a page with buttons on it, served on the LAN, and the device
+ * reports its own numbers back. It serves the local `dist/`.
  */
 
 import os from "node:os";

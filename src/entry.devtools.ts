@@ -1,9 +1,9 @@
 /**
- * @vectorvesper/motion/devtools — the live runtime inspector ("./devtools")
+ * @vectorvesper/motion/devtools: the live runtime inspector ("./devtools")
  *
- * Zero runtime dependencies, no framework. A separate entry point so it only
- * reaches bundles that ask for it — guard the call with your own dev check if
- * you want it stripped from production.
+ * No runtime dependencies, no framework. A separate entry point so it only
+ * reaches bundles that ask for it. Guard the call with your own dev check to
+ * strip it from production.
  */
 
 export {

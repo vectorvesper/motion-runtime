@@ -7,46 +7,34 @@ import {
 import { scenesDrawing } from "./scene-activity";
 
 /**
- * Presentation cap — noticing when the browser, not the page, sets the pace.
+ * Presentation cap: noticing when the browser is the one setting the pace.
  *
- * Browsers on battery saver present pages below the display's own rate. An
- * iPhone in Low Power Mode and Chrome with Energy Saver on hold
- * requestAnimationFrame to 30fps on a 60Hz panel. Every budget in the runtime
- * was measured against the display, so a capped page read as a page missing
- * every single frame: the budget tier fell to 2, headroom went negative, and
- * useSafeToMount, which waits for frames with time to spare, never opened.
- * Every scene behind a gate stayed unmounted for the whole visit. Found on
- * vectorvesper.dev on low battery, 2026-10-15 (RB-1 in the vault).
+ * Browsers on battery saver present pages below the display's rate. An iPhone
+ * in Low Power Mode and Chrome with Energy Saver hold rAF to 30fps on a 60Hz
+ * panel. Against the display's budget that reads as a page missing every
+ * frame: the tier falls to 2, headroom goes negative, `useSafeToMount` never opens,
+ * so every gated scene stays unmounted for the whole visit.
  *
  * refresh-rate.ts refuses to read a steady 30fps as a 30Hz display, and that
- * rule is right: a page held at 30fps by its own load must not be
- * congratulated for keeping up. It stays. This module overrides it only when
- * the evidence says the page is not the cause. All three must hold, unbroken,
- * for HOLD_S:
+ * stays right when the page's own load holds it there. This module overrides
+ * it only when all three of these hold, unbroken, for HOLD_S:
  *
- * 1. **The cadence is steady and below 60fps.** Nearly every recent frame lands
- *    within LOCK_TOLERANCE of the same interval. A cap is metronomic. Load is
- *    ragged, because the work changes from frame to frame.
- * 2. **The main thread is idle.** FramePressure attributes the late frame to
- *    something off the main thread, with confidence. Script, style and layout
- *    load reads as "main-thread" or "runtime" and blocks the verdict. The
- *    classifier posts a message ten times a second while it runs, so it is
- *    only kept running while a cap is suspected and the verdict is open.
- * 3. **Our own scenes are not the reason.** Either none is drawing, or the
- *    budget is already at its lowest tier and the cadence did not move. If the
- *    cheapest version of a scene cannot escape the cadence, judging the page
- *    against that cadence is right whatever set it, because the full rate is
- *    out of reach either way.
+ * 1. The cadence is steady and below 60fps. Nearly every recent frame lands
+ *    within LOCK_TOLERANCE of the same interval. A cap is metronomic, and load
+ *    is ragged.
+ * 2. The main thread is idle. FramePressure attributes the late frame to
+ *    something off the main thread, with confidence. Its probe posts a message
+ *    ten times a second, so it only runs while a cap is suspected.
+ * 3. Our own scenes aren't the reason. Either none is drawing, or the budget is
+ *    at its lowest tier and the cadence didn't move. If the cheapest version of
+ *    a scene can't escape the cadence, the full rate is out of reach anyway.
  *
- * Once believed, the cap becomes the conductor's frame budget, which every
- * governor reads, and it sticks. It lifts the moment full-rate frames come
- * back (a charger plugged in, the setting turned off), because those are
- * impossible under a cap.
+ * Once believed, the cap becomes the conductor's frame budget. It lifts as soon
+ * as full-rate frames return, because those are impossible under a cap.
  *
- * The cost of being wrong is asymmetric, which is why the rule may lean
- * towards the cap. A false cap judges a page against 30fps instead of 60, so
- * quality holds a little higher than it should until the next fast frames. A
- * missed cap leaves scenes unmounted for the whole visit.
+ * The rule may lean towards the cap because the costs are uneven. A false cap
+ * holds quality a little too high until the next fast frames. A missed cap
+ * leaves scenes unmounted for the whole visit.
  */
 
 /** Recent intervals the cadence is read from: 1.5s at 30fps. */
@@ -136,9 +124,8 @@ export class CapPolicy {
   }
 
   /**
-   * Re-judge at `time` (seconds). Returns the new cap when it changes — a rate
-   * when it is believed, null when it lifts — and undefined when nothing
-   * changed.
+   * Re-judge at `time` (seconds). Returns the new cap when it changes, a rate
+   * when believed and null when it lifts, and undefined when nothing changed.
    */
   evaluate(time: number, ctx: CapContext): number | null | undefined {
     if (this.cap !== null) {
@@ -223,8 +210,8 @@ export class PresentationCapWatcher {
   }
 
   /**
-   * Stop watching. A cap nobody is watching can go stale — the charger goes
-   * in and nothing notices — so it is cleared rather than left in force.
+   * Stop watching. A cap nobody watches can go stale when the charger goes in,
+   * so it is cleared.
    */
   dispose(): void {
     this.releasePressure?.();

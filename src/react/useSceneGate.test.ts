@@ -2,12 +2,9 @@ import { describe, it, expect } from "vitest";
 import { decide } from "./useSceneGate";
 
 /**
- * The scene gate's decision, on its own.
- *
- * The React wrapper adds a ref, a dwell timer and three subscriptions. This is
- * the part that decides whether a scene runs and how much of it — the part
- * where being wrong costs a customer either a melted phone or a needlessly
- * ugly page.
+ * The scene gate's decision, on its own. The React wrapper adds a ref, a dwell
+ * timer and three subscriptions. This is the part that decides whether a scene
+ * runs and how much of it.
  */
 
 const base = {
@@ -22,11 +19,8 @@ const base = {
 };
 
 /**
- * Since 3.0 the gate reads the FUSED tier. The "only rendering is worth
- * degrading for" rule moved into AdaptiveQuality, so the cases that used to be
- * expressed here as pressure verdicts now live in `fuse()` and are tested in
- * AdaptiveQuality.test.ts. What arrives here is the decision already made,
- * plus the reason it was made, and the gate's job is to report it faithfully.
+ * The gate reads the fused tier. What arrives here is the decision already
+ * made, plus the reason, and `fuse()` is tested in AdaptiveQuality.test.ts.
  */
 const renderBound = { tier: 1 as const, qualityCause: "render" as const };
 const frameRate = { tier: 1 as const, qualityCause: "frame-rate" as const };
@@ -59,9 +53,7 @@ describe("scene gate — before it can run at all", () => {
 
 /**
  * `content: true`. The poster is right for a scene and wrong for a chart: a
- * visitor who asked for less motion still came for the chart. vv-lab's own
- * heavy-chart reference used the gate without it, and would never have shown
- * the chart to them.
+ * visitor who asked for less motion still came for the chart.
  */
 describe("scene gate — content a visitor came for", () => {
   const reduced = { reducedMotion: true, tier: 2 as const, qualityCause: "reduced-motion" as const };
@@ -91,9 +83,8 @@ describe("scene gate — content a visitor came for", () => {
 });
 
 /**
- * RB-3. A browser that refuses WebGL mid-visit fires webglcontextcreationerror,
- * AdaptiveQuality hears it, and the gate reads it here. Up to 4.3.2 nothing
- * heard it, and the visitor got an empty box where the scene's still belonged.
+ * A browser that refuses WebGL mid-visit fires webglcontextcreationerror,
+ * AdaptiveQuality hears it, and the gate reads it here.
  */
 describe("scene gate — WebGL refused by the browser", () => {
   it("shows the still, even for a scene that was already running", () => {
@@ -179,12 +170,9 @@ describe("scene gate — while running", () => {
   });
 
   /**
-   * R3 in vv-lab's findings. Tier 2 fell through to "active", so the harder the
-   * page struggled the more the gate asked of it: a managed R3F hero ran at
-   * 10–12fps at full resolution while the governor read tier 2 the whole time.
-   * Every other tier-2 case in this file also sets deviceTier 2, which takes
-   * the poster branch before the tier is read, so none of them reached the
-   * path that broke: tier 2 from the frame budget on a capable device.
+   * Tier 2 from the frame budget on a capable device. Every other tier-2 case
+   * in this file also sets deviceTier 2, which takes the poster branch before
+   * the tier is read.
    */
   it("keeps quality down when the frame rate collapses, not only when it sags", () => {
     const out = decide({ ...base, tier: 2, qualityCause: "frame-rate" });
@@ -210,11 +198,8 @@ describe("scene gate — responding to the right kind of slow", () => {
   });
 
   it("still blames rendering when the frame rate has sagged with it", () => {
-    // The realistic case, and the one that was wrong until 2.0.1. Rendering
-    // being the bottleneck is what drags the tier down, so both conditions are
-    // true together — nearly always. With the tier tested first, the specific
-    // reason was unreachable and every render-bound scene reported the generic
-    // one instead.
+    // The realistic case. Rendering being the bottleneck drags the tier down,
+    // so both conditions are true together and the specific reason must win.
     const out = decide({ ...base, ...renderBound });
 
     expect(out.state).toBe("constrained");
@@ -231,9 +216,8 @@ describe("scene gate — responding to the right kind of slow", () => {
   it("does NOT reduce quality when someone else is blocking the main thread", () => {
     const out = decide({ ...base, ...heldBack });
 
-    // A smaller scene does not unblock a blocked thread. Degrading here makes
-    // the page uglier and exactly as slow, which is the whole reason the
-    // pressure classifier exists.
+    // A smaller scene doesn't unblock a blocked thread, so degrading here only
+    // makes the page uglier.
     expect(out.state).toBe("active");
   });
 
@@ -310,8 +294,7 @@ describe("scene gate — cause is the field you branch on", () => {
   });
 
   it("distinguishes the two ways of arriving at constrained", () => {
-    // Both read "constrained". Only cause says which, and up to 2.x the
-    // generic one always won because tier was tested before pressure.
+    // Both read "constrained". Only cause says which.
     expect(decide({ ...base, ...renderBound }).cause).toBe("render-bound");
     expect(decide({ ...base, ...frameRate }).cause).toBe("frame-rate");
   });

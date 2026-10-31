@@ -1,24 +1,13 @@
 /**
  * The core entry, called with no DOM.
  *
- * This file runs in a node environment on purpose: no `window`, no `navigator`,
- * no `requestAnimationFrame`. That is exactly the situation Nuxt, SvelteKit and
- * Astro put `@vectorvesper/motion` in, and the core entry ships without a
- * "use client" directive precisely so it can be imported there.
+ * This file runs in a node environment: no `window`, no `navigator`, no
+ * `requestAnimationFrame`. That is what Nuxt, SvelteKit and Astro give
+ * `@vectorvesper/motion`, and React can't catch these crashes because hooks
+ * touch the runtime from effects, which don't run on the server.
  *
- * Three separate SSR crashes were found by hand at 4.0.0, all the same shape:
- *
- *   getAdaptiveQuality().state   → "window is not defined"
- *   getAdaptiveQuality().subscribe() → "requestAnimationFrame is not defined"
- *   getSensorBus().retain()      → "window is not defined"
- *
- * None of them ever surfaced in React, because every React hook touches the
- * runtime from an effect and effects do not run on the server. The
- * framework-agnostic claim in the README had never been executed once.
- *
- * So this walks the whole public surface rather than the parts already known to
- * break. A new export that touches a browser global at call time fails here,
- * and that is the only place it would.
+ * So this walks the whole public surface. A new export that touches a browser
+ * global at call time fails here.
  */
 
 import { describe, it, expect } from "vitest";
@@ -36,11 +25,8 @@ describe("the core entry with no DOM", () => {
   });
 
   /**
-   * Every singleton getter, its `state`, and its subscribe/release cycle.
-   *
-   * Subscribing is included because that is where the conductor tries to start
-   * a frame loop, which is the failure a component that reads a governor during
-   * setup would hit.
+   * Every singleton getter, its `state`, and its subscribe and release cycle.
+   * Subscribing is where the conductor tries to start a frame loop.
    */
   it("lets every singleton be read and subscribed without throwing", async () => {
     const {
@@ -102,13 +88,9 @@ describe("the core entry with no DOM", () => {
   });
 
   /**
-   * The tier the server reports is a product decision, not an implementation
-   * detail, so it is pinned.
-   *
-   * `deviceTierFromSignals` maps "no WebGL2" to tier 2, the poster tier. Using
-   * that on the server would render the static fallback and then flash to a
-   * full scene the instant a capable device hydrated. Tier 0 matches what
-   * `useAdaptiveQuality`'s INITIAL already renders, so both entries produce the
+   * `deviceTierFromSignals` maps "no WebGL2" to tier 2, the poster tier, which
+   * on the server would render the fallback and then flash to a full scene.
+   * Tier 0 matches `useAdaptiveQuality`'s INITIAL, so both entries produce the
    * same server markup.
    */
   it("reports the optimistic tier on the server, so hydration does not flash", async () => {

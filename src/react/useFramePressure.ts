@@ -18,26 +18,22 @@ const INITIAL: PressureState = {
 };
 
 /**
- * What is currently eating the frame, and how sure the runtime is about it.
+ * What is eating the frame, and how sure the runtime is.
  *
  * ```tsx
  * const { source, confidence } = useFramePressure();
  *
- * // Only reduce the scene when rendering is what is actually slow.
+ * // Only reduce the scene when rendering is what is slow.
  * const dpr = source === "render" && confidence > 0.5 ? 1 : 2;
  * ```
  *
- * Verdicts change slowly and are emitted at most twice a second, so React
- * state is the right shape here. Do not read it inside a frame callback —
- * use `getFramePressure().state` there.
+ * Verdicts are emitted at most twice a second, so React state fits. Inside a
+ * frame callback use `getFramePressure().state`.
  *
- * Read the meaning of each `source` on {@link PressureState}. The short
- * version: `"runtime"` means shedding our own work will help, `"main-thread"`
- * means delay mounts rather than dropping quality, `"render"` means lower the
- * quality, and `"unknown"` means change nothing.
- *
- * Nothing in the runtime acts on this yet. It reports so that it can be
- * checked against real pages before it is allowed to make decisions.
+ * See {@link PressureState} for each `source`. In short: `"runtime"` means
+ * shedding our own work will help, `"main-thread"` means delay mounts and keep
+ * quality, `"render"` means lower the quality, and `"unknown"` means change
+ * nothing.
  */
 export function useFramePressure(): PressureState {
   const [state, setState] = useState<PressureState>(INITIAL);

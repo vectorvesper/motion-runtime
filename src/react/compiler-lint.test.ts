@@ -6,18 +6,13 @@ import tsParser from "@typescript-eslint/parser";
 /**
  * Lints sample consumers under the React Compiler rules.
  *
- * `useSceneGate` and `usePointerIntent` hand back a hybrid ref — a callback ref
- * with a `current` accessor defined on it (see hybrid-ref.ts). Nothing in
- * `npm test`, `tsc` or `tsup` can tell you whether a component is allowed to
- * *call* those hooks: the compiler rules run in the consumer's app, against
- * consumer code, and the first sign of trouble is a red build in someone else's
- * repo. Four shipped components hit exactly that.
+ * `useSceneGate` and `usePointerIntent` hand back a hybrid ref (see
+ * hybrid-ref.ts). `npm test`, `tsc` and `tsup` can't tell you whether a
+ * component may call those hooks: the compiler rules run in the consumer's app.
+ * So the check is a real lint over a real call site.
  *
- * So the check has to be a real lint over a real call site.
- *
- * The config is duplicated from `eslint.config.mjs` rather than imported. That
- * file is untyped ESM outside `src`, and this test wants a fixed config anyway:
- * a repo lint tweak should not quietly change what it asserts.
+ * The config is duplicated from `eslint.config.mjs`, which is untyped ESM
+ * outside `src`, and a repo lint tweak shouldn't change what this asserts.
  */
 const eslint = new ESLint({
   overrideConfigFile: true,
@@ -31,7 +26,7 @@ const eslint = new ESLint({
         parserOptions: { ecmaFeatures: { jsx: true } },
       },
       // The plugin's own types are narrower than ESLint's `Plugin`, which is
-      // only a typing mismatch — the object is a valid plugin.
+      // only a typing mismatch: the object is a valid plugin.
       plugins: { "react-hooks": reactHooks as unknown as ESLint.Plugin },
       rules: reactHooks.configs["recommended-latest"].rules,
     },
@@ -59,27 +54,20 @@ describe("consumers of the hybrid ref", () => {
   }, 60_000);
 
   /**
-   * The rule is not specific to the hybrid ref — the four hooks in this fixture
-   * return plain `useRef` objects and behave identically. Covering them means a
-   * hook added later with a `{ ref }` shape is checked by the same test.
+   * The rule isn't specific to the hybrid ref. Covering these means a hook
+   * added later with a `{ ref }` shape gets the same check.
    */
   it("lints clean for every other hook that returns a ref", async () => {
     expect(await lint("ref-returning-hooks.tsx")).toEqual([]);
   }, 60_000);
 
   /**
-   * The counterpart, and the reason the three above are worth asserting:
-   * reaching the ref through `scene.ref` fails, and takes the rest of the
-   * object with it.
+   * The counterpart: reaching the ref through `scene.ref` fails, and takes the
+   * rest of the object with it. `scene.generation`, a number, is reported as a
+   * ref read during render too. This is decided at the call site.
    *
-   * `ref={<member expression>}` makes the compiler unify the *object's* type
-   * with `useRef`'s, so `scene.generation` — a number — is also reported as a
-   * ref read during render. That is decided entirely at the call site; no shape
-   * `createHybridRef` could return avoids it, and a plain `useRef` object or a
-   * bare callback ref behaves identically.
-   *
-   * If this ever comes back empty the compiler fixed it upstream, and the
-   * warnings on `SceneGate.ref` and its siblings can go.
+   * If this ever comes back empty the compiler fixed it, and the warnings on
+   * `SceneGate.ref` and its siblings can go.
    */
   it("still fails when the scene gate is reached by member access", async () => {
     const messages = await lint("scene-gate-member-access.tsx");

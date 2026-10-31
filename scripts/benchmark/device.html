@@ -119,10 +119,8 @@ before anyone calls this production-ready.
   }
 
   async function calibrate(name) {
-    // Same rule as the desktop harness: pick the load from what the BASELINE
-    // arm can take, not from what flatters the other one. A phone needs a much
-    // lower number than a laptop, which is the whole reason this is measured
-    // rather than hardcoded.
+    // Same rule as the desktop harness: pick the load from what the baseline
+    // arm can take. A phone needs a much lower number than a laptop.
     const baseline = Object.keys(SCENARIOS[name].arms)[0];
     for (const step of [220, 700, 1800, 4000, 9000]) {
       const probe = await run(name, baseline, 1200, step);

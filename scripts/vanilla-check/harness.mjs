@@ -1,15 +1,9 @@
 /**
  * Exercise the core entry with no React anywhere.
  *
- * The package has advertised vanilla / Vue / Svelte support since 1.0, and 3.0
- * exported the effect engines specifically so a non-React consumer could use
- * them. Nothing had ever run that path. Every test in the repo is either a node
- * unit test or a jsdom React test, and every browser check goes through the
- * docs site, which is React.
- *
- * So this serves the built `dist/` to a plain HTML page that imports it as an
- * ES module, constructs the classes by hand, and drives it with real input. If
- * the framework-agnostic claim is wrong, it is wrong here.
+ * Every test in the repo is a node unit test or a jsdom React test, so this
+ * serves the built `dist/` to a plain HTML page that imports it as an ES module,
+ * constructs the classes by hand, and drives it with real input.
  *
  * Run: npm run build && node scripts/vanilla-check/harness.mjs
  */

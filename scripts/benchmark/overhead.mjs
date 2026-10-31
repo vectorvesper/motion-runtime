@@ -1,14 +1,12 @@
 /**
- * Scheduler overhead and allocation, measured rather than asserted.
+ * Scheduler overhead and allocation, measured. Run: `npm run bench:overhead`.
  *
- * The claim this package makes is that one shared loop is cheaper than N
- * private ones. That is only worth saying if the shared loop's own bookkeeping
- * is negligible, and "negligible" has to be a number someone else can
- * reproduce. Run: `npm run bench:overhead`.
+ * One shared loop is only cheaper than N private ones if its own bookkeeping is
+ * negligible, and that has to be a number someone else can reproduce.
  *
- * Node, not a browser: this measures the scheduler, not rendering. rAF is
- * driven by hand through a single reusable slot so the harness itself
- * allocates nothing and cannot be mistaken for the thing being measured.
+ * This runs in Node because it measures the scheduler and not rendering. rAF is
+ * driven by hand through a single reusable slot, so the harness allocates
+ * nothing.
  */
 let pending = null;
 globalThis.requestAnimationFrame = (cb) => { pending = cb; return 1; };

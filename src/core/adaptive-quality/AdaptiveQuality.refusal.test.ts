@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 /**
- * RB-3: a WebGL context the browser refuses after the page has loaded.
+ * A WebGL context the browser refuses after the page has loaded.
  *
  * The probe needs a WebGL2 context to rate the device, and jsdom has none, so
  * getContext is faked for the probe. The refusal itself is a real event on a

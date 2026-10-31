@@ -1,83 +1,41 @@
 import { getConductor } from "../conductor";
 
 /**
- * FramePressure — what is actually eating the frame.
+ * FramePressure: what is eating the frame.
  *
- * AnimationBudget can tell you the page is late. It cannot tell you why, and
- * the difference decides what to do about it. Shedding our own work when the
- * GPU is the bottleneck removes motion and fixes nothing; lowering render
- * quality when a third-party script is blocking the main thread does the same.
- *
- * ## The decomposition
+ * AnimationBudget says the page is late but not why, and the answer decides the
+ * response. Shedding our own work doesn't help when the GPU is the bottleneck,
+ * and lowering render quality doesn't help when another script is blocking the
+ * main thread.
  *
  * One frame is split three ways:
  *
  *     frameMs = runtimeMs + mainOtherMs + unattributedMs
  *
- * - `runtimeMs`   — our own subscribers. The conductor already measures this,
- *                   because it has to read the clock between subscribers
- *                   anyway to know how much of the frame is left.
- * - `mainOtherMs` — main-thread work that is not ours, on both sides of our
- *                   tick: another library's rAF loop, style, layout, paint.
- * - `unattributedMs` — the remainder. Compositing, the GPU, and on a healthy
- *                   page, simply waiting for the next vsync.
+ * - `runtimeMs`: our own subscribers, measured by the conductor.
+ * - `mainOtherMs`: main-thread work that isn't ours, before and after our tick.
+ * - `unattributedMs`: the remainder. Compositing, the GPU, and on a healthy page
+ *   waiting for vsync, which is why only over-budget frames are classified.
  *
- * That last point is why this only classifies when a frame is over budget. On
- * a page hitting 60fps, `unattributedMs` is mostly idle, and reading idle as
- * "render pressure" would be worse than saying nothing.
+ * Work after our tick is measured with a `MessageChannel` message posted from
+ * the input lane, because a task only runs once the main thread finishes the
+ * rest of the frame. Work before it comes from `ConductorStats.preRuntimeMs`.
+ * The probe runs at about 10Hz: the verdict changes slowly, and a probe at frame
+ * rate measures a cost it helps create.
  *
- * ## How the main-thread share is measured
+ * Limits:
  *
- * Two numbers, because work happens on both sides of us.
+ * - No GPU time. That needs `EXT_disjoint_timer_query` on a context the runtime
+ *   doesn't own, so `"render"` means the main thread was free and the frame was
+ *   still late.
+ * - Long tasks only count as positive evidence. The API fires above 50ms, so
+ *   25ms per frame of main-thread JS produces none.
+ * - The split is serial and the pipeline isn't. Frame time is closer to the
+ *   longer of the CPU and GPU paths than to their sum, so `unattributedMs` shows
+ *   how long the frame waited on the GPU, not how much GPU work exists.
  *
- * **After us:** a message is posted to a `MessageChannel` from the input lane.
- * Messages are delivered as tasks, and a task only runs once the main thread
- * finishes what it is doing — at that point in the frame, the rest of the
- * rendering steps. Measured directly in Chrome: with a competing rAF callback
- * burning 24ms, the round trip came back at 24.3ms. Our own update and render
- * work is inside that number too, so the conductor's separate measurement is
- * subtracted back out.
- *
- * **Before us:** `ConductorStats.preRuntimeMs`. Every rAF callback in a frame
- * receives the same start timestamp, so the gap between it and the moment our
- * tick runs is whatever ran first. Without this, a third-party loop registered
- * ahead of ours is invisible to the probe and lands in `unattributedMs` — which
- * made a pure main-thread load report as `"render"` at 97% confidence on the
- * first real-browser run.
- *
- * The probe is sampled at roughly 10Hz rather than every frame. The verdict
- * only changes slowly, and a probe running at frame rate is measuring a cost
- * it is helping to create.
- *
- * ## What this deliberately does NOT claim
- *
- * **It does not measure GPU time.** No browser exposes that without an
- * `EXT_disjoint_timer_query` on a WebGL context the runtime does not own.
- * `"render"` means "the main thread was free and the frame was still late",
- * which points at compositing or the GPU without proving which.
- *
- * **Long tasks are a positive signal only.** The Long Task API fires above
- * 50ms, so a page spending 25ms per frame on main-thread JS produces no long
- * tasks at all. Seeing one is evidence of main-thread pressure; not seeing one
- * is evidence of nothing.
- *
- * **The decomposition is serial; the pipeline is not.** Frame time is closer to
- * the longer of the CPU and GPU paths than to their sum, so when the main
- * thread is the bottleneck, GPU time hides inside it and `unattributedMs` shrinks.
- * Measured under 6x CPU throttling, a GPU load that read as `"render"` at
- * normal speed correctly read as `"main-thread"` — the CPU could no longer feed
- * the GPU fast enough, so the CPU genuinely was the bottleneck. The verdict
- * stays actionable, because the answer in that case really is "fix the main
- * thread, do not reduce quality". But do not read `unattributedMs` as a measure of
- * how much GPU work exists; it measures how much of the frame the GPU was the
- * thing being waited on.
- *
- * **What acts on it.** AdaptiveQuality's `fuse()` reads the verdict to decide
- * whether lowering quality would help, and holds a subscription for as long
- * as anything listens to it, because this only measures while subscribed. It
- * once relied on useSceneGate to keep that subscription, and from 4.0.0 to
- * 4.3.1 nothing did, so the verdict never left `"none"` (vault RB-2).
- * Shedding and mount gates still do not read it.
+ * AdaptiveQuality's `fuse()` reads the verdict and holds a subscription, because
+ * this only measures while subscribed. Shedding and mount gates don't read it.
  */
 
 /** What is eating the frame. */
@@ -96,8 +54,8 @@ export type PressureSource =
 export interface PressureState {
   source: PressureSource;
   /**
-   * How clearly the winner beat the runner-up, 0–1. Below ~0.3 the verdict is
-   * a lean, not a finding. Anything acting on this should require a floor.
+   * How clearly the winner beat the runner-up, 0 to 1. Below about 0.3 the
+   * verdict is only a lean. Anything acting on this should require a floor.
    */
   confidence: number;
   /** Smoothed wall-clock frame interval, ms. */
@@ -105,11 +63,11 @@ export interface PressureState {
   /** Smoothed time in our own subscribers, ms. */
   runtimeMs: number;
   /**
-   * Main-thread time this frame that is NOT ours, ms — work before our tick
+   * Main-thread time this frame that isn't ours, in ms: work before our tick
    * plus work after it. `null` until the probe has reported at least once.
    */
   mainOtherMs: number | null;
-  /** Smoothed remainder — compositing, GPU, and vsync wait, ms. */
+  /** Smoothed remainder: compositing, GPU and vsync wait, in ms. */
   unattributedMs: number;
   /** One presented frame at the detected display rate, ms. */
   budgetMs: number;
@@ -118,56 +76,39 @@ export interface PressureState {
 }
 
 /**
- * A render verdict below this confidence is not acted on. A realistic heavy
- * scene measures about 0.52 in a real browser, so the floor has to sit under
- * that while still rejecting a coin-flip.
+ * A render verdict below this confidence isn't acted on. A realistic heavy
+ * scene measures about 0.52 in a real browser, so the floor sits under that
+ * while still rejecting a coin-flip.
  *
- * Internal, and shared: AdaptiveQuality uses it to decide whether reducing
- * quality would help, and presentation-cap.ts to decide whether the main
- * thread is idle. Two copies of the number would drift.
+ * Internal, and shared with AdaptiveQuality and presentation-cap.ts so the
+ * number has one home.
  */
 export const RENDER_CONFIDENCE_FLOOR = 0.4;
 
 /**
- * A frame this much over budget is worth explaining. 20.8ms at 60Hz, ~48fps.
+ * A frame this much over budget is worth explaining: 20.8ms at 60Hz, about
+ * 48fps.
  *
- * ## Why this is later than AnimationBudget's line
+ * AnimationBudget's line is lower, 1.11 or about 54fps, because it answers a
+ * different question. It asks whether the page is struggling, with hysteresis
+ * behind it. This asks which subsystem is to blame, which needs enough overrun
+ * to attribute.
  *
- * AnimationBudget uses 1.11 — 18.5ms, ~54fps — and the gap between the two is
- * deliberate, not an oversight. They answer different questions:
+ * Between 54 and 48fps this reports `"none"` while `useSceneGate` is already
+ * constraining on tier. Matching AnimationBudget's line would put a second,
+ * undamped signal on a decision the tier owns, and tighten the quality feedback
+ * loop: reduced quality makes rendering cheap, the signal clears, quality
+ * returns, and frames go slow again.
  *
- * - **AnimationBudget**: is the page struggling? It degrades to tier 1 at 54fps,
- *   with real hysteresis behind it (30% of a 90-frame window, a 1.5s cooldown
- *   before degrading again, 8s of calm before recovering).
- * - **FramePressure**: once the frame is properly blown, *which* subsystem is
- *   to blame? That question is only worth asking when there is enough overrun
- *   to attribute confidently. Three roughly equal thirds of a mildly late frame
- *   is not a finding.
- *
- * So 54fps → 48fps is a real band where this reports `"none"`, and that is
- * correct: `useSceneGate` is already constraining there, on tier. Lowering this
- * to meet AnimationBudget's line would put a second, faster, un-damped signal
- * onto a decision tier already owns — two subsystems with two beliefs about the
- * same frame, which is the failure the 1.2.0 carried-overrun work existed to
- * remove. It would also tighten the quality feedback loop: reduce quality →
- * rendering gets cheap → the signal clears → quality returns → slow again.
- *
- * **Consequence worth stating plainly:** this is not a general render-pressure
- * detector. A page dropping to 55fps because of the GPU will read `"none"`.
- *
- * The browser harness (`scripts/pressure-probe/page.html`) drives its render
- * scenario to 2x-3.2x budget so it clears this line unambiguously. It used a
- * fixed shader iteration count until GPUs outgrew it, at which point the load
- * produced 17-19ms frames, this threshold correctly said `"none"`, and the test
- * failed for being right. If you change this constant, that band moves with it.
+ * So this isn't a general render-pressure detector: a page at 55fps because of
+ * the GPU reads `"none"`. `scripts/pressure-probe/page.html` drives its render
+ * scenario to 2x-3.2x budget to clear this line, so that band moves with this
+ * constant.
  */
 const SLOW_FACTOR = 1.25;
 /**
- * Frames to observe before saying anything at all.
- *
- * Low on purpose. At 30 this stayed silent for six seconds on a page running
- * at 5fps — which is exactly the page most in need of an answer. A verdict
- * from a dozen frames is coarse; no verdict at all is useless.
+ * Frames to observe before saying anything. At 30 this stays silent for six
+ * seconds on a page running at 5fps, the page most in need of an answer.
  */
 const MIN_SAMPLES = 12;
 /** Emit at most this often, in seconds. */
@@ -186,11 +127,9 @@ export interface PressureSample {
   /** Time gone in this frame before the runtime ran. Other people's rAF work. */
   preRuntimeMs: number;
   /**
-   * Raw MessageChannel round trip, or `null` when this frame was not probed.
-   *
-   * Measured from the input lane, so it contains our own update and render
-   * work as well as everyone else's. `mainOther()` is what nets that out —
-   * do not read this as "other people's time".
+   * Raw MessageChannel round trip, or `null` when this frame wasn't probed.
+   * Measured from the input lane, so it includes our own update and render
+   * work. `mainOther()` nets that out.
    */
   probeDelayMs: number | null;
   budgetMs: number;
@@ -199,11 +138,8 @@ export interface PressureSample {
 }
 
 /**
- * The decision logic, with no browser in it.
- *
- * Separated so it can be tested by feeding synthetic frames, the same way
- * BudgetPolicy is. Everything a browser is needed for lives in the singleton
- * below.
+ * The decision logic with no browser in it, tested by feeding synthetic frames
+ * the same way BudgetPolicy is.
  */
 export class PressurePolicy {
   private frameEma = 0;
@@ -217,11 +153,8 @@ export class PressurePolicy {
   private source: PressureSource = "none";
   /**
    * Starts at 1, matching what `classify()` reports for a healthy page.
-   *
-   * `confidence` describes how sure we are of the named cause. When the source
-   * is `"none"` there is no cause to be unsure about, so hedging it would make
-   * the same verdict mean two different things depending on whether a frame
-   * had been measured yet.
+   * `confidence` describes the named cause, and `"none"` has no cause to be
+   * unsure about.
    */
   private confidence = 1;
 
@@ -243,20 +176,19 @@ export class PressurePolicy {
   /**
    * Main-thread time that belongs to somebody else.
    *
-   * The probe is posted from the input lane, which runs first, so the delay it
-   * measures also contains our own update and render work. Subtracting what the
-   * conductor separately measured leaves other people's share. Work that ran
-   * *before* our tick never reaches the probe at all, which is what
-   * `preRuntimeMs` is for — without it, a third-party rAF loop registered ahead
-   * of ours reads as off-thread, and the verdict comes back "render".
+   * The probe is posted from the input lane, which runs first, so its delay
+   * also contains our own update and render work. Subtracting the conductor's
+   * figure leaves other people's share. Work before our tick never reaches the
+   * probe, which is what `preRuntimeMs` is for. Without it, a third-party rAF
+   * loop registered ahead of ours reads as off-thread and the verdict comes
+   * back "render".
    */
   private mainOther(): number | null {
     if (this.tailEma === null) return null;
     const raw = this.preEma + Math.max(0, this.tailEma - this.runtimeEma);
-    // The two halves are smoothed independently and can briefly total more
-    // than the frame they are supposed to describe. Attributing more time than
-    // the frame contains is never right, and a reader who spots it stops
-    // trusting the whole readout.
+    // The two halves are smoothed independently and can briefly total more than
+    // the frame they describe. Attributing more time than the frame contains is
+    // never right.
     return Math.min(raw, Math.max(0, this.frameEma - this.runtimeEma));
   }
 
@@ -300,9 +232,9 @@ export class PressurePolicy {
   }
 
   private classify(): void {
-    // Healthy frames are not a mystery worth solving. `unattributedMs` on a page
-    // hitting its target is mostly waiting for vsync, and reading idle time as
-    // render pressure would be worse than saying nothing.
+    // `unattributedMs` on a page hitting its target is mostly waiting for vsync,
+    // and reading idle time as render pressure would be worse than saying
+    // nothing.
     if (this.frameEma <= this.budgetMs * SLOW_FACTOR) {
       this.source = "none";
       this.confidence = 1;
@@ -395,10 +327,9 @@ class FramePressure {
   private start(): void {
     this.startLongTaskObserver();
     this.startProbe();
-    // Essential, and on the input lane: a classifier that gets shed exactly
-    // when the page is struggling would go quiet in the only situation it
-    // exists for. It costs one subtraction and, ten times a second, one
-    // postMessage.
+    // Essential, and on the input lane: a classifier shed while the page
+    // struggles would go quiet in the only situation it exists for. It costs
+    // one subtraction and, ten times a second, one postMessage.
     this.unsubscribe = getConductor().subscribe("input", this.frame, {
       priority: "essential",
       label: "FramePressure",
@@ -462,9 +393,8 @@ class FramePressure {
       longTasks,
     });
 
-    // Sample the main thread roughly ten times a second rather than every
-    // frame. The verdict only changes slowly, and a probe that runs at frame
-    // rate is measuring a cost it is helping to create.
+    // Sample about ten times a second. The verdict changes slowly, and a probe
+    // at frame rate measures a cost it helps create.
     const every = Math.max(1, Math.round(stats.displayHz / 10));
     this.framesSinceProbe++;
     if (!this.probeInFlight && this.framesSinceProbe >= every && this.channel) {

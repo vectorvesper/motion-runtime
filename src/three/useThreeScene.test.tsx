@@ -5,12 +5,9 @@ import type { ThreeScene, ThreeSceneFrame, ThreeSceneHandle, UseThreeSceneOption
 
 /**
  * The plain three.js adapter, against a renderer and a scene that record what
- * is done to them.
- *
- * jsdom has no WebGL, and these do not need one: the hook's whole job is what
- * happens to the renderer and the scene, and in what order, which a recording
- * fake shows exactly. That a real renderer lands at the right size, draws,
- * recovers and lets go is checked in real browsers by vv-lab.
+ * is done to them. jsdom has no WebGL, and these don't need one: the hook's job
+ * is what happens to the renderer and scene, and in what order. That a real
+ * renderer draws, recovers and lets go is checked in real browsers.
  */
 
 let rafCallbacks = new Map<number, FrameRequestCallback>();
@@ -420,8 +417,8 @@ describe("useThreeScene — a lost graphics context", () => {
   });
 
   /**
-   * R10. The replacement did not exist when the first reset happened, so
-   * losing it straight away is a new failure and gets a rebuild of its own.
+   * The replacement didn't exist when the first reset happened, so losing it
+   * straight away is a new failure and gets a rebuild of its own.
    */
   it("rebuilds again when the replacement is lost moments after it was built", async () => {
     const { three, health } = await mountScene();

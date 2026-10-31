@@ -4,34 +4,22 @@ import { PointerIntent } from "../pointer-intent/PointerIntent";
 import { damp } from "../math";
 
 /**
- * MagneticElement — attraction with anticipation.
+ * MagneticElement: attraction with anticipation.
  *
- * The thousand free magnetic-button tutorials react to hover. This one
- * rides the engine: engagement = max(PointerIntent confidence, proximity
- * falloff), so the element starts reaching WHILE THE CURSOR IS STILL ON
- * ITS WAY — the pre-touch that makes award-site buttons feel alive.
+ * Engagement is max(PointerIntent confidence, proximity falloff), so the
+ * element starts reaching while the cursor is still on its way.
  *
- * Anchor correctness: the element's rect moves as it translates, so the
- * true anchor is rect-center MINUS the current offset. Without this the
- * target drifts and the element chases its own tail.
+ * The element's rect moves as it translates, so the true anchor is rect centre
+ * minus the current offset. Without this the element chases its own tail.
  *
- * Writes only `transform` (compositor-safe); records and restores the
- * previous inline transform on destroy.
+ * Writes only `transform`, and restores the previous inline transform on
+ * destroy.
  *
- * ## Read/write split (v0.3)
- *
- * v0.1 called `getBoundingClientRect()` inside the render lane, immediately
- * before writing `transform`. With two magnetic elements on a page that
- * becomes read → write → read, and the second read is a forced synchronous
- * layout because the first write dirtied the tree — layout thrash scaling
- * with the number of magnetic elements, in the engine whose whole premise is
- * reads-before-writes.
- *
- * The measurement now lives in the input lane, so every magnetic element on
- * the page has finished reading before any of them writes. The anchor is also
- * cached and only re-measured when something could plausibly have moved it
- * (scroll, resize) or the heartbeat elapses, so the steady state costs no
- * layout reads at all.
+ * Measuring happens in the input lane, so every magnetic element on the page
+ * has finished reading before any of them writes. Reading in the render lane
+ * would force a synchronous layout per element. The anchor is cached and only
+ * re-measured when scroll or resize could have moved it, or the heartbeat
+ * elapses, so the steady state costs no layout reads.
  */
 
 export interface MagneticOptions {
@@ -93,14 +81,14 @@ export class MagneticElement {
     this.syncAnticipation();
     this.releaseBus = getSensorBus().retain();
     // Input lane: every layout read on the page happens here, before anything
-    // writes. Essential — a stale anchor makes the element pull toward the
+    // writes. Essential, because a stale anchor pulls the element toward the
     // wrong place, which is worse than not pulling at all.
     this.offMeasure = getConductor().subscribe("input", this.measure, {
       priority: "essential",
       label: "MagneticElement(measure)",
     });
-    // Render lane: after intent's update-lane confidence pass. Pure math and
-    // a single transform write — no layout reads.
+    // Render lane: after intent's update-lane confidence pass. Pure maths and a
+    // single transform write, with no layout reads.
     this.offRender = getConductor().subscribe("render", this.frame, {
       priority: "enhanced",
       label: "MagneticElement",
@@ -108,16 +96,10 @@ export class MagneticElement {
   }
 
   /**
-   * Retune in place. Keys explicitly set to `undefined` are IGNORED rather than
-   * applied, because the React adapter destructures the caller's options object
-   * and passes every key on every change — so an option the caller simply never
-   * supplied arrives here as `undefined`.
-   *
-   * A naive `{ ...this.opts, ...options }` let that wipe a default. With `damp`
-   * gone, `damp(current, target, undefined, dt)` evaluates `Math.exp(-undefined)`
-   * → NaN, the element's transform became `translate3d(NaNpx, NaNpx, 0)`, the
-   * browser discarded it as invalid, and the magnet silently never moved. The
-   * documented zero-argument call `useMagneticIntent()` hit this.
+   * Retune in place. Keys set to `undefined` are ignored, because the React
+   * adapter passes every key on every change, so an option the caller never
+   * supplied arrives as `undefined`. Applied, it would wipe a default and put
+   * NaN in the transform.
    */
   update(options: MagneticOptions): void {
     for (const key of Object.keys(options) as (keyof MagneticOptions)[]) {
@@ -130,15 +112,12 @@ export class MagneticElement {
   }
 
   /**
-   * Build or tear down the approach detector to match `anticipate`.
+   * Build or tear down the approach detector to match `anticipate`. Called from
+   * `update` as well as the constructor, so turning anticipation on or off
+   * works after mount.
    *
-   * Called from `update` as well as the constructor: this used to be read only
-   * at construction, so turning anticipation on or off after mount silently
-   * did nothing.
-   *
-   * Sensitivity is derived from `reach` rather than passed through. A wider
-   * magnetic field should start reaching from further out, and the detector no
-   * longer takes a raw pixel inflation — it takes a band.
+   * Sensitivity is derived from `reach`: a wider magnetic field should start
+   * reaching from further out.
    */
   private syncAnticipation(): void {
     if (!this.opts.anticipate) {
@@ -188,15 +167,14 @@ export class MagneticElement {
   };
 
   private frame = (dt: number): void => {
-    if (!this.haveAnchor) return; // nothing measured yet — wait for the input lane
+    if (!this.haveAnchor) return; // nothing measured yet, wait for the input lane
     const { pointer, viewport } = getSensorBus().state;
     const cx = this.anchorX;
     const cy = this.anchorY;
 
-    // An element entirely off screen is not pulled (vault RB-5). It eases back
-    // to rest, and once at rest the transform it writes stops changing, so the
-    // page sees no more writes. A viewport not yet measured (0) counts as
-    // unbounded.
+    // An element entirely off screen isn't pulled. It eases back to rest, and
+    // once at rest the transform it writes stops changing, so the page sees no
+    // more writes. A viewport not yet measured (0) counts as unbounded.
     const onScreen =
       cx + this.halfW > 0 &&
       cx - this.halfW < (viewport.width || Infinity) &&

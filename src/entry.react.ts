@@ -1,55 +1,28 @@
 "use client";
 
 /**
- * @vectorvesper/motion/react — React adapters ("./react")
+ * @vectorvesper/motion/react: React adapters ("./react"). Thin hooks over the
+ * core runtime. Requires react and react-dom as peers.
  *
- * Thin hooks over the core runtime. Requires react + react-dom as peers.
+ * This entry also mirrors the core singletons, because Framer can't load the
+ * root entry (`Module @vectorvesper/motion is not a valid npm package (f3)`).
+ * Framer components import everything from here.
  *
- * ## This entry also re-exports the core singletons
+ * Framer's validator rejects a module whose declarations contain forwarded
+ * re-exports pointing at a relative chunk file. `export *` compiles to that
+ * shape in the JavaScript, and `export type *` compiles to it in the .d.ts. So
+ * values are re-bound to a `const`, which is ordinary code, and core types
+ * aren't re-exported. They stay available from "@vectorvesper/motion".
  *
- * Framer cannot load the root entry — `Module @vectorvesper/motion is not a
- * valid npm package (f3)`. That blocked the whole Framer port, because 21
- * components need `getConductor` and it lived only on the path Framer refuses.
- * The workaround people reached for was a private `requestAnimationFrame` loop,
- * which is the exact thing the conductor exists to replace.
+ * A const alias holds the same function object, so `getConductor()` here and on
+ * the root return the one shared instance.
  *
- * So the core value exports are mirrored here. Framer components import
- * everything from "@vectorvesper/motion/react".
+ * After any build-config change, both `dist/react.js` and `dist/react.d.ts` must
+ * contain zero forwarded re-exports pointing at a chunk file.
  *
- * ## Why `const` re-binding, and why no type re-export
- *
- * Both are the same constraint, learned the hard way across 1.1.0 and 1.1.1.
- *
- * Framer's validator rejects a module whose declarations contain **forwarded
- * re-exports pointing at a relative chunk file**. Not barrels in general — that
- * specific shape. Counting them in the published builds:
- *
- *   1.0.4  react.js none · react.d.ts none  → Framer loads it
- *   1.1.0  react.js two  · react.d.ts two   → rejected (added `export *`)
- *   1.1.1  react.js none · react.d.ts two   → still rejected (fixed JS only)
- *
- * `export *` compiles to that shape in the JavaScript. Assigning to a `const`
- * does not — it is a local binding, emitted as ordinary code.
- *
- * `export type *` compiles to that shape in the **.d.ts**, which is what an
- * editor validates. That is why 1.1.1 still failed after the JS was clean, and
- * why core *types* are deliberately not re-exported here. They remain available
- * from "@vectorvesper/motion"; only the callable surface is mirrored.
- *
- * The singleton is unaffected either way: a const alias holds the same function
- * object, so `getConductor()` through this entry and through the root return the
- * one shared instance. A second conductor would mean a second frame loop, which
- * would defeat the entire runtime.
- *
- * ## Regression test
- *
- * After any build-config change, both `dist/react.js` and `dist/react.d.ts`
- * must contain **zero** forwarded re-exports pointing at a chunk file. Check
- * both — 1.1.1 shipped broken because only the first was checked.
- *
- * Note this file is `"use client"`, so core helpers reached through it are
+ * This file is `"use client"`, so core helpers reached through it are
  * client-only. Server or framework-agnostic code should import from
- * "@vectorvesper/motion" directly.
+ * "@vectorvesper/motion".
  */
 
 import {
@@ -74,9 +47,7 @@ export const getAnimationBudget = _getAnimationBudget;
 export const getConductor = _getConductor;
 export const getSensorBus = _getSensorBus;
 export const rayRectIntersect = _rayRectIntersect;
-// Closing two of the three gaps 2.x left here. A React app importing
-// everything else from this entry had to reach into the core entry for these,
-// and only these.
+// So a React app doesn't have to reach into the core entry for these.
 export const getFramePressure = _getFramePressure;
 export const getRendererHealth = _getRendererHealth;
 // Read-only view of what each sensitivity band resolves to, for anything that
@@ -109,17 +80,10 @@ export {
 } from "./react/useSceneGate";
 
 // ── Effects ─────────────────────────────────────────────────────────
-// Merged back from "./effects" in 3.0. The split was argued as "the entries
-// match the layers", and the layering was real, but an entry has to earn its
-// place by protecting the consumer from a dependency they do not have.
-// `sideEffects: false` already tree-shakes an unused hook, so this one
-// protected nobody from anything, and both of our own apps immediately wrote
-// the same shim collapsing it back.
-//
-// These forward from ./effects/*, which after the merge belong to this entry
-// alone, so tsup inlines them rather than emitting the chunk-forwarding shape
-// Framer rejects. The core OPTION types they reference deliberately stay on
-// the core entry, for the same reason core types are not mirrored here.
+// These forward from ./effects/*, which belong to this entry alone, so tsup
+// inlines them instead of emitting the chunk-forwarding shape Framer rejects.
+// The core option types they reference stay on the core entry, for the same
+// reason core types aren't mirrored here.
 export { useMagneticIntent } from "./effects/useMagneticIntent";
 export {
   usePointerIntent,

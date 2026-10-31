@@ -5,25 +5,16 @@
  *   npm run bench -- --cpu 1,4        # repeat at CPU throttle rates
  *
  * Two scenarios, each run as an A/B in a real headed Chrome with identical work
- * in both arms. Only the coordination changes.
+ * in both arms. Only the coordination changes. If an arm doesn't win, the table
+ * and summary say so.
  *
- * ## What this is for, and what it is not
+ * Limits:
  *
- * It exists to find out whether the runtime's central claim survives
- * measurement, not to produce a marketing number. If an arm does not win, the
- * table says so and the summary says so. A benchmark you would only publish
- * when it agreed with you is not evidence.
- *
- * The honest limits, stated here because they belong next to the numbers:
- *
- * - **One machine.** Whatever laptop this runs on. Frame budgets, GPU and
- *   thermal behaviour are all machine-specific, and a single row of results is
- *   a data point rather than a benchmark suite.
- * - **Synthetic work.** Sine loops and transforms, not a real product page.
- *   It is representative of "many small animated things", which is the case the
- *   runtime is built for, and not of anything else.
- * - **No thermal component.** A mobile GPU is fine for twenty seconds and then
- *   is not. Nothing here reproduces that.
+ * - One machine. Frame budgets, GPU and thermal behaviour are machine-specific.
+ * - Synthetic work. Sine loops and transforms stand for many small animated
+ *   things, and for nothing else.
+ * - No thermal component. A mobile GPU is fine for twenty seconds and then
+ *   isn't.
  */
 
 import path from "node:path";
@@ -40,14 +31,9 @@ const CALIBRATE_MS = 1600;
  * Per-element work to try while calibrating.
  *
  * Shedding only does anything once a frame is over budget, so a scenario that
- * comfortably holds 60fps measures nothing at all. The first run of this
- * benchmark did exactly that — both arms at 16.7ms, zero subscribers shed —
- * which is a harness reporting no result, not a result.
- *
- * So the load is calibrated per machine before measuring, and the level it
- * settles on is printed. That is the opposite of tuning until the numbers
- * agree: the level is chosen by the *baseline* arm struggling, and then both
- * arms are measured at it.
+ * holds 60fps measures nothing. So the load is calibrated per machine before
+ * measuring and the level is printed. The level is chosen by the baseline arm
+ * struggling, and both arms are measured at it.
  */
 const LOAD_STEPS = [220, 700, 1800, 4000, 9000, 20000];
 /** Calibration target: the baseline arm should be clearly missing frames. */
@@ -130,8 +116,8 @@ async function main() {
         console.log("  arm             fps     p50     p95   lead  shed  work do  stall  jitter");
         console.log("  " + "─".repeat(70));
 
-        // Calibrate on the BASELINE arm, so the load is chosen by what the
-        // uncoordinated case can take rather than by what flatters the other.
+        // Calibrate on the baseline arm, so the load is chosen by what the
+        // uncoordinated case can take.
         let load = LOAD_STEPS[LOAD_STEPS.length - 1];
         for (const step of LOAD_STEPS) {
           await session.front();
@@ -182,9 +168,8 @@ async function main() {
             `${better ? "lower" : "HIGHER"} than ${a} ` +
             `(${A.p95.toFixed(1)}ms → ${B.p95.toFixed(1)}ms)`,
         );
-        // The distribution, not a single derived number. A summary statistic
-        // that disagreed with what someone watched is a reason to print the
-        // raw shape, not to trust the statistic.
+        // Print the distribution, because a summary statistic can disagree with
+        // what someone watched.
         for (const arm of arms) {
           const g = measured[arm].gaps;
           if (!g.length) continue;
@@ -203,9 +188,7 @@ async function main() {
             `    lead animation ran ${A.lead.runs} → ${B.lead.runs} times`,
           );
         }
-        // The trade, stated plainly. A smoother frame reached by doing less is
-        // the design working, not a free lunch, and a reader deserves both
-        // halves of it.
+        // Show the trade: a smoother frame reached by doing less work.
         const workDelta = A.workDone === 0 ? 0 : ((B.workDone - A.workDone) / A.workDone) * 100;
         console.log(
           `    work completed ${A.workDone} → ${B.workDone} ` +

@@ -43,7 +43,7 @@ reduced quality, not one tier lower, so a mobile GPU with 4 GB starts at
 reduced quality and the live frame rate decides from there. A desktop with
 2 GB or less now gets the poster, where it used to start at reduced quality.
 
-On a Galaxy F23 (Adreno 619, reported as 4 GB), vv-site's landing hero never
+On a Galaxy F23 (Adreno 619, reported as 4 GB), our site's landing hero never
 mounted on 4.3.2. On 4.3.3 it mounts at reduced quality and draws at 60 fps,
 on the same phone with nothing faked.
 
@@ -178,7 +178,7 @@ reported, the page's `generation` moved, and every gated scene on the page
 rebuilt. Tabs, modals, a configurator that closes, any conditional canvas:
 each close rebuilt the rest.
 
-Measured in the vv-lab test app: six tab switches under a managed R3F hero
+Measured in our test lab: six tab switches under a managed R3F hero
 rebuilt it four times on Chrome, where the same page without the runtime
 rebuilt it zero times. On WebKit the rebuilds came fast enough that R3F wired
 its pointer events to a container that was already gone
@@ -193,7 +193,7 @@ canvas still on the page is reported exactly as before.
 `useSceneGate` reduced quality at tier 1 and ran at full quality at tier 2.
 `decide()` tested `tier === 1`, so the worst tier, sustained drops below
 ~30fps, fell through to `active`: the harder the page struggled, the more the
-gate asked of it. Measured in vv-lab on a managed R3F hero at a 3x pixel
+gate asked of it. Measured in our test lab on a managed R3F hero at a 3x pixel
 ratio: AdaptiveQuality read tier 2 from the first second, and the gate stayed
 reduced only for the dwell left over from an earlier tier-1 verdict, then went
 to full quality at 10–12fps for the rest of the run.
@@ -210,7 +210,7 @@ poster before the tier is read.
 
 `useNumberTicker` kept its conductor subscription after the number reached its
 target, and every frame for the life of the page assigned the same text again.
-Measured in vv-lab: 105 to 180 text writes a second on a page of three
+Measured in our test lab: 105 to 180 text writes a second on a page of three
 counters with nothing moving. It now unsubscribes on landing. A new value
 starts a fresh approach from wherever the number is, and a write is skipped
 when the text would not change.
@@ -246,7 +246,7 @@ reading stands.
 
 `RendererHealth.reportLost()` returned early while `lost` was set. Code that
 never called `reportHealthy()` therefore survived exactly one loss: the next was
-swallowed and the canvas stayed black. vv-site's own landing demo died that way
+swallowed and the canvas stayed black. Our site's own landing demo died that way
 on its second "Drop Context".
 
 A later loss now always counts, and the coalescing window alone keeps one reset
@@ -262,7 +262,7 @@ rebuild, because one driver reset reaches every canvas on the page. A
 replacement that rebuild had just built, lost inside the same quarter second,
 was folded in too. It did not exist when the reset happened, so it was a new
 failure, and it stayed black with nothing left to rebuild it. Two quick clicks
-on vv-site's "Drop Context" did it.
+on our site's "Drop Context" did it.
 
 `reportLost()` takes an optional `{ builtAt }`: the generation that was current
 when the lost canvas's renderer was created. A loss from a canvas built under
@@ -283,7 +283,7 @@ React Three Fiber creates the WebGL context, builds the scene, and only then
 calls `onCreated`, which is where `useRenderQuality` starts listening. A loss
 in between fired with nothing listening: three.js logged "Context Lost", the
 runtime never heard, and the scene stayed black for good. On Safari's engine
-that gap is long enough for a second reset to land in it, and vv-lab
+that gap is long enough for a second reset to land in it, and our test lab
 reproduced it on the first round. `onCreated` now asks the context whether it
 is already dead, and reports the loss instead of announcing a healthy canvas.
 
@@ -319,8 +319,8 @@ const { ref, mounted } = useThreeScene({
 ```
 
 The entry imports nothing from three. The renderer's shape is all it reads,
-so a `WebGPURenderer` works the same way. In vv-lab, the plain three.js hero
-rewritten with it passed every probe the hand-wired reference passes, on
+so a `WebGPURenderer` works the same way. In our test lab, the plain three.js
+hero rewritten with it passed every probe the hand-wired reference passes, on
 Chrome and Safari's engine, on desktop and mobile. It also passed both new
 double-reset probes, one of which the hand-wired version fails until it passes
 `builtAt`. The hand-wired version takes two files and about ten separate
@@ -331,7 +331,7 @@ steps.
 `useRenderQuality` applied `dpr` exactly as written, and every example writes
 `full: { dpr: 2 }`. On a 1x monitor that drew four times the pixels the screen
 can show, so the managed scene came out heavier than the unmanaged one it
-replaced, whose R3F default resolves to 1 there. Measured in vv-lab: an
+replaced, whose R3F default resolves to 1 there. Measured in our test lab: an
 AI-written hero that copied `dpr: 2` from our own pattern ran at 8–12fps, where
 the same page with the ratio capped ran at about 20. `dpr` is now the most the
 canvas draws at, and never more than the screen's own ratio. A 3x phone still
@@ -341,8 +341,8 @@ gets 2.
 
 The gate sends a scene to its poster under reduced motion and on a device below
 the floor, and `mounted` never turns true. That is right for decoration and
-wrong for a chart. vv-lab's own heavy-chart reference used the gate for its
-wait on the scroll and on frame headroom, and a visitor who asked for less
+wrong for a chart. Our test lab's own heavy-chart reference used the gate for
+its wait on the scroll and on frame headroom, and a visitor who asked for less
 motion would never have seen the chart. With `content: true` the section still
 waits to be near, for the scroll to settle and for frame headroom, then mounts,
 in the constrained state, whatever the motion preference or the device.

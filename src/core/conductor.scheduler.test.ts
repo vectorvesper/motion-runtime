@@ -4,10 +4,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  * Scheduler behaviour: priority ordering, budget shedding, starvation, hz
  * throttling and cost attribution.
  *
- * The clock is controllable, so a subscriber can *be* expensive simply by
- * advancing it. That is exactly what the real conductor measures — it reads
- * `performance.now()` after each subscriber — so a subscriber that burns 5ms
- * of mock clock is indistinguishable from one that burns 5ms of CPU.
+ * The clock is controllable, so a subscriber can be expensive by advancing it.
+ * The real conductor reads `performance.now()` after each subscriber, so 5ms of
+ * mock clock is indistinguishable from 5ms of CPU.
  */
 
 let rafCallback: FrameRequestCallback | null = null;
@@ -21,10 +20,9 @@ function burn(ms: number): void {
 }
 
 /**
- * Present one frame. rAF timestamps and `performance.now()` share a clock in
- * the browser, so they share one here too — but the frame lands on its vsync
- * slot regardless of how much a subscriber burned, which is what really
- * happens while the page is still inside its budget.
+ * Present one frame. rAF timestamps and `performance.now()` share a clock, as
+ * in the browser, but the frame lands on its vsync slot however much a
+ * subscriber burned, which is what happens while the page is inside its budget.
  */
 function crank(intervalMs = 16.67): void {
   frameTime += intervalMs;
@@ -170,8 +168,7 @@ describe("starvation guard", () => {
     crank();
     expect(decorativeRuns).toBe(1);
 
-    // And it keeps degrading gracefully rather than dying: four more shed
-    // frames, one more run.
+    // And it keeps degrading gracefully: four more shed frames, one more run.
     for (let i = 0; i < 4; i++) crank();
     expect(decorativeRuns).toBe(1);
     crank();
@@ -193,7 +190,7 @@ describe("hz throttling", () => {
     const deltas: number[] = [];
     conductor.subscribe("update", (dt) => deltas.push(dt), { hz: 30 });
     for (let i = 0; i < 4; i++) crank();
-    // Two runs, each carrying ~two frames' worth of time — not one frame's.
+    // Two runs, each carrying about two frames' worth of time.
     expect(deltas).toHaveLength(2);
     for (const dt of deltas) expect(dt).toBeCloseTo(0.0333, 2);
   });
@@ -330,9 +327,8 @@ describe("diagnostics", () => {
     for (let i = 0; i < FRAMES; i++) crank(1000 / 60);
     expect(ran60).toBe(FRAMES);
 
-    // The same 5ms on a 120Hz display is past that display's 3.75ms line. The
-    // work did not change; the standard it is held to did. Once the probe has
-    // settled, only the starvation guard lets the decorative pass through.
+    // The same 5ms on a 120Hz display is past that display's 3.75ms line. Once
+    // the probe settles, only the starvation guard lets the decorative pass.
     const at120 = await freshConductor();
     let ran120 = 0;
     at120.subscribe("update", () => burn(5), { priority: "essential" });
@@ -449,7 +445,7 @@ describe("motion scopes (interaction lease)", () => {
     for (let i = 0; i < 6; i++) crank();
     release();
 
-    // Shed four frames running, then forced through — a held lease must not be
+    // Shed four frames running, then forced through: a held lease must not be
     // able to freeze background work indefinitely.
     expect(outRuns).toBeGreaterThan(0);
   });
@@ -467,9 +463,9 @@ describe("motion scopes (interaction lease)", () => {
 });
 
 /**
- * At maximum debt the budget is floored rather than exhausted, so the bands
- * must stay ordered. Every subscriber here costs real clock time — shedding a
- * free function reclaims nothing, and the scheduler correctly declines to.
+ * At maximum debt the budget is floored, so the bands must stay ordered. Every
+ * subscriber here costs real clock time, because shedding a free function
+ * reclaims nothing and the scheduler declines to.
  */
 describe("bands stay ordered under saturating debt", () => {
   /** Drive the debt to its cap: frames landing at ~4x the budget. */
@@ -494,8 +490,8 @@ describe("bands stay ordered under saturating debt", () => {
     saturate(crank);
     release();
 
-    // Pre-spending the frame made these identical, because every threshold sat
-    // below the starting position once the debt was capped.
+    // Spending the debt up front would make these identical, with every
+    // threshold below the starting position once the debt is capped.
     expect(inRuns).toBeGreaterThan(outRuns);
   });
 

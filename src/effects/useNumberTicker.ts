@@ -6,68 +6,54 @@ import { createHybridRef } from "../react/hybrid-ref";
 
 export interface UseNumberTickerOptions {
   /**
-   * How quickly the number reaches its target. Higher arrives sooner.
-   * Default 6, which reads as a smooth deceleration.
+   * How quickly the number reaches its target. Higher arrives sooner. Default 6.
    *
-   * Not a duration: the value chases its target rather than running a fixed
-   * timeline, which is what lets it retarget mid-flight without restarting.
+   * The value chases its target instead of running a fixed timeline, so it can
+   * retarget mid-flight without restarting.
    */
   speed?: number;
-  /** 
-   * Intl.NumberFormat options to style currencies, percentages, decimals, etc.
-   */
+  /** Intl.NumberFormat options: currency, percent, decimals and so on. */
   format?: Intl.NumberFormatOptions;
-  /**
-   * Locale string for number formatting (e.g., "en-US", "de-DE"). 
-   * Defaults to the user's browser locale.
-   */
+  /** Locale for number formatting, such as "en-US". Defaults to the browser's. */
   locale?: string;
-  /** 
-   * Prefix string to prepend directly to the formatted number output (e.g., "+", "> ").
-   */
+  /** Text before the formatted number, such as "+" or "> ". */
   prefix?: string;
-  /** 
-   * Suffix string to append directly to the formatted number output (e.g., "%", " ms", " units").
-   */
+  /** Text after the formatted number, such as "%" or " ms". */
   suffix?: string;
 }
 
 /**
- * A high-performance numbers ticker hook that animates count values smoothly toward a target target value.
- * Bypasses React state updates entirely, writing frame updates directly to the DOM node's `textContent`
- * to achieve 120 FPS performance with zero component re-renders.
+ * Animates a number toward a target value. Frames write straight to the node's
+ * `textContent`, so the component doesn't re-render.
  *
- * Automatically respects the `prefers-reduced-motion` media query, snaps instantly to the target,
- * and enforces tabular layout to prevent horizontal digit wobbling.
+ * Under `prefers-reduced-motion` it snaps to the target, and tabular figures
+ * stop the digits wobbling.
  *
- * ### 📚 Usage Example:
  * ```tsx
  * import { useNumberTicker } from "@vectorvesper/motion/react";
- * 
+ *
  * export function ScoreDisplay() {
  *   const { ref } = useNumberTicker(8500, {
  *     prefix: "+",
  *     suffix: " pts",
  *     format: { style: "decimal" }
  *   });
- *   
+ *
  *   return <span ref={ref} className="font-bold text-lg" />;
  * }
  * ```
  *
- * @param {number} value The target number value to count towards.
- * @param {UseNumberTickerOptions} [options={}] Formatting configuration, damping speeds, prefixes, and suffixes.
- * @returns {{ ref: RefObject<T | null> }} A React ref to bind to the displaying DOM element.
+ * @param {number} value The target number.
+ * @param {UseNumberTickerOptions} [options={}] Speed, format, prefix and suffix.
+ * @returns {{ ref: RefObject<T | null> }} A ref for the element showing it.
  */
 export function useNumberTicker<T extends HTMLElement = HTMLSpanElement>(
   value: number,
   options: UseNumberTickerOptions = {},
 ): { ref: RefObject<T | null> } {
-  // A hybrid ref, not a plain one, so the ticker starts when its element
-  // arrives rather than only on the first commit. A counter behind a hydration
-  // guard, a loading branch or `next/dynamic` has no element there yet; up to
-  // 4.1.0 the effect bailed, nothing re-ran it, and the number stayed blank.
-  // See hybrid-ref.ts.
+  // A hybrid ref, so the ticker starts when its element arrives. A counter
+  // behind a hydration guard, a loading branch or `next/dynamic` has no element
+  // on the first commit. See hybrid-ref.ts.
   const elementRef = useRef<T | null>(null);
   const [element, setElement] = useState<T | null>(null);
   // The factory only wires deferred getters/setters onto a function; it never
@@ -142,11 +128,9 @@ export function useNumberTicker<T extends HTMLElement = HTMLSpanElement>(
       currentRef.current = next;
       write(next);
 
-      // Landed, so stop ticking. Up to 4.1.0 the subscription stayed and every
-      // frame assigned the same text again for the life of the page: vv-lab
-      // measured 105 text writes a second on a page of three counters with
-      // nothing moving. A new value re-runs this effect and starts a fresh
-      // approach from wherever the number is now.
+      // Landed, so stop ticking. Keeping the subscription would assign the same
+      // text every frame for the life of the page. A new value re-runs this
+      // effect and starts from wherever the number is now.
       if (next === target) {
         landedRef.current = true;
         stop?.();

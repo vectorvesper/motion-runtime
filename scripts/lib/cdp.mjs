@@ -1,17 +1,13 @@
 /**
- * Driving a real headed Chrome, with nothing installed but Chrome.
+ * Driving a real headed Chrome, with nothing installed but Chrome. Shared by
+ * the pressure harness and the benchmark kit.
  *
- * Shared by the pressure harness and the benchmark kit. It was one file's worth
- * of plumbing copied once; a second copy is how the rest of this project ended
- * up with five copies of everything.
+ * No Playwright or Puppeteer: Node's built-in WebSocket plus the CDP HTTP
+ * endpoints is enough.
  *
- * No Playwright, no Puppeteer — Node's built-in WebSocket plus the CDP HTTP
- * endpoints is enough, and it means these scripts run on a machine that has
- * only a browser.
- *
- * The browser is launched HEADED on purpose. A hidden or headless page pauses
- * requestAnimationFrame, so every frame measurement would be zero and every
- * check would pass while proving nothing.
+ * The browser runs headed because a hidden or headless page pauses rAF, so
+ * every frame measurement would be zero and every check would pass while
+ * proving nothing.
  */
 
 import { createServer } from "node:http";
@@ -176,10 +172,8 @@ export async function launch({ url, cdpPort, windowSize = "1280,800" }) {
   }
 
   /**
-   * Bring the page to the front and wait until it is really visible.
-   *
-   * Anything stealing focus mid-run makes the tab hidden, which pauses rAF and
-   * turns every later measurement into zeros. This is not optional politeness.
+   * Bring the page to the front and wait until it is visible. Anything stealing
+   * focus mid-run hides the tab, which pauses rAF and zeroes later measurements.
    */
   async function front() {
     await cdp.send("Page.bringToFront");

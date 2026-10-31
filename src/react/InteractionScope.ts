@@ -31,17 +31,9 @@ export interface InteractionScopeProps {
    * - `true` holds it active. For a camera engaged by keyboard, an open modal.
    * - `false` never activates.
    *
-   * Up to 2.x this was `boolean | undefined`, where `undefined` and `false`
-   * meant different things: leaving it off gave you pointer activation, and
-   * setting it to anything at all turned pointer activation off. Opting back
-   * in therefore meant passing `undefined`, and an A/B toggle came out as
-   * `active={on ? undefined : false}`, which is a shape no reader can guess.
-   *
-   * Three named values, no hidden state in the absence of a prop.
-   *
-   * Worth knowing: `true` and `false` run through React state, so they arrive a
-   * render later than `"pointer"` does, which is a direct DOM listener. Fine
-   * for a modal. Not a drop-in for a drag.
+   * `true` and `false` run through React state, so they arrive a render later
+   * than `"pointer"`, which is a direct DOM listener. Fine for a modal, not for
+   * a drag.
    */
   active?: boolean | "pointer";
   /**
@@ -62,35 +54,25 @@ export interface InteractionScopeProps {
  * </InteractionScope>
  * ```
  *
- * While a pointer is down inside it, VV's own non-essential work *outside* the
- * region yields earlier when the page runs out of frame time. On a healthy
- * frame nothing changes at all.
+ * While a pointer is down inside it, VV's non-essential work outside the region
+ * yields earlier when the page runs out of frame time. On a healthy frame
+ * nothing changes.
  *
- * Reach for it around a draggable, a scrubber, or an interactive canvas that
- * shares a page with other VV visuals. Two things it cannot do: pause another
- * library's animation, or undo GPU work that has already been submitted. It
- * only coordinates work registered with VV.
+ * Use it around a draggable, a scrubber, or an interactive canvas that shares a
+ * page with other VV visuals. It only coordinates work registered with VV, so
+ * it can't pause another library's animation or undo submitted GPU work.
  *
  * Every `useTick` rendered inside joins this region automatically. Nesting
  * works, and the innermost provider wins.
  *
- * ## How activation tracks a drag
+ * Pointer down is caught in the capture phase on the DOM node, because drag
+ * code often calls `stopPropagation()` on pointerdown. The end of the drag is
+ * watched on `window`, because a drag routinely leaves the element it started
+ * in. Pointers are counted by id, so lifting a second finger doesn't end a
+ * one-finger drag.
  *
- * Three details, each because the obvious version got it wrong:
- *
- * - **Pointer down is caught in the capture phase**, on the DOM node rather
- *   than through a React prop. Drag code very often calls `stopPropagation()`
- *   on pointerdown so an outer handler does not also react to the press. A
- *   bubble-phase listener never runs when that happens, and the region would
- *   silently do nothing in the exact case it is for.
- * - **The end of the drag is watched on `window`, not on the region.** A drag
- *   routinely travels outside the element it started in, and that is still the
- *   same drag.
- * - **Activation lasts until the last pointer lifts.** Pointers are counted by
- *   id, so lifting a second finger does not end a one-finger drag.
- *
- * Pointer capture is deliberately not used. Calling `setPointerCapture` on this
- * wrapper would fight any child that captures the pointer for its own drag.
+ * `setPointerCapture` isn't used, because it would fight any child that
+ * captures the pointer for its own drag.
  */
 export function InteractionScope({
   children,
@@ -100,9 +82,8 @@ export function InteractionScope({
   className,
   style,
 }: InteractionScopeProps): React.JSX.Element {
-  // Generated rather than asked for. A page-unique string is work the library
-  // can do itself, and two regions that happened to share a hand-written name
-  // would silently share one claim.
+  // Generated, because two regions sharing a hand-written name would silently
+  // share one claim.
   const id = useId();
   const hostRef = useRef<HTMLElement | null>(null);
   const releaseRef = useRef<(() => void) | null>(null);
@@ -168,19 +149,14 @@ export function InteractionScope({
     };
   }, [controlled, id, label, asChild]);
 
-  // Written as `createElement` rather than JSX, deliberately.
+  // `createElement` instead of JSX, because JSX makes the build import
+  // `react/jsx-runtime` into the `/react` entry. An environment that resolves
+  // packages from a CDN with its own React can fail on that subpath, and
+  // Framer's code components do.
   //
-  // These are the only two element constructions in the package, and with JSX
-  // the build emitted an import of `react/jsx-runtime` into the `/react` entry.
-  // That is a subpath of React itself, and an environment that resolves
-  // packages from a CDN while supplying its own React can fail on it — Framer's
-  // code components do, which is why `/react` would not load there while the
-  // root entry did. Two `createElement` calls cost nothing and remove the
-  // dependency at the source, where no build-config change can bring it back.
-  // The compiler unifies a ref operand back into the object it came from, so
-  // handing hostRef to createElement reads as a render-phase ref access. It is
-  // the same false positive documented at length in hybrid-ref.ts, and it is
-  // what JSX ref={} lowers to anyway.
+  // The compiler reads handing hostRef to createElement as a render-phase ref
+  // access. It is the false positive described in hybrid-ref.ts, and it is what
+  // JSX ref={} lowers to anyway.
   const content = asChild
     ? // eslint-disable-next-line react-hooks/refs -- see the note above
       cloneWithRef(children, hostRef)
@@ -223,9 +199,9 @@ export function useInteractionScope(): string | null {
 
 export interface UseTickOptions extends Omit<SubscribeOptions, "scope"> {
   /**
-   * Keep this work in the background even when it is rendered inside an
-   * {@link InteractionScope} — an ambient layer behind a gallery, say, which
-   * should yield like everything else while the gallery is being used.
+   * Keep this work in the background even inside an {@link InteractionScope}:
+   * an ambient layer behind a gallery, say, which yields while the gallery
+   * is being used.
    */
   background?: boolean;
   /** Skip subscribing entirely while false. Default `true`. */

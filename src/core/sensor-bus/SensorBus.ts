@@ -2,20 +2,18 @@ import { getConductor } from "../conductor";
 import { damp } from "../math";
 
 /**
- * SensorBus — ONE set of input listeners for the whole page.
+ * SensorBus: one set of input listeners for the whole page.
  *
- * Ten effects that each attach pointermove/scroll/resize listeners and each
- * compute their own velocities do ten times the work for one answer. The
- * bus attaches passive listeners once, computes smoothed derivatives once
- * per frame (conductor input lane — before any consumer runs), and exposes
- * a live snapshot consumers READ during their own frame work.
+ * Ten effects that each attach pointermove, scroll and resize listeners and
+ * compute their own velocities do ten times the work for one answer. The bus
+ * attaches passive listeners once, computes smoothed derivatives once per frame
+ * on the conductor's input lane, and exposes a live snapshot consumers read
+ * during their own frame work.
  *
- * Consumption contract (deliberate, GSAP-style pragmatism): `.state`
- * returns live internal objects — read fields each frame, never retain or
- * mutate them. There are no per-event callbacks; the conductor IS the
- * delivery mechanism.
+ * `.state` returns live internal objects: read fields each frame, and never
+ * retain or mutate them. There are no per-event callbacks.
  *
- * Lifecycle is ref-counted: `retain()` starts the sensors, the returned
+ * Lifecycle is ref-counted: `retain()` starts the sensors, and the returned
  * release stops them when the last consumer lets go.
  */
 
@@ -67,14 +65,7 @@ export interface SensorState {
 
 const VELOCITY_DAMP = 14; // responsiveness of the velocity smoothing
 
-/**
- * SensorBus manages a single, centralized set of passive listeners for the entire page.
- * It coordinates mouse/touch inputs, page scrolls, and resize events, computing smoothed
- * velocities and device ratios exactly once per frame on the animation budget loop.
- *
- * Rather than creating multiple individual listeners that trigger layout thrashing, components
- * and hooks read from this singleton bus state inside their frame ticks.
- */
+/** The page's shared input listeners. Read them through `getSensorBus()`. */
 export class SensorBus {
   private pointer: PointerSensor = {
     x: 0, y: 0, vx: 0, vy: 0, speed: 0, down: false, seen: false,
@@ -91,22 +82,16 @@ export class SensorBus {
   private unsubscribe: (() => void) | null = null;
   private teardown: (() => void) | null = null;
 
-  /**
-   * Retrieves the current snapshot of all active sensor states.
-   *
-   * @readonly
-   * @type {SensorState}
-   */
+  /** The current snapshot of all active sensor states. */
   get state(): SensorState {
     return { pointer: this.pointer, scroll: this.scroll, viewport: this.viewport };
   }
 
   /**
-   * Retains the sensor bus by incrementing its reference count.
-   * If this is the first reference, it attaches all event listeners and schedules
+   * Retains the bus. The first reference attaches the listeners and schedules
    * the update loop.
    *
-   * @returns {() => void} A release function that decrements the reference count and cleans up listeners if reference count reaches zero.
+   * @returns {() => void} Release function. The last one removes the listeners.
    */
   retain(): () => void {
     this.refs++;
@@ -121,19 +106,10 @@ export class SensorBus {
   }
 
   private start(): void {
-    /**
-     * Nothing to listen to on a server.
-     *
-     * `retain()` still succeeds and still returns a working release, so a Vue
-     * `setup()` or a SvelteKit load can hold the bus without a branch; the
-     * sensors simply report their zeroed defaults until the client hydrates and
-     * retains for real.
-     *
-     * Without this, `retain()` threw "window is not defined" during SSR. React
-     * consumers never hit it because `useSensorBus` retains from an effect, but
-     * this entry carries no "use client" and is advertised as
-     * framework-agnostic.
-     */
+    // Nothing to listen to on a server. `retain()` still succeeds and returns a
+    // working release, so a Vue `setup()` or a SvelteKit load can hold the bus
+    // without a branch, and the sensors report zeroed defaults until the client
+    // retains for real.
     if (typeof window === "undefined") return;
 
     const onPointerMove = (e: PointerEvent) => {
@@ -180,19 +156,17 @@ export class SensorBus {
     this.teardown?.();
     this.teardown = null;
 
-    // Everything derived from movement is cleared, not just the pointer.
-    // A stopped bus still reporting velocity is a stale reading, and anything
-    // holding `.state` reads it as live.
+    // Clear everything derived from movement, since anything holding `.state`
+    // would read a stopped bus's velocity as live.
     this.pointer.vx = 0;
     this.pointer.vy = 0;
     this.pointer.speed = 0;
     this.scroll.vx = 0;
     this.scroll.vy = 0;
 
-    // Forget that the pointer was ever seen. While stopped there are no
-    // listeners, so the bus does not watch the pointer travel — and on restart
-    // the distance it covered in between would otherwise read as one enormous
-    // move. Clearing this makes the next pointermove snap history again.
+    // Forget that the pointer was ever seen. While stopped the bus has no
+    // listeners, so on restart the distance covered in between would read as
+    // one enormous move. This makes the next pointermove snap history again.
     this.pointer.seen = false;
   }
 
@@ -231,10 +205,9 @@ export class SensorBus {
 let instance: SensorBus | null = null;
 
 /**
- * Lazy singleton retriever for the unified SensorBus instance.
- * Safe for use in Server-Side Rendering (SSR) environments.
+ * Lazy singleton, safe to import in SSR.
  *
- * @returns {SensorBus} The singleton SensorBus instance.
+ * @returns {SensorBus} The singleton instance.
  */
 export function getSensorBus(): SensorBus {
   if (instance === null) instance = new SensorBus();

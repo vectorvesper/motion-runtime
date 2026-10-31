@@ -4,12 +4,9 @@ import React from "react";
 import { render, cleanup, act } from "@testing-library/react";
 
 /**
- * The scene gate as a React hook.
- *
- * `useSceneGate.test.ts` covers `decide()`, which is the rule. This covers the
- * wiring around it: the visibility observer, the don't-mount-mid-scroll wait,
- * and letting go of both on unmount. Most of this behaviour arrived here when
- * useLazyScene was deleted, so these tests came with it.
+ * The scene gate as a React hook. `useSceneGate.test.ts` covers `decide()`, the
+ * rule. This covers the wiring around it: the visibility observer, the
+ * don't-mount-mid-scroll wait, and letting go of both on unmount.
  */
 
 let rafCallbacks = new Map<number, FrameRequestCallback>();
@@ -183,13 +180,8 @@ describe("useSceneGate — letting go", () => {
 
 describe("useSceneGate — a ref target that is not there on the first commit", () => {
   /**
-   * The shape that broke 2.0.0 in the field.
-   *
    * A component renders a spinner, a Suspense fallback or a `next/dynamic`
    * placeholder first, and only attaches the gate's ref on a later commit.
-   * The observer effect used to read `ref.current` once, keyed on [preload],
-   * so it found nothing and never ran again — no observer, never `near`, stuck
-   * in `dormant` with no error to explain it.
    */
   async function mountDeferredGate() {
     vi.resetModules();
@@ -227,13 +219,12 @@ describe("useSceneGate — a ref target that is not there on the first commit", 
 
 describe("useSceneGate — the constrain dwell", () => {
   /**
-   * The dwell is what stops a scene rebuilding its detail level twice a second
-   * when the tier disagrees frame to frame. It holds "constrained" for
-   * CONSTRAIN_DWELL_MS measured from the moment quality dropped, even after the
-   * verdict itself has recovered.
+   * The dwell stops a scene rebuilding its detail level twice a second when the
+   * tier disagrees frame to frame. It holds "constrained" for the dwell time
+   * from the moment quality dropped, even after the verdict has recovered.
    *
-   * Driven through a stubbed quality hook because the point here is the hold,
-   * not how the tier was arrived at — `useSceneGate.test.ts` covers that.
+   * Driven through a stubbed quality hook: `useSceneGate.test.ts` covers
+   * how the tier is reached.
    */
   async function mountAtTier() {
     const quality = { tier: 0, deviceTier: 0, cause: "ok", reducedMotion: false };
@@ -270,8 +261,7 @@ describe("useSceneGate — the constrain dwell", () => {
     await gate.setTier(1);
     expect(gate.last()).toBe("constrained");
 
-    // The tier recovers almost immediately — exactly the flap the dwell exists
-    // to absorb.
+    // The tier recovers almost at once, the flap the dwell exists to absorb.
     await gate.setTier(0);
     expect(gate.last()).toBe("constrained");
 
@@ -304,7 +294,7 @@ describe("useSceneGate — not waiting forever (RB-1)", () => {
 
   /**
    * Frames that never leave time to spare and never settle into a steady
-   * cadence: the page a `heavy` gate used to wait on for the whole visit.
+   * cadence.
    */
   function crankRagged(count: number): void {
     for (let i = 0; i < count; i++) crank(now + (i % 2 === 0 ? 26 : 44));

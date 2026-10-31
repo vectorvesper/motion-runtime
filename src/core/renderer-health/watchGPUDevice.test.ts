@@ -56,10 +56,9 @@ describe("watchGPUDevice", () => {
   });
 
   /**
-   * The lesson the WebGL side paid for. Dropping a context on unmount reported
-   * a loss after its replacement had reported healthy, which bumped the
-   * generation and remounted everything, which unmounted more contexts. A
-   * device the page destroyed on purpose is not one that needs replacing.
+   * Dropping a context on unmount must not count as a loss: that bumps the
+   * generation and remounts everything, which unmounts more contexts. The same
+   * goes for a device the page destroyed itself.
    */
   it("ignores a device destroyed on purpose", async () => {
     const { watchGPUDevice, getRendererHealth } = await fresh();
@@ -124,9 +123,8 @@ describe("watchGPUDevice", () => {
   });
 
   /**
-   * R10, on the WebGPU side. A replacement device lost straight after the
-   * rebuild requested it did not exist when the first device was lost, so it
-   * is a new failure rather than the same reset reaching one more device.
+   * A replacement device lost straight after the rebuild requested it didn't
+   * exist when the first device was lost, so it is a new failure.
    */
   it("rebuilds again when the replacement device is lost moments after it arrived", async () => {
     const { watchGPUDevice, getRendererHealth } = await fresh();

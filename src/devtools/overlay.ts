@@ -6,26 +6,17 @@ import { getConductor } from "../core/conductor";
 import { getAnimationBudget, type BudgetState } from "../core/animation-budget/AnimationBudget";
 
 /**
- * The motion devtools overlay — a live readout of what the runtime is doing
- * to your frame.
+ * The motion devtools overlay: a live readout of what the runtime is doing to
+ * your frame, including which effect on the page is eating it.
  *
- * This exists because the runtime's whole value is invisible. "One rAF loop"
- * and "we shed decorative work under load" are claims until you can watch the
- * numbers move. It answers the question no component library can answer:
- * **which effect on this page is eating the frame?**
- *
- * Design constraints it holds itself to:
- * - Zero dependencies, zero framework. It is a DOM function; call it from a
- *   React effect, a Vue `onMounted`, or the console.
- * - Shadow DOM, so no page stylesheet can reach in and no style of ours can
- *   leak out.
- * - It refreshes at 5Hz and writes through `textContent` against nodes built
- *   once. A profiler that shows up in its own profile is a bad profiler —
- *   though it does list itself in the table rather than hiding.
- * - It subscribes as `decorative`, so it is shed before the work it measures.
- *   An instrument that outranks its subject distorts the reading.
- * - It is a separate entry point (`@vectorvesper/motion/devtools`), so it
- *   only reaches a bundle that explicitly imports it.
+ * - No dependencies and no framework. Call it from a React effect, a Vue
+ *   `onMounted` or the console.
+ * - Shadow DOM, so no page stylesheet can reach in and no style of ours leaks
+ *   out.
+ * - Refreshes at 5Hz through `textContent` on nodes built once, and lists itself
+ *   in the table.
+ * - Subscribes as `decorative`, so it is shed before the work it measures.
+ * - A separate entry point, so it only reaches a bundle that imports it.
  */
 
 export type DevtoolsCorner =
@@ -194,7 +185,7 @@ export function mountDevtools(options: DevtoolsOptions = {}): () => void {
   const vTier = cell(grid, "tier");
   const vShed = cell(grid, "shed / frame");
   // Non-zero means the previous frame overran and this one starts already
-  // spent — the reason low-priority work is being dropped.
+  // spent, which is why low-priority work is being dropped.
   const vCarried = cell(grid, "carried", "ms");
   // Which region currently holds the foreground lease, if any.
   const vScope = cell(grid, "foreground");
@@ -270,9 +261,8 @@ export function mountDevtools(options: DevtoolsOptions = {}): () => void {
     budget = s;
   });
 
-  // Same for the pressure classifier — it only measures while something is
-  // subscribed, so reading `.state` without holding it open would show a
-  // permanently healthy page.
+  // Same for the pressure classifier: it only measures while something is
+  // subscribed, so an unheld `.state` would show a permanently healthy page.
   let pressure: PressureState = getFramePressure().state;
   const releasePressure = getFramePressure().subscribe((s) => {
     pressure = s;
@@ -326,15 +316,10 @@ export function mountDevtools(options: DevtoolsOptions = {}): () => void {
       `${stats.displayHz}Hz display (${stats.frameBudgetMs.toFixed(1)}ms budget)`;
   };
 
-  // Decorative, deliberately. The worry with shedding a profiler is that it
-  // vanishes at the moment you care about — but it cannot: a subscriber skipped
-  // MAX_CONSECUTIVE_SHED frames running is forced through, so under heavy load
-  // this degrades from 5Hz to roughly 3Hz rather than stopping.
-  //
-  // Essential would be worse than useless here. Measured under CPU throttling
-  // this was the most expensive subscriber on the page, so privileging it means
-  // shedding the content in order to keep the readout about the content alive.
-  // An instrument must never outrank what it measures.
+  // Decorative. A subscriber skipped MAX_CONSECUTIVE_SHED frames running is
+  // forced through, so under heavy load this drops from 5Hz to about 3Hz and
+  // keeps going. Under CPU throttling this was the most expensive subscriber on
+  // the page, so essential would shed the content to keep the readout alive.
   const off = getConductor().subscribe("render", paint, {
     priority: "decorative",
     hz,

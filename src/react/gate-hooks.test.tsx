@@ -3,12 +3,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup, act } from "@testing-library/react";
 
 /**
- * The mount gate.
- *
- * The recurring defect across this catalogue is lifecycle, not maths — work
- * that outlives its component, or a gate that never opens. So the contract
- * tested here is: does it start, does it open when it should, and does it let
- * go of everything on unmount.
+ * The mount gate. The contract tested here is: does it start, does it open when
+ * it should, and does it let go of everything on unmount.
  */
 
 let rafCallbacks = new Map<number, FrameRequestCallback>();
@@ -147,7 +143,7 @@ describe("useSafeToMount", () => {
     expect(safe).toBe(true);
 
     // Something expensive that unmounted itself the moment it made the page
-    // slow would oscillate forever, so the gate is one-way by design.
+    // slow would oscillate forever, so the gate is one-way.
     await act(async () => {
       crank(now + 400);
       crank(now + 400);
@@ -157,8 +153,7 @@ describe("useSafeToMount", () => {
   });
 
   it("gives up permanently on a machine below the core floor", async () => {
-    // Cores never improve while the page is open, so this is the one
-    // condition that legitimately ends the story early.
+    // Cores never improve while the page is open.
     vi.spyOn(navigator, "hardwareConcurrency", "get").mockReturnValue(1);
     vi.resetModules();
     const { useSafeToMount } = await import("./useSafeToMount");

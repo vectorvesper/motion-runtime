@@ -2,18 +2,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 /**
- * The devtools overlay.
- *
- * Not tested for how it looks — that is what looking at it is for. Tested for
- * the three claims the vault records design decisions about, each of which was
- * arrived at by getting it wrong first:
+ * The devtools overlay. Tested for three claims that are invisible on screen:
  *
  * - it must never outrank what it measures
  * - it must appear in its own subscriber table
  * - it must let go of everything it held open
- *
- * All three are invisible on screen. An overlay that quietly ran as essential,
- * or quietly left the governor measuring after unmount, would look identical.
  */
 
 let rafCallbacks = new Map<number, FrameRequestCallback>();
@@ -95,7 +88,7 @@ describe("mountDevtools — mounting", () => {
   it("does nothing at all without a document", async () => {
     vi.resetModules();
     const doc = globalThis.document;
-    // @ts-expect-error — deliberately removing it
+    // @ts-expect-error removing it for this test
     delete globalThis.document;
     try {
       const { mountDevtools } = await import("./overlay");
@@ -118,9 +111,8 @@ describe("mountDevtools — never outranking what it measures", () => {
       .state
       .subscribers.find((s) => s.label === "devtools overlay");
 
-    // It ran as `essential` once. Measured under 6x CPU throttling it was the
-    // most expensive subscriber on the page, so privileging it meant shedding
-    // the content in order to keep alive the readout about the content.
+    // Under 6x CPU throttling this was the most expensive subscriber on the
+    // page, so essential would shed the content to keep the readout alive.
     expect(me).toBeDefined();
     expect(me!.priority).toBe("decorative");
   });
@@ -156,7 +148,7 @@ describe("mountDevtools — letting go", () => {
     const unmount = mountDevtools();
     crankFrames(4);
     // Both only measure while something is subscribed, so the overlay holds
-    // them open — otherwise every reading would be a frozen default.
+    // them open. Otherwise every reading would be a frozen default.
     expect(getConductor().state.subscribers.length).toBeGreaterThan(1);
 
     unmount();
@@ -196,9 +188,8 @@ describe("mountDevtools — what it renders", () => {
 
   it("names the foreground region, not its generated id", async () => {
     const { mountDevtools, getConductor } = await fresh();
-    // hz defaults to 5, so a paint needs 200ms of accumulated dt — four
-    // frames is not enough, and asserting on four would have passed only
-    // because the label happened to be static.
+    // hz defaults to 5, so a paint needs 200ms of accumulated dt: four frames
+    // aren't enough.
     mountDevtools({ expanded: true, hz: 60 });
     const release = getConductor().claimScope(":r7:", "Product gallery");
     crankFrames(4);

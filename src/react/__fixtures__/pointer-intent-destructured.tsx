@@ -2,10 +2,10 @@
  * `usePointerIntent` returns the same hybrid ref, so it carries the same
  * call-site rule. Must lint clean.
  *
- * The second component covers the case a real consumer hits next: the element
- * already has a ref of its own, so both have to be written from one callback.
- * Writing `ref.current` from a committed callback is fine — what the compiler
- * objects to is reaching the ref through a member expression during render.
+ * The second component covers an element that already has a ref of its own, so
+ * both are written from one callback. Writing `ref.current` from a committed
+ * callback is fine: the compiler objects to reaching the ref through a member
+ * expression during render.
  */
 import { useCallback, useRef } from "react";
 import { usePointerIntent } from "../../effects/usePointerIntent";

@@ -40,10 +40,9 @@ describe("deviceTierFromSignals", () => {
   });
 
   /**
-   * R6 in vv-lab's findings. Safari masks the renderer as "Apple GPU" on every
-   * Apple device, so up to 4.1.0 every Mac on Safari started at tier 1, the
-   * reduced profile, before a single frame was measured. Touch tells them
-   * apart; the case above, with touch unknown, keeps the cautious reading.
+   * Safari masks the renderer as "Apple GPU" on every Apple device. Touch tells
+   * them apart, and the case above, with touch unknown, keeps the cautious
+   * reading.
    */
   it("does not rate a Mac on Safari as a phone", () => {
     const { tier, reasons } = deviceTierFromSignals({ ...capable, renderer: "Apple GPU", touch: false });
@@ -60,9 +59,8 @@ describe("deviceTierFromSignals", () => {
     expect(deviceTierFromSignals({ ...capable, cores: 4 }).tier).toBe(1);
   });
 
-  // RB-4. Up to 4.3.2 a mobile GPU and modest memory stacked to tier 2, the
-  // poster, and Chrome reports a 6 GB phone as 4. The lab's Galaxy F23 was
-  // refused the hero this way and then held 60 fps with it.
+  // Chrome reports a 6 GB phone as 4, so stacking a mobile GPU and low memory
+  // would send most Android phones to the poster.
   it("does not stack a mobile GPU and modest memory into the poster tier", () => {
     const f23 = { ...capable, renderer: "Adreno (TM) 619", deviceMemory: 4, cores: 8, touch: true };
     const { tier, reasons } = deviceTierFromSignals(f23);
@@ -92,16 +90,7 @@ describe("deviceTierFromSignals", () => {
   });
 });
 
-/**
- * The rule the whole runtime is built around.
- *
- * Up to 2.x it lived inside useSceneGate, so the twenty-one components reading
- * the governor directly got `max(deviceTier, budgetTier)` and degraded whenever
- * the frame rate sagged, including when the cause was a third-party script.
- * These tests exist because the fusion landed with 250 tests green and none of
- * them noticed, which is the same coverage shape that let useSceneGate ship
- * broken in 2.0.0.
- */
+/** The rule the whole runtime is built around. */
 describe("fuse: would reducing quality actually help", () => {
   const quiet = { source: "none" as const, confidence: 1 };
 
@@ -124,8 +113,8 @@ describe("fuse: would reducing quality actually help", () => {
   });
 
   it("REFUSES to degrade for a blocked main thread", () => {
-    // The headline of 3.0. A smaller scene does not unblock a blocked thread,
-    // so the budget tier is overruled and the refusal is reported.
+    // A smaller scene doesn't unblock a blocked thread, so the budget tier is
+    // overruled and the refusal is reported.
     const out = fuse(0, 1, false, { source: "main-thread", confidence: 1 });
     expect(out).toEqual({ effective: 0, cause: "held" });
   });
@@ -161,12 +150,9 @@ describe("fuse: would reducing quality actually help", () => {
 });
 
 /**
- * Server-side rendering.
- *
- * This file runs in a node environment, so `window` and `navigator` are genuinely
- * absent, which is the same situation Nuxt or SvelteKit put the core entry in.
- * The core carries no "use client" and the README advertises it as
- * framework-agnostic, so reading the governor on the server has to work.
+ * Server-side rendering. This file runs in a node environment, so `window` and
+ * `navigator` are absent, as they are when Nuxt or SvelteKit load the core
+ * entry.
  */
 describe("AdaptiveQuality without a DOM", () => {
   it("reports a tier instead of throwing", async () => {

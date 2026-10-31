@@ -5,24 +5,10 @@ import { render, cleanup, act } from "@testing-library/react";
 /**
  * The R3F adapter.
  *
- * ## What changed in 3.1, and why these tests look nothing like the old ones
- *
- * Up to 3.0.1 this hook ran inside `<Canvas>` and drove the renderer
- * imperatively: `setDpr`, `setFrameloop`, `gl.shadowMap.enabled`. The tests
- * mocked `useThree` and asserted those calls happened, and they passed.
- *
- * None of it worked. R3F re-runs its configure pass on every `<Canvas>` render
- * and resets all three from the props, so every call was undone on the next
- * render. The tests were green because they asserted the call, and the call
- * was real. What was missing was any check that the renderer ended up in the
- * requested state, which is the only thing a consumer cares about.
- *
- * So these test the returned props instead. There is nothing to mock: the hook
- * imports no R3F value, and whether R3F honours its own props is R3F's
- * business. The end-to-end claim, that a real renderer actually lands at the
- * requested pixel ratio and stops drawing, is checked in a real browser by
- * vv-site's tools/verify-render-quality.mjs, because that is the only place it
- * can be checked honestly.
+ * These test the returned props. There is nothing to mock: the hook imports no
+ * R3F value, and whether R3F honours its own props is R3F's business. That a
+ * real renderer lands at the requested pixel ratio and stops drawing is checked
+ * in a real browser.
  */
 
 const PROFILES = {
@@ -93,9 +79,8 @@ describe("useRenderQuality — the profile", () => {
   });
 
   /**
-   * T1 in vv-lab's findings. Every example writes `full: { dpr: 2 }` and R3F
-   * applies a number as given, so a 1x monitor drew four times its pixels and
-   * the managed scene came out heavier than the unmanaged one it replaced.
+   * Every example writes `full: { dpr: 2 }` and R3F applies a number as given,
+   * so a 1x monitor would draw four times its pixels.
    */
   it("never draws above the screen's own pixel ratio", async () => {
     Object.defineProperty(window, "devicePixelRatio", { value: 1, configurable: true });
@@ -126,13 +111,8 @@ describe("useRenderQuality — the profile", () => {
     }
   });
 
-  // The bug this pair exists for: an idle scene took the reduced profile, so
-  // going off screen dropped its dpr at the same moment the loop stopped.
-  // Changing dpr resizes the drawing buffer and resizing clears it, so with
-  // nothing drawing afterwards the scene went black instead of holding its last
-  // frame. Reported on vv-site's /lab/context-loss as "a few go black when I
-  // scroll"; measured there as active cards at 660x494 and idle ones at
-  // 330x247 and blank. Fixed in 4.0.2.
+  // Changing dpr resizes the drawing buffer and resizing clears it, so dropping
+  // dpr as the loop stops would turn the scene black. This pair pins that.
   it("does not resize the canvas when a drawing scene goes idle", async () => {
     const { useRenderQuality } = await import("./useRenderQuality");
     const seen: Array<number | undefined> = [];
@@ -202,7 +182,7 @@ describe("useRenderQuality — a lost graphics context", () => {
     const view = render(<Probe />);
 
     // In the document, as every canvas R3F draws to is. A detached canvas is
-    // one R3F is tearing down, and its loss is deliberately not reported.
+    // R3F is tearing down, and its loss isn't reported.
     const canvas = document.body.appendChild(document.createElement("canvas"));
     await act(async () => {
       props!.onCreated({ gl: { domElement: canvas } });
@@ -240,11 +220,10 @@ describe("useRenderQuality — a lost graphics context", () => {
   });
 
   /**
-   * R1 in vv-lab's findings. R3F calls `forceContextLoss()` on every canvas it
-   * unmounts, 500ms after React has taken it out of the document, and that
-   * fires `webglcontextlost` like any real loss. Reported, it moved the
-   * generation, so closing one tab rebuilt every other scene on the page: a
-   * managed hero rebuilt four times in six tab switches, and on WebKit died.
+   * R3F calls `forceContextLoss()` on every canvas it unmounts, 500ms after
+   * React has taken it out of the document, and that fires `webglcontextlost`
+   * like any real loss. Reporting it would rebuild every other scene on the
+   * page.
    */
   it("ignores the loss R3F causes when it tears a canvas down", async () => {
     const { canvas, health } = await created();
@@ -301,10 +280,9 @@ describe("useRenderQuality — a lost graphics context", () => {
   });
 
   /**
-   * R10 in vv-lab's findings. Losses that arrive soon after a loss are folded
-   * into its rebuild, because one driver reset reaches every canvas. The
-   * replacement that rebuild built is the exception: it did not exist when the
-   * reset happened, so losing it is a new failure. Folded in, it stayed black.
+   * Losses that arrive soon after a loss are folded into its rebuild, because
+   * one driver reset reaches every canvas. The replacement that rebuild built
+   * is the exception: it didn't exist when the reset happened.
    */
   it("rebuilds again when the replacement is lost moments after it was built", async () => {
     const { canvas: first, health, onCreated } = await created();
@@ -329,9 +307,9 @@ describe("useRenderQuality — a lost graphics context", () => {
   });
 
   /**
-   * R11 in vv-lab's findings. R3F creates the context, builds the scene, and
-   * only then calls onCreated. A loss in between fires with no listener
-   * attached, so onCreated has to ask the context itself.
+   * R3F creates the context, builds the scene, and only then calls onCreated. A
+   * loss in between fires with no listener attached, so onCreated has to ask
+   * the context itself.
    */
   it("reports a context that was already lost when it was handed over", async () => {
     vi.resetModules();
@@ -407,12 +385,9 @@ describe("useRenderQuality — a lost graphics context", () => {
 });
 
 /**
- * WebGPU, added in 4.1.0.
- *
- * The shapes here are the ones three 0.184 actually produces, checked against
+ * WebGPU. The shapes here are the ones three 0.184 produces, checked against
  * WebGPUBackend (`isWebGPUBackend`, `device`) and WebGLBackend
- * (`isWebGLBackend`, no device), and confirmed end to end in a real Chrome by
- * tools/verify-webgpu.mjs in the site repo.
+ * (`isWebGLBackend`, no device).
  */
 describe("useRenderQuality — a lost WebGPU device", () => {
   interface Backend {

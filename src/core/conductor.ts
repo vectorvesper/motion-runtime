@@ -1,65 +1,20 @@
 import { RefreshRateProbe } from "./refresh-rate";
 
 /**
- * FrameConductor — the single rAF loop every VV effect subscribes to, and the
- * scheduler that decides what actually gets to run inside it.
+ * FrameConductor: the single rAF loop every effect subscribes to, and the
+ * scheduler that decides what runs inside it.
  *
- * Rules it enforces:
- * - One loop per page. Effects never create private rAF loops.
- * - Lanes run in a fixed order each frame: input → update → render,
- *   so readers (sensors) always run before writers (draw calls).
- * - The loop only runs while it has subscribers (zero idle cost).
- * - dt is clamped so a backgrounded tab waking up doesn't feed a huge
- *   delta into spring/damping math.
+ * - Lanes run in a fixed order, input then update then render, so sensors read
+ *   before anything draws.
+ * - The loop only runs while it has subscribers.
+ * - dt is clamped so a tab waking from the background doesn't feed a huge delta
+ *   into spring and damping maths.
+ * - When a frame runs long, low-priority work is skipped for that frame. A
+ *   subscriber skipped `MAX_CONSECUTIVE_SHED` times in a row is forced through.
  *
- * ## Scheduling (v0.3)
- *
- * A shared loop is tidy. A shared loop that *makes decisions* is the reason
- * this is a runtime and not a utility. Subscribers declare what they are:
- *
- * - `essential`  — sensors, governors, direct manipulation. Always runs.
- * - `enhanced`   — interaction feedback. Shed once the frame is nearly spent.
- * - `decorative` — ambient garnish. Shed first.
- *
- * When a frame runs long, low-priority work is skipped FOR THAT FRAME rather
- * than letting everything degrade together — so ten coordinated effects can
- * cost less than three uncoordinated ones. Nothing starves: a subscriber
- * skipped `MAX_CONSECUTIVE_SHED` times in a row is forced through, so heavy
- * pages degrade decorative work to a lower framerate instead of freezing it.
- *
- * ## Carried overrun (v0.4)
- *
- * Shedding used to compare only our own elapsed work against the budget. That
- * made it unreachable in the normal case: when React, style, layout, paint or
- * the GPU are what is eating the frame, our subscribers might total 3ms of a
- * 16.6ms budget while the frame actually lands in 28ms. We would measure 3ms,
- * conclude there was room, and run everything — on a page visibly at 29fps.
- *
- * So the budget each frame is reduced by how far the PREVIOUS frame overran,
- * taken from the wall clock: a frame that landed 11ms late leaves about 5ms to
- * spend rather than 16.6, and every band scales down with it. The debt is what
- * the interval says, whoever caused it.
- *
- * Reducing the budget rather than pre-spending the frame is deliberate.
- * Pre-spending collapses the design under load — at full debt every threshold
- * lies below the starting position, so all three bands shed on frame entry and
- * priority stops meaning anything precisely when it matters most.
- *
- * The debt rises quickly and decays slowly on purpose. Symmetric smoothing
- * oscillates — shedding rescues the frame, the debt clears, the work returns,
- * the frame blows out again. Slow decay holds the quality decision steady
- * until the page has been healthy for a while.
- *
- * `hz` throttles a subscriber to a slower cadence. The accumulated dt is
- * passed through, so frame-rate-independent damping stays correct at any
- * cadence — an ambient background at 30Hz looks identical and costs half.
- *
- * ## Attribution
- *
- * Per-subscriber cost measurement is free: the scheduler already has to read
- * the clock after each subscriber to know how much of the frame is left, so
- * the shed decision and the cost breakdown come from the same timestamp.
- * There is exactly one `performance.now()` call per executed subscriber.
+ * The budget each frame shrinks by how far the previous frame overran, so time
+ * lost to React, layout, paint or the GPU counts too. Per-subscriber cost comes
+ * from the clock reads the shed decision already makes, so measuring it is free.
  */
 
 export type ConductorLane = "input" | "update" | "render";
@@ -72,49 +27,29 @@ export interface SubscribeOptions {
   /**
    * Shed order under load. Default `"enhanced"`.
    *
-   * `"essential"` is never shed — reserve it for sensors, governors and
-   * direct manipulation (a scrub that stutters is a broken scrub).
-   *
-   * `"decorative"` sheds first, and under sustained load lands on the
-   * starvation floor of roughly 12fps. That is right for ambient work and
-   * wrong for anything whose position a viewer follows — pair it with `hz` in
-   * that case, and read the note there.
+   * `"essential"` is never shed: use it for sensors, governors and direct
+   * manipulation. `"decorative"` sheds first and can fall to about 12fps under
+   * sustained load, so pair it with `hz` for anything whose position a viewer
+   * follows.
    */
   priority?: SubscriberPriority;
   /**
    * Cap this subscriber's cadence, in runs per second. Omit or `0` for every
-   * frame. The dt passed in accumulates, so damping math stays correct.
+   * frame. The dt passed in accumulates, so damping stays correct.
    *
-   * **Declare this for any decorative work whose motion the eye tracks.**
-   *
-   * Shedding does not stutter — the starvation guard forces a skipped
-   * subscriber through after four frames, so heavily shed work runs on a
-   * perfectly regular beat. The problem is which beat: every fifth frame is
-   * 12fps at 60Hz, and 12fps reads as broken for anything whose *position* is
-   * being followed, however even it is. Film is 24.
-   *
-   * Measured on the benchmark: one decorative element left to shedding ran on
-   * a 5-frame gap 59 times out of 59 — regular, and visibly bad. The same
-   * element with `hz: 30` ran on a 2-frame gap, looked fine, and did *less*
-   * total work than the shed version.
-   *
-   * So this is not a consolation prize for slow work. For tracked motion it is
-   * better looking and cheaper than the alternative.
-   *
-   * Work that degrades gracefully — a shader, a particle field, an ambient
-   * canvas — does not need it. Rendering that slightly less often is not
-   * something anyone can point at.
+   * Set this on decorative work whose motion the eye tracks. The starvation
+   * guard forces shed work through every fifth frame, which is 12fps at 60Hz and
+   * looks broken on anything being followed. `hz: 30` runs on a steady two-frame
+   * gap and does less total work. A shader or particle field doesn't need it.
    */
   hz?: number;
   /** Name shown in devtools and in slow-subscriber warnings. */
   label?: string;
   /**
-   * Which interaction scope this work belongs to. While some OTHER scope holds
-   * the foreground lease, this subscriber sheds one band earlier than its
-   * priority would normally allow. Omit for work that belongs to no particular
-   * region — that is treated as background whenever any lease is held.
-   *
-   * `essential` is never affected, whatever the scope.
+   * The interaction scope this work belongs to. While another scope holds the
+   * foreground lease, this subscriber sheds one band earlier. Omit for work that
+   * belongs to no region: it counts as background whenever a lease is held.
+   * `essential` work is never affected.
    */
   scope?: string;
 }
@@ -145,7 +80,7 @@ export interface ConductorStats {
   running: boolean;
   /** Detected display refresh rate. 60 until the probe settles. */
   displayHz: number;
-  /** One presented frame, in ms — the budget everything is measured against. */
+  /** One presented frame in ms, the budget everything is measured against. */
   frameBudgetMs: number;
   /** Smoothed frames per second, from the rAF interval. */
   fps: number;
@@ -166,13 +101,10 @@ export interface ConductorStats {
   /** Human-readable name of that scope, when one was given. */
   activeScopeLabel: string | null;
   /**
-   * How much of this frame was already gone before the runtime got it, in ms,
-   * smoothed. Every rAF callback in a frame receives the same start timestamp,
-   * so the gap between that and the moment our tick actually runs is other
-   * people's frame work — a third-party library's own loop, most often.
-   *
-   * Large values mean the page is main-thread bound by something that is not
-   * us, which is the one case where shedding our own work helps least.
+   * How much of this frame was gone before the runtime got it, in ms, smoothed.
+   * Every rAF callback in a frame receives the same start timestamp, so the gap
+   * between that and our tick is other code's frame work, usually a third-party
+   * library's own loop. Large values mean shedding our own work will help least.
    */
   preRuntimeMs: number;
   subscriberCount: number;
@@ -184,8 +116,8 @@ export interface ConductorStats {
 
 export interface ConductorConfig {
   /**
-   * Drop low-priority work when a frame runs long. Default `true` — turning
-   * it off makes every subscriber run unconditionally, as in v0.1.
+   * Drop low-priority work when a frame runs long. Default `true`. Turning it
+   * off makes every subscriber run unconditionally.
    */
   shedding?: boolean;
   /**
@@ -202,10 +134,9 @@ export interface ConductorConfig {
 
 const LANE_ORDER: ConductorLane[] = ["input", "update", "render"];
 const MAX_DT = 0.1; // seconds; anything longer is a tab-sleep artifact
-// Two frames can arrive on the same timestamp, and a clock can step backwards.
-// Either produces a dt of zero or less, and anything doing rate math divides by
-// it — one NaN then sticks forever, because NaN survives every smoothing pass
-// it touches. A real frame is never this short: 240Hz is 4.16ms.
+// Two frames can share a timestamp and a clock can step backwards. Either gives
+// a dt of zero or less, and one NaN from rate maths then survives every
+// smoothing pass. A real frame is never this short: 240Hz is 4.16ms.
 const MIN_DT = 0.001;
 
 const PRIORITY_RANK: Record<SubscriberPriority, number> = {
@@ -229,10 +160,9 @@ const SHED_THRESHOLD: Record<SubscriberPriority, number> = {
 const MAX_CONSECUTIVE_SHED = 4;
 
 /**
- * Thresholds used for work OUTSIDE the scope currently holding the foreground
- * lease. Each band drops to the next one down, so during a drag the ambient
- * work elsewhere on the page yields before the thing under the finger does.
- * Essential work is exempt at any threshold.
+ * Thresholds for work outside the scope holding the foreground lease. Each band
+ * drops to the next one down, so during a drag ambient work yields before the
+ * thing under the finger does.
  */
 const DEMOTED_THRESHOLD: Record<SubscriberPriority, number> = {
   essential: Infinity,
@@ -241,8 +171,9 @@ const DEMOTED_THRESHOLD: Record<SubscriberPriority, number> = {
 };
 
 /**
- * Smoothing for the carried overrun. Asymmetric on purpose: react within a few
- * frames, recover over roughly half a second, so quality decisions don't flap.
+ * Smoothing for the carried overrun. It reacts within a few frames and recovers
+ * over about half a second, because symmetric smoothing oscillates: shedding
+ * rescues the frame, the debt clears, the work returns, the frame blows out.
  */
 const OVERRUN_RISE_ALPHA = 0.25;
 const OVERRUN_DECAY_ALPHA = 0.03;
@@ -254,12 +185,10 @@ const OVERRUN_DECAY_ALPHA = 0.03;
 const MAX_DEBT_FACTOR = 1;
 
 /**
- * Debt shrinks the budget rather than pre-spending the frame, and never below
- * this fraction of it. Pre-spending was the obvious model and it was wrong: at
- * full debt every threshold sat below the starting position, so all three
- * priority bands crossed their line on frame entry and shedding stopped
- * discriminating at exactly the load where discriminating matters. Keeping a
- * floor means the bands stay ordered however deep the debt gets.
+ * Debt shrinks the budget and never takes it below this fraction. Spending the
+ * debt up front instead would put every threshold below the starting position
+ * at full debt, so all three bands would shed on frame entry and priority would
+ * stop meaning anything.
  */
 const MIN_BUDGET_FRACTION = 0.25;
 
@@ -295,14 +224,11 @@ interface Subscriber {
 
 /**
  * The rate the browser is presenting at when it holds the page below the
- * display's own rate, or null when it is not. Battery savers do this: an iPhone
- * in Low Power Mode and Chrome with Energy Saver on run requestAnimationFrame
- * at 30fps on a 60Hz panel.
+ * display's rate, or null when it isn't. An iPhone in Low Power Mode and Chrome
+ * with Energy Saver both run rAF at 30fps on a 60Hz panel.
  *
- * Set only by presentation-cap.ts, which decides when the evidence says the
- * browser and not the page is setting the pace. Module state rather than a
- * member on purpose: every public member of FrameConductor is published API
- * through `getConductor()`, and this is not something a consumer may set.
+ * Set only by presentation-cap.ts. It is module state because every public
+ * member of FrameConductor is published API through `getConductor()`.
  */
 let presentationCapHz: number | null = null;
 
@@ -312,10 +238,8 @@ export function setPresentationCap(hz: number | null): void {
 }
 
 /**
- * One presented frame, in ms: the display's own period, or the capped one.
- * Everything "over budget" is measured against this, so a capped page is
- * judged against the rate it is allowed to run at rather than one it cannot
- * reach.
+ * One presented frame in ms: the display's period, or the capped one. A capped
+ * page is judged against the rate it is allowed to run at.
  */
 function budgetMsFor(refresh: RefreshRateProbe): number {
   return presentationCapHz !== null ? 1000 / presentationCapHz : refresh.frameBudgetMs;
@@ -350,8 +274,8 @@ class FrameConductor {
   private slowSubscriberMs = 0;
 
   /**
-   * Tune scheduling and diagnostics. Safe to call at any time; partial —
-   * omitted fields keep their current value.
+   * Tune scheduling and diagnostics. Safe to call at any time. Omitted fields
+   * keep their current value.
    */
   configure(config: ConductorConfig): void {
     if (config.shedding !== undefined) this.shedding = config.shedding;
@@ -366,15 +290,15 @@ class FrameConductor {
     return this.refresh.hz;
   }
 
-  /** One presented frame in ms — what "over budget" is measured against. */
+  /** One presented frame in ms, what "over budget" is measured against. */
   get frameBudgetMs(): number {
     return budgetMsFor(this.refresh);
   }
 
   /**
-   * Time this runtime spent executing subscribers on the previous frame, in
-   * ms, smoothed. Read from the input lane (which runs first) this is the
-   * completed previous frame — the same vintage as `dt`.
+   * Time spent executing subscribers on the previous frame, in ms, smoothed.
+   * Read from the input lane, which runs first, this is the completed previous
+   * frame, matching `dt`.
    */
   get workMs(): number {
     return this.workMsEma;
@@ -406,14 +330,10 @@ class FrameConductor {
    * release();
    * ```
    *
-   * While a lease is held, every subscriber that did NOT declare this scope
-   * sheds one band earlier — so ambient work elsewhere on the page gives up its
-   * frame time to the thing the user is actually touching. Priorities are a
-   * fixed statement about what work is worth; a lease is a live statement about
-   * where attention currently is. Essential work is exempt either way.
-   *
-   * Claims nest. The most recent holds the lease, and releasing restores the one
-   * beneath it. Releasing twice is a no-op.
+   * While a lease is held, subscribers outside this scope shed one band earlier,
+   * so ambient work gives up its frame time to what the user is touching.
+   * Essential work is exempt. Claims nest: releasing restores the one beneath,
+   * and releasing twice is a no-op.
    */
   claimScope(scope: string, label?: string): () => void {
     this.scopeStack.push({ scope, label });
@@ -484,11 +404,8 @@ class FrameConductor {
   }
 
   /**
-   * A snapshot for devtools and HUDs. Allocates, so call it at a human refresh
-   * rate (a few times a second) and never inside a frame loop.
-   *
-   * Named `state` since 3.0 to match the other five singletons. This was the
-   * only one exposing a method, and it is the one people reach for most.
+   * A snapshot for devtools and HUDs. Allocates, so call it a few times a second
+   * at most, never inside a frame loop.
    */
   get state(): ConductorStats {
     const subscribers: SubscriberStat[] = [];
@@ -543,20 +460,9 @@ class FrameConductor {
   private start(): void {
     if (this.rafId !== null) return;
 
-    /**
-     * No frames on a server, so there is no loop to start.
-     *
-     * Subscribing still succeeds and still returns a working unsubscribe: the
-     * callback simply never fires, which is the truthful outcome when no frame
-     * will ever be presented. The loop starts for real when the client
-     * hydrates and subscribes again.
-     *
-     * Without this, `subscribe()` threw "requestAnimationFrame is not defined"
-     * during SSR. React consumers never hit it because their hooks subscribe
-     * from an effect, but this entry carries no "use client" and is advertised
-     * as framework-agnostic, so a Vue `setup()` or a SvelteKit load crashed the
-     * render.
-     */
+    // No frames on a server. Subscribing still succeeds and returns a working
+    // unsubscribe, and the loop starts when the client subscribes. This entry is
+    // framework-agnostic, so a Vue `setup()` or a SvelteKit load can reach here.
     if (typeof requestAnimationFrame === "undefined") return;
 
     this.last = performance.now();
@@ -568,14 +474,9 @@ class FrameConductor {
     cancelAnimationFrame(this.rafId);
     this.rafId = null;
 
-    // Everything describing the recent past stops being true the moment the
-    // loop stops, because a stopped loop has no recent past — and unlike a
-    // running one it cannot decay these back down.
-    //
-    // Left alone, a page that struggled, unmounted everything, and later
-    // mounted something new would hand the new work a full frame of inherited
-    // debt and shed it from the very first frame. That looks like motion
-    // glitching for no reason, and the reason stopped existing a while ago.
+    // A stopped loop has no recent past and can't decay these back down. Left
+    // alone, work mounted later would inherit a full frame of debt and shed from
+    // its first frame.
     this.overrunEma = 0;
     this.preRuntimeEma = 0;
     this.shedLastFrame = 0;
@@ -586,9 +487,8 @@ class FrameConductor {
       this.onError(error, sub.label, sub.lane);
       return;
     }
-    // Default: log the first failure per subscriber. A subscriber throwing
-    // every frame at 60fps would otherwise make the console unusable, and an
-    // unusable console hides the actual bug.
+    // Log the first failure per subscriber. One throwing every frame would
+    // otherwise bury the actual bug in the console.
     if (sub.warnedError) return;
     sub.warnedError = true;
     console.error(
@@ -649,10 +549,9 @@ class FrameConductor {
 
         if (sub.interval > 0) {
           sub.accum += dt;
-          // Half-frame bias: run on the frame NEAREST the requested cadence
-          // rather than always the one after it. Testing `accum >= interval`
-          // straight would turn a 30Hz request into 20Hz whenever the
-          // interval doesn't divide evenly into the frame time.
+          // Half-frame bias: run on the frame nearest the requested cadence. A
+          // plain `accum >= interval` turns 30Hz into 20Hz whenever the interval
+          // doesn't divide evenly into the frame time.
           if (sub.accum + dt * 0.5 < sub.interval) continue; // not due yet
         }
 
@@ -680,7 +579,7 @@ class FrameConductor {
         try {
           sub.fn(stepDt, this.time);
         } catch (error) {
-          // One broken effect must never kill the page's heartbeat.
+          // One broken effect must not stop the loop.
           this.report(error, sub);
         }
 
@@ -719,7 +618,7 @@ class FrameConductor {
 
 let instance: FrameConductor | null = null;
 
-/** Lazy singleton — safe to import in SSR modules, only constructed on use. */
+/** Lazy singleton: safe to import in SSR modules, constructed on first use. */
 export function getConductor(): FrameConductor {
   if (instance === null) instance = new FrameConductor();
   return instance;

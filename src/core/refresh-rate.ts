@@ -1,45 +1,24 @@
 /**
- * RefreshRateProbe — figures out the display's true vsync period.
+ * RefreshRateProbe: finds the display's true vsync period.
  *
- * Why this exists: every "is the page healthy?" threshold in the runtime was
- * hardcoded against a 60Hz assumption, so a 120Hz display limping along at
- * 70fps read as perfectly fine. A frame budget only means something relative
- * to the rate the display can actually present at.
+ * A frame budget only means something relative to the rate the display can
+ * present at. `frameBudgetMs` feeds the conductor's shed thresholds,
+ * AnimationBudget's tiers and the pressure classifier's healthy check, so a
+ * wrong estimate makes a healthy page degrade itself.
  *
- * How: rAF cannot fire faster than vsync, so short intervals are the ones that
- * carry information about the display and long ones are just jank. But "the
- * smallest interval ever seen" is NOT the vsync period, which is what the
- * first version of this assumed and what made it wrong in practice.
+ * rAF can't fire faster than vsync, so short intervals carry the information.
+ * The smallest interval ever seen still isn't the period: after a stall, two
+ * callbacks can arrive back to back, far closer than a frame. So the estimate
+ * comes from a bounded window of recent intervals, and a fast interval has to
+ * recur before it is believed. A burst adds two or three samples, and a real
+ * 120Hz display adds them constantly. A wrong estimate can't outlive it.
  *
- * Browsers deliver rAF callbacks in bursts. After a stall, two callbacks can
- * arrive back to back, producing intervals far shorter than a frame. The old
- * probe kept a running minimum over all time and required an outlier to happen
- * twice — which a burst satisfies easily. One stutter would pin a 60Hz display
- * at 120Hz, and the slow upward drift took about 1700 frames, near thirty
- * seconds, to recover.
+ * Unknown rates snap to the nearest plausible display rate, and anything not
+ * close to one is rejected in favour of 60: a page pinned at a steady 30fps on
+ * a 60Hz panel must not be mistaken for a 30Hz display.
  *
- * That is not a cosmetic error. `frameBudgetMs` feeds the conductor's shed
- * thresholds, AnimationBudget's tiers and the pressure classifier's healthy
- * check, so a halved budget makes a perfectly healthy page believe it is
- * failing and degrade itself. Measured in Chrome, this happened on an ordinary
- * 60Hz laptop within seconds of any load: the probe reported 100Hz, 120Hz and
- * 144Hz on a display flatly running at 60.
- *
- * So the estimate now comes from a bounded window of recent intervals, and a
- * fast interval has to RECUR before it is believed. A burst contributes two or
- * three samples out of the window and is ignored; a genuine 120Hz display
- * produces them constantly. Being windowed also means a wrong estimate cannot
- * outlive the window — a couple of seconds rather than half a minute.
- *
- * Unknown rates snap to the nearest plausible display rate, and anything that
- * isn't close to one is rejected in favour of 60 — a page pinned at a steady
- * 30fps on a 60Hz panel must not be mistaken for a 30Hz display, or the
- * governor would congratulate it for keeping up.
- *
- * That holds when the page is the reason. When the browser is — a battery
- * saver holding the page to 30fps — presentation-cap.ts sets the conductor's
- * budget to the capped rate instead, leaving this estimate alone. See its
- * header for when that is believed.
+ * When a battery saver holds the page to 30fps, presentation-cap.ts sets the
+ * conductor's budget to the capped rate and leaves this estimate alone.
  */
 
 /** Display rates we're willing to believe. */
@@ -50,19 +29,15 @@ export const DEFAULT_HZ = 60;
 /** Frames observed before the estimate is trusted. */
 const MIN_SAMPLES = 8;
 /**
- * How many recent intervals the estimate is built from.
- *
- * Bounds how long a wrong answer can survive: about two seconds at 60Hz,
- * against the roughly thirty the old running-minimum took to drift back.
+ * How many recent intervals the estimate is built from. This bounds how long a
+ * wrong answer can survive: about two seconds at 60Hz.
  */
 const WINDOW = 128;
 /**
  * How many samples in the window must sit near the candidate period before it
- * is believed.
- *
- * A post-stall burst contributes two or three. A display genuinely running at
- * that rate contributes most of the window, and even one merely *capable* of
- * it while the page runs slower contributes far more than this.
+ * is believed. A post-stall burst contributes two or three. A display running
+ * at that rate contributes most of the window, and one merely capable of it
+ * while the page runs slower still contributes far more than this.
  */
 const MIN_CORROBORATION = 6;
 /** How close an interval must be to the candidate to corroborate it. */
@@ -115,8 +90,8 @@ export class RefreshRateProbe {
     this.samples++;
     if (this.samples < MIN_SAMPLES) return;
 
-    // Second smallest in the window, for the same reason the old version used
-    // it: one impossibly short sample should not decide anything on its own.
+    // Second smallest in the window: one impossibly short sample shouldn't
+    // decide anything on its own.
     let min1 = Infinity;
     let min2 = Infinity;
     for (let i = 0; i < this.filled; i++) {
@@ -130,9 +105,8 @@ export class RefreshRateProbe {
     }
     if (min2 === Infinity) return;
 
-    // ...and now the part the old version was missing: the period has to
-    // actually recur. Without this a two-callback burst is indistinguishable
-    // from a fast display.
+    // The period has to recur. Without this a two-callback burst is
+    // indistinguishable from a fast display.
     const limit = min2 * CORROBORATION_TOLERANCE;
     let near = 0;
     for (let i = 0; i < this.filled; i++) if (this.window[i] <= limit) near++;

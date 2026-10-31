@@ -2,18 +2,13 @@ import { describe, it, expect } from "vitest";
 import { PressurePolicy, type PressureSample } from "./FramePressure";
 
 /**
- * The pressure classifier, fed synthetic frames.
+ * The pressure classifier, fed synthetic frames. All the browser-dependent
+ * measurement lives in the singleton, and this is the decision logic alone.
  *
- * All the browser-dependent measurement lives in the singleton; this is the
- * decision logic on its own, which is the part that has to be right. A wrong
- * verdict here would make the runtime lower quality for the wrong reason.
- *
- * Note what `probeDelayMs` means in a sample: the raw MessageChannel round
- * trip, measured from the input lane, which contains our own update and render
- * work as well as everyone else's. That is why a "someone else is burning the
- * main thread after us" case sets it to their time PLUS `runtimeMs`. The
- * policy nets our share back out. Getting this wrong in a test would be
- * testing a decomposition nobody performs.
+ * `probeDelayMs` in a sample is the raw MessageChannel round trip from the
+ * input lane, which contains our own work as well as everyone else's. So a case
+ * where someone else burns the main thread after us sets it to their time plus
+ * `runtimeMs`, and the policy nets our share back out.
  */
 
 const BUDGET = 1000 / 60; // 16.6ms
@@ -93,9 +88,8 @@ describe("PressurePolicy — naming the cause", () => {
 
   it("blames the main thread when someone else's work runs BEFORE us", () => {
     const p = new PressurePolicy();
-    // A third-party rAF loop registered ahead of ours. The probe cannot see
-    // it at all — this is the case that read as "render" at 97% confidence on
-    // the first real-browser run.
+    // A third-party rAF loop registered ahead of ours, which the probe can't
+    // see.
     const out = run(p, {
       frameMs: 50, runtimeMs: 1, probeDelayMs: 2, preRuntimeMs: 42,
     });
@@ -105,8 +99,8 @@ describe("PressurePolicy — naming the cause", () => {
 
   it("blames rendering when the main thread was free and the frame was still late", () => {
     const p = new PressurePolicy();
-    // Nothing ran before us, our work is trivial, the probe came straight
-    // back — and the frame still missed. That is the GPU or the compositor.
+    // Nothing ran before us, our work is trivial, the probe came straight back,
+    // and the frame still missed. That is the GPU or the compositor.
     const out = run(p, {
       frameMs: 45, runtimeMs: 2, probeDelayMs: 3, preRuntimeMs: 0.4,
     });
@@ -117,9 +111,8 @@ describe("PressurePolicy — naming the cause", () => {
 
   it("is the case AnimationBudget alone gets wrong", () => {
     const p = new PressurePolicy();
-    // The scenario from the runtime notes: 2ms of JS against 30ms of GPU.
-    // Headroom looks generous, so shedding JS would remove motion and fix
-    // nothing.
+    // 2ms of JS against 30ms of GPU. Headroom looks generous, so shedding JS
+    // would remove motion and fix nothing.
     const out = run(p, {
       frameMs: 32, runtimeMs: 2, probeDelayMs: 2.5, preRuntimeMs: 0.2,
     });
@@ -220,8 +213,8 @@ describe("PressurePolicy — housekeeping", () => {
 
   it("speaks up on a page running at 5fps", () => {
     const p = new PressurePolicy();
-    // At 30 required samples this stayed silent for six seconds — on exactly
-    // the page most in need of an answer.
+    // At 30 required samples this would stay silent for six seconds on the page
+    // most in need of an answer.
     let emitted = null;
     for (let i = 0; i < 15; i++) {
       emitted =

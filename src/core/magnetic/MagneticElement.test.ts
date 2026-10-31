@@ -2,12 +2,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 /**
- * MagneticElement.
- *
- * Covered through `useMagneticIntent` until now, which meant the two things
- * that actually matter here were only checked indirectly: it borrows an
- * element's inline transform, and it holds three subscriptions. Both are the
- * kind of thing that looks fine on screen and leaks.
+ * MagneticElement borrows an element's inline transform and holds three
+ * subscriptions, both of which look fine on screen and can leak.
  */
 
 let rafCallbacks = new Map<number, FrameRequestCallback>();
@@ -69,8 +65,8 @@ describe("MagneticElement — borrowing the transform", () => {
     crankFrames(4);
     magnet.destroy();
 
-    // A page that set its own transform has to get it back untouched — this
-    // hook owns the property while it is alive, not forever.
+    // A page that set its own transform has to get it back untouched. This hook
+    // owns the property while it is alive.
     expect(el.style.transform).toBe("rotate(45deg)");
   });
 
@@ -153,8 +149,7 @@ describe("MagneticElement — anticipation", () => {
     crankFrames(2);
     const off = getConductor().state.subscribers.length;
 
-    // This used to be read only in the constructor, so changing it later
-    // silently did nothing.
+    // Changing it after construction has to take effect.
     magnet.update({ anticipate: true });
     crankFrames(2);
     expect(getConductor().state.subscribers.length).toBeGreaterThan(off);
@@ -200,10 +195,9 @@ describe("MagneticElement — off screen", () => {
   });
 
   it("leaves a button scrolled out of view at rest, even with the pointer racing towards it", async () => {
-    // RB-5: the lab saw a magnetic button 15 to 31 transform writes a second
-    // while scrolled away. Its approach detector projected a fast pointer up
-    // to 0.8s ahead, past the edge of the screen, onto the button. jsdom's
-    // viewport is 1024 x 768; this button sits 630px below it.
+    // Its approach detector projects a fast pointer up to 0.8s ahead, which
+    // could pass the edge of the screen onto the button. jsdom's viewport is
+    // 1024 x 768, and this button sits 630px below it.
     const { MagneticElement } = await fresh();
     const el = document.createElement("button");
     el.getBoundingClientRect = () =>

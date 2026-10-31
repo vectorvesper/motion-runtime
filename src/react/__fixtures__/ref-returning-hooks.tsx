@@ -1,12 +1,7 @@
 /**
  * Every hook in this package that hands back a `ref`, called the documented
- * way. Must lint clean.
- *
- * The call-site rule is not specific to the hybrid ref: `useImageTrail`,
- * `useMagneticIntent`, `useNumberTicker` and `useVideoScrubber` return plain
- * `useRef` objects and break in exactly the same way if the ref is reached
- * through a member expression. Covering all of them here means a hook added
- * later with the same shape is checked by the same test.
+ * way. Must lint clean. Each breaks the same way if the ref is reached through
+ * a member expression, so a hook added later gets the same check.
  */
 import { useImageTrail } from "../../effects/useImageTrail";
 import { useMagneticIntent } from "../../effects/useMagneticIntent";

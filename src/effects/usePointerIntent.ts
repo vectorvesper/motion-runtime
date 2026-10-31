@@ -10,55 +10,49 @@ import { createHybridRef } from "../react/hybrid-ref";
 
 
 export interface UsePointerIntentOptions extends PointerIntentOptions {
-  /**
-   * Callback fired when the pointer's intent state changes.
-   */
+  /** Called when the pointer's intent state changes. */
   onIntentChange?: (intent: boolean) => void;
 }
 
 export interface UsePointerIntentReturn<T extends HTMLElement> {
   /**
-   * Ref to attach to the target DOM element.
+   * Ref to attach to the target element.
    *
-   * **Destructure this hook's result**, as the example below does. Reaching it
-   * as `pointer.ref` is a lint error under the React Compiler rules, and it
-   * poisons the sibling fields with it. See hybrid-ref.ts.
+   * Destructure this hook's result, as the example below does. Reaching it as
+   * `pointer.ref` is a lint error under the React Compiler rules. See
+   * hybrid-ref.ts.
    */
   ref: RefObject<T | null>;
   /**
-   * Boolean state that flips to true when the cursor trajectory is headed towards the element
-   * at a sufficient speed, and false when it drifts away or slows down. Useful for triggering 
-   * React conditional pre-rendering or warming.
+   * True while the cursor is heading for the element at sufficient speed.
+   * Useful for conditional pre-rendering or warming.
    */
   intent: boolean;
   /**
-   * Ref containing the smoothed time-to-impact confidence value (0 to 1). 
-   * Updated frame-accurately in the background WITHOUT triggering component re-renders. 
-   * Perfect for driving GPU-accelerated styling (e.g. magnetic pull, CSS variables, canvas distortion).
+   * Ref holding the smoothed confidence, 0 to 1. Updated every frame without
+   * re-rendering. Use it to drive a magnetic pull, CSS variables or canvas
+   * distortion.
    */
   confidenceRef: RefObject<number>;
 }
 
 /**
- * A React hook that predicts whether the pointer is going to hover over an element *before* it arrives,
- * by casting the pointer's velocity vector forward and calculating time-to-impact against the element's bounding rect.
+ * Predicts whether the pointer will reach an element before it arrives, by
+ * casting its velocity forward and measuring time-to-impact against the rect.
  *
- * Use this hook to hide the latency of expensive interactions (e.g., preloading 3D models, pre-compiling shaders,
- * fetching API data, warming up magnetic fields) 100ms - 300ms before the user actually hovers.
+ * Use it to hide the latency of expensive interactions, such as preloading 3D
+ * models, compiling shaders or fetching data, 100-300ms before the hover.
  *
- * ### 📚 Usage Example:
  * ```tsx
  * import { usePointerIntent } from "@vectorvesper/motion/react";
- * 
+ *
  * export function InteractiveCard() {
  *   const { ref, intent, confidenceRef } = usePointerIntent<HTMLDivElement>({
- *     horizon: 0.4,     // Cast velocity vector 400ms forward
- *     extend: 15,       // Inflate the target rect by 15px
- *     minSpeed: 100,    // Only predict if speed is > 100px/s
+ *     sensitivity: "high",
  *   });
- * 
- *   // confidenceRef is deliberately not state, so it must not be read during
- *   // render. Read it from a frame callback or an event handler instead.
+ *
+ *   // confidenceRef isn't state, so read it from a frame callback or an event
+ *   // handler, never during render.
  *   return (
  *     <div ref={ref} className="card-container">
  *       {intent && <PreloadedWebGLContent />}
@@ -68,8 +62,8 @@ export interface UsePointerIntentReturn<T extends HTMLElement> {
  * }
  * ```
  *
- * @param {UsePointerIntentOptions} [options={}] Configuration options specifying predictive horizons, thresholds, and callbacks.
- * @returns {UsePointerIntentReturn<T>} Object containing the hybrid ref, the reactive intent state, and the non-reactive confidence ref.
+ * @param {UsePointerIntentOptions} [options={}] Sensitivity and intent callback.
+ * @returns {UsePointerIntentReturn<T>} The ref, intent state and confidence ref.
  */
 export function usePointerIntent<T extends HTMLElement = HTMLElement>(
   options: UsePointerIntentOptions = {},
@@ -94,8 +88,8 @@ export function usePointerIntent<T extends HTMLElement = HTMLElement>(
       onChangeRef.current?.(next);
     });
     instanceRef.current = instance;
-    // Mirror confidence into the ref on the render lane — frame-accurate,
-    // after the core's update-lane work, without React re-renders.
+    // Mirror confidence into the ref on the render lane, after the core's
+    // update-lane work, without React re-renders.
     const offFrame = getConductor().subscribe("render", () => {
       confidenceRef.current = instance.confidence;
     }, { priority: "decorative", label: "usePointerIntent(mirror)" });
@@ -115,10 +109,6 @@ export function usePointerIntent<T extends HTMLElement = HTMLElement>(
   // The factory only wires deferred getters/setters onto a function; it never
   // reads elementRef.current during render. The compiler cannot see that
   // through an opaque call, so it assumes the worst.
-  //
-  // The directive has to sit on the line immediately above the code. Written as
-  // `-- reason` with the reason wrapping onto a second comment line, it targets
-  // the comment instead and silently suppresses nothing.
   // eslint-disable-next-line react-hooks/refs
   const ref = useMemo(() => createHybridRef<T>(elementRef, setElement), []);
 

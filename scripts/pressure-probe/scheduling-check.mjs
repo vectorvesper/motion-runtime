@@ -1,14 +1,11 @@
 /**
- * What does a MessageChannel task actually wait for?
+ * What does a MessageChannel task wait for?
  *
  *   node scripts/pressure-probe/scheduling-check.mjs
  *
  * FramePressure assumes a message posted from inside a rAF callback is
- * delivered only once the main thread has finished the frame — later rAF
- * callbacks included. The first real-browser run contradicted that: a page
- * with a competing rAF burning 24ms reported a 0.7ms tail.
- *
- * Rather than guessing at a fix, this measures the ordering directly.
+ * delivered only once the main thread has finished the frame, later rAF
+ * callbacks included. This measures that ordering directly.
  */
 
 import { spawn } from "node:child_process";

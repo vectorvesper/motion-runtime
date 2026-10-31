@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 /**
- * The conductor is a module singleton driven by rAF — each test gets a
- * fresh module instance (vi.resetModules) and a hand-cranked rAF.
+ * The conductor is a module singleton driven by rAF, so each test gets a fresh
+ * module instance (vi.resetModules) and a hand-cranked rAF.
  */
 
 let rafCallback: FrameRequestCallback | null = null;
@@ -52,7 +52,7 @@ describe("FrameConductor", () => {
     conductor.subscribe("update", (dt) => {
       seenDt = dt;
     });
-    crank(5000); // 5s since start — a sleep artifact
+    crank(5000); // 5s since start, a sleep artifact
     expect(seenDt).toBe(0.1);
   });
 
@@ -100,13 +100,12 @@ describe("FrameConductor", () => {
     for (let i = 1; i <= 20; i++) crank(16 + i * 60); // 60ms frames: deep debt
     expect(conductor.state.carriedOverrunMs).toBeGreaterThan(0);
 
-    // Everything unmounts. The loop stops, so the debt cannot decay — it is
-    // frozen at whatever the worst moment was.
+    // Everything unmounts. The loop stops, so the debt can't decay and stays
+    // at its worst.
     off();
 
-    // Something new mounts later. It must not inherit a grudge from a page
-    // state that no longer exists: the first frames would be shed for a reason
-    // that stopped being true, which reads as motion glitching for nothing.
+    // Something new mounts later. It must not inherit that debt, or its first
+    // frames would be shed for nothing.
     conductor.subscribe("render", () => {});
     expect(conductor.state.carriedOverrunMs).toBe(0);
   });

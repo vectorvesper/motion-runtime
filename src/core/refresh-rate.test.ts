@@ -77,9 +77,8 @@ describe("RefreshRateProbe", () => {
     feed(probe, 1000 / 240, 3);
     feed(probe, 1000 / 60, 20);
 
-    // The old probe kept a running minimum and only required an outlier
-    // twice, so this pinned it at 240Hz — quartering the frame budget that
-    // the conductor, the governor and the pressure classifier all read.
+    // A running minimum would pin this at 240Hz, quartering the frame budget
+    // that the conductor, the governor and the pressure classifier all read.
     expect(probe.hz).toBe(60);
   });
 
@@ -100,10 +99,8 @@ describe("RefreshRateProbe", () => {
     feed(probe, 1000 / 120, 40);
     expect(probe.hz).toBe(120);
 
-    // Moved to a 60Hz display. The old running minimum drifted upward at
-    // 0.04% per frame and needed roughly 1700 frames — about half a minute —
-    // to let go. A bounded window cannot hold a stale answer longer than the
-    // window itself.
+    // Moved to a 60Hz display. A bounded window can't hold a stale answer
+    // longer than the window itself.
     feed(probe, 1000 / 60, 130);
     expect(probe.hz).toBe(60);
   });

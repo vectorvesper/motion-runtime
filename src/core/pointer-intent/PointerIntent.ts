@@ -3,23 +3,19 @@ import { getSensorBus } from "../sensor-bus/SensorBus";
 import { damp, rayRectIntersect } from "../math";
 
 /**
- * PointerIntent — predicts that the pointer is COMING to an element before
- * it arrives, from the SensorBus's smoothed velocity: cast the pointer's
- * trajectory forward and measure time-to-impact against the (inflated)
- * element rect. Confidence rises as impact nears; being inside is
- * confidence 1. Hysteresis (enter/exit thresholds) keeps the boolean calm.
+ * PointerIntent: predicts that the pointer is coming to an element before it
+ * arrives. It casts the SensorBus's smoothed velocity forward and measures
+ * time-to-impact against the inflated element rect. Confidence rises as impact
+ * nears, and being inside is confidence 1. Enter and exit thresholds keep the
+ * boolean calm.
  *
- * Use it to pre-warm expensive hovers: start the video, compile the shader,
- * begin the magnetic pull — 100–300ms before the cursor lands.
+ * Use it to pre-warm expensive hovers: start the video, compile the shader, or
+ * begin the magnetic pull 100-300ms before the cursor lands.
  */
 
 /**
- * How eager the prediction is.
- *
- * This replaced five separate numbers — look-ahead horizon, rect inflation, a
- * minimum pointer speed, and a pair of confidence thresholds for gaining and
- * losing intent. The last two are hysteresis: correct to have, impossible to
- * pick by hand, and meaningless in isolation.
+ * How eager the prediction is. Stands in for five tuning numbers, including the
+ * hysteresis pair, which can't be picked by hand. See `PointerIntentTuning`.
  */
 export type PointerIntentSensitivity = "low" | "normal" | "high";
 
@@ -27,31 +23,23 @@ export interface PointerIntentOptions {
   /**
    * How readily the pointer is judged to be heading here. Default `"normal"`.
    *
-   * - `"low"` — only a clear, committed approach counts
-   * - `"normal"` — a good default for a link or a card
-   * - `"high"` — fires early and more often, for something cheap to prepare
+   * - `"low"`: only a clear, committed approach counts
+   * - `"normal"`: a good default for a link or a card
+   * - `"high"`: fires early and more often, for something cheap to prepare
    */
   sensitivity?: PointerIntentSensitivity;
   /**
    * Re-measure the element every frame instead of caching its position. Needed
-   * only when the element itself moves — a carousel, something being animated.
-   * Default false.
+   * only when the element itself moves, like a carousel or something being
+   * animated. Default false.
    */
   dynamic?: boolean;
 }
 
 /**
- * What one sensitivity setting actually resolves to.
- *
- * These five numbers were the public options before 2.0. They are tuning, not
- * a control surface — "how far ahead do I look, in seconds" is not a question
- * a developer can answer without reading the implementation, which is why they
- * collapsed into three named presets.
- *
- * They are still readable, because something has to be able to show them: a
- * devtools panel explaining why a preset fired, or a demo drawing the
- * prediction geometry. The alternative is every such tool keeping its own copy
- * of the table and drifting from the one the runtime uses.
+ * What one sensitivity setting resolves to. These are tuning, which is why the
+ * public API is three named presets. They stay readable so a devtools panel or
+ * a demo can show the real table instead of keeping a copy.
  */
 export interface PointerIntentTuning {
   /** How far ahead the pointer's path is projected, in seconds. */
@@ -62,7 +50,7 @@ export interface PointerIntentTuning {
   readonly minSpeed: number;
   /** Confidence needed to gain intent. */
   readonly enter: number;
-  /** Confidence it must fall below to lose it. Lower than `enter` — hysteresis. */
+  /** Confidence it must fall below to lose it. Lower than `enter`. */
   readonly exit: number;
 }
 
@@ -85,10 +73,9 @@ const DEFAULTS: Required<PointerIntentOptions> = {
 // How fast confidence chases its target each frame (higher = snappier).
 const CONFIDENCE_DAMP = 10;
 
-// Re-measure the element at least this often even when scroll and viewport look
-// unchanged. Bounds how stale the cached rect can get when the element moves for
-// reasons the cache can't infer on its own: sticky headers, carousels, async
-// layout shifts. See measureRect / the invalidation check in frame().
+// Re-measure at least this often even when scroll and viewport look unchanged.
+// This bounds how stale the cached rect gets when the element moves for
+// reasons the cache can't infer: sticky headers, carousels, async layout shifts.
 const RECT_HEARTBEAT_S = 1.0;
 
 export class PointerIntent {
@@ -121,17 +108,16 @@ export class PointerIntent {
     this.tuning = POINTER_INTENT_SENSITIVITY[this.opts.sensitivity];
     this.onChange = onChange;
     this.releaseBus = getSensorBus().retain();
-    // Update lane: runs after the bus's input-lane derivative pass.
-    // Decorative: this produces a confidence signal for prefetching, never
-    // visible motion. Shedding it under load costs a slightly later prefetch,
-    // which is the correct thing to give up when the frame is already full.
+    // Update lane: runs after the bus's input-lane derivative pass. Decorative:
+    // this is a confidence signal for prefetching, and shedding it under load
+    // only costs a slightly later prefetch.
     this.unsubscribe = getConductor().subscribe("update", this.frame, {
       priority: "decorative",
       label: "PointerIntent",
     });
   }
 
-  /** Smoothed 0..1 — how sure we are the pointer is coming (or here). */
+  /** Smoothed 0..1: how sure we are the pointer is coming, or here. */
   get confidence(): number {
     return this.confidenceValue;
   }
@@ -181,10 +167,9 @@ export class PointerIntent {
     let target = 0;
 
     if (pointer.seen) {
-      // The rect is cached; we only pay for a layout read when something
-      // plausibly moved the element (page scroll, viewport resize) or the
-      // heartbeat elapses. This keeps the per-frame hot path allocation- and
-      // layout-free.
+      // The rect is cached and only re-read when something plausibly moved the
+      // element (page scroll, viewport resize) or the heartbeat elapses, which
+      // keeps the per-frame hot path free of allocation and layout reads.
       const scrollChanged = scroll.x !== this.lastScrollX || scroll.y !== this.lastScrollY;
       const viewportChanged = viewport.width !== this.lastWidth || viewport.height !== this.lastHeight;
       const heartbeatDue = time - this.lastRectMeasureTime > RECT_HEARTBEAT_S;
@@ -196,13 +181,11 @@ export class PointerIntent {
         this.measureRect(time);
       }
 
-      // Only the part of the element on screen can be pointed at: a pointer
-      // never leaves the viewport. Up to 4.3.2 the ray met the whole rect, so a
-      // fast pointer, projected up to 0.8s ahead, could "head for" a button
-      // scrolled thousands of pixels out of view. `useMagneticIntent` then
-      // pulled that button, unseen, on every frame (vault RB-5), and
-      // `usePointerIntent` could prefetch for it. A viewport not yet measured
-      // (0) clips nothing.
+      // Only the part of the element on screen can be pointed at, because a
+      // pointer never leaves the viewport. Against the whole rect, a fast
+      // pointer projected up to 0.8s ahead could "head for" a button scrolled
+      // thousands of pixels out of view. A viewport not yet measured (0) clips
+      // nothing.
       const cached = this.cachedRect!;
       const rect = this.visibleRect;
       rect.left = Math.max(cached.left, 0);

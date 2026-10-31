@@ -1,9 +1,8 @@
 /**
  * The documented way to call `useSceneGate`. Must lint clean.
  *
- * Every field is read here on purpose: the failure this pins down poisons the
- * whole returned object, not just `ref`, so a fixture that touched only `ref`
- * would pass for the wrong reason.
+ * Every field is read here, because the failure this pins down poisons the
+ * whole returned object, so touching only `ref` would pass wrongly.
  */
 import { useSceneGate } from "../useSceneGate";
 

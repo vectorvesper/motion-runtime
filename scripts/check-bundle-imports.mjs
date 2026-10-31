@@ -1,31 +1,14 @@
 /**
- * Fail the build if a bundle imports something a CDN-resolving host cannot get.
+ * Fail the build if a bundle imports something a CDN-resolving host can't get.
  *
- * ## The failure this exists to stop
+ * Framer's code components resolve packages from a CDN and supply their own
+ * React, so a `react/jsx-runtime` import stops the `/react` entry loading
+ * there, and every hook lives on `/react`. Any JSX in the source brings that
+ * import back, because `tsconfig.json` sets `jsx: "react-jsx"`.
  *
- * Up to 4.0.0 the `/react` entry imported `react/jsx-runtime`, because
- * `tsconfig.json` sets `jsx: "react-jsx"` and the automatic runtime emits that
- * import. It came from exactly two element constructions in `InteractionScope`.
- *
- * The root entry has no JSX and so imported nothing external. The result was an
- * asymmetry nobody had a reason to look for: in Framer, whose code components
- * resolve packages from a CDN and supply their own React, the ROOT entry loaded
- * and `/react` did not. Since every hook — `useSceneGate`, `useTick`,
- * `useAdaptiveQuality`, `useSafeToMount`, `useSensorBus` — lives only on
- * `/react`, that quietly meant no Framer component could use a runtime hook at
- * all, and the whole component port there was written around private frame
- * loops instead. It went unnoticed for weeks because nothing failed loudly;
- * one entry simply did not load.
- *
- * The fix was to write those two elements with `createElement`. This check is
- * the part that keeps it fixed: the import is one `jsx` config flag away from
- * returning, and nothing else in the pipeline would notice.
- *
- * ## What is allowed
- *
- * Relative chunk imports are fine — the root entry has always had them and
- * loads. Bare specifiers are the risk, because the host has to resolve each one
- * itself, so every entry declares exactly which it may carry.
+ * Relative chunk imports are fine. Bare specifiers are the risk, because the
+ * host has to resolve each one itself, so every entry declares which it may
+ * carry.
  */
 import fs from "node:fs";
 import path from "node:path";

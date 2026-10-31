@@ -1,23 +1,16 @@
 /**
  * Strip private class internals out of the built .d.ts files.
  *
- * TypeScript emits every private member into a declaration file by name —
- * `private frameMsEma;`, `private prevPointerX;`, `private shedLastFrame;` — so
- * the published types documented the internal structure of FrameConductor,
- * SensorBus and AnimationBudget field by field. A consumer needs none of it: the
- * classes are only reachable as the return type of `getConductor()` /
- * `getSensorBus()`, and every member they are allowed to touch is public.
+ * TypeScript emits every private member into a declaration file by name, which
+ * publishes the internal structure of FrameConductor, SensorBus and
+ * AnimationBudget field by field. Each run of private members becomes a single
+ * `#private;` marker, which keeps the class nominally typed. Dropping the
+ * members entirely would let any object of the same shape type-check as a real
+ * conductor.
  *
- * Each run of private members is replaced with a single `#private;` marker,
- * which is TypeScript's own way of saying "this class has private state." That
- * keeps the class nominally typed — dropping the members entirely would make it
- * structurally typed, so any object of the same shape would start type-checking
- * as a real conductor — while publishing nothing about what the state is.
- *
- * Export statements are never touched: `scripts/check-api.mjs` diffs them to
- * guard the frozen public surface, and the CLI's scaffolder parses them to route
- * each engine import to the right entry point. Both would break if this script
- * rewrote an export.
+ * Export statements are never touched: `scripts/check-api.mjs` diffs them, and
+ * the CLI's scaffolder parses them to route each engine import to the right
+ * entry point.
  */
 
 import fs from "fs";

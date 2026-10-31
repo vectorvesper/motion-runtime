@@ -1,32 +1,24 @@
 /**
- * The benchmark scenarios, shared by the CDP harness and the device page.
- *
- * One copy. The desktop harness drives these over the debugging protocol; a
- * phone runs the same code through a page with buttons on it, because you
- * cannot attach a debugger to someone's iPhone and the numbers have to be
- * comparable either way.
+ * The benchmark scenarios, shared by the CDP harness and the device page. The
+ * desktop harness drives these over the debugging protocol, and a phone runs
+ * the same code through a page with buttons on it, so the numbers stay
+ * comparable.
  */
 
 import { getConductor, getAdaptiveQuality } from "/dist/index.js";
 
 let LOAD = 220;
 /**
- * How many times the work actually ran.
- *
- * Reported alongside frame time because the coordinated arm reaches 60fps
- * partly by choosing not to do everything. Publishing the frame win without
- * this number would hide the trade the design is making.
+ * How many times the work ran. Reported alongside frame time because the
+ * coordinated arm reaches 60fps partly by not doing everything.
  */
 let workCount = 0;
 
 /**
- * Which frames one particular decorative element actually ran on.
- *
- * Page frame rate is not what a viewer looks at. They look at a thing moving,
- * and a thing that runs on frames 1,2,7,8,9,14 is visibly worse than one that
- * runs on every third frame — even though both "drop two thirds". Shedding is
- * greedy per frame, so it produces the first pattern unless something makes it
- * produce the second.
+ * Which frames one decorative element ran on. A viewer watches a thing moving,
+ * and one that runs on frames 1,2,7,8,9,14 looks worse than one on every third
+ * frame, even though both drop two thirds. Shedding is greedy per frame, so it
+ * produces the first pattern unless something makes it produce the second.
  */
 let frameNo = 0;
 let tracked = [];
@@ -38,11 +30,8 @@ export function setStage(el) {
 }
 
 /**
- * The work being measured, identical in every arm.
- *
- * Touches only compositor-friendly properties. If two arms did different work
- * the comparison would measure the work rather than the coordination, which is
- * the only thing under test.
+ * The work being measured, identical in every arm. Touches only
+ * compositor-friendly properties.
  */
 function work(el, i, t) {
   workCount++;
@@ -67,12 +56,9 @@ function buildDots(count) {
 }
 
 /**
- * Frame intervals, collected by a private rAF loop.
- *
- * A private loop is exactly what the runtime tells components not to do, and
- * exactly what an instrument must do — it has to sit outside the system it
- * measures. A subscriber could be shed, which would mean the ruler shrinking
- * whenever the thing being measured got heavy.
+ * Frame intervals, collected by a private rAF loop. An instrument has to sit
+ * outside the system it measures: a subscriber could be shed when the page got
+ * heavy.
  */
 function recorder() {
   const intervals = [];
@@ -106,11 +92,10 @@ function armPrivateLoops(dots) {
 }
 
 /**
- * All of it on the shared loop, with honest priorities.
+ * All of it on the shared loop, with fair priorities.
  *
- * `hz` throttles the scenery to a fixed cadence instead of leaving it to be
- * shed. Both end up doing less work; only one of them does it on a predictable
- * beat, and predictability is what the eye is actually judging.
+ * `hz` throttles the scenery to a fixed cadence. Shedding does less work too,
+ * but only `hz` does it on a predictable beat, which is what the eye judges.
  */
 function armShared(dots, { shedding, decorativeHz = 0 }) {
   getConductor().configure({ shedding });
@@ -129,10 +114,8 @@ function armShared(dots, { shedding, decorativeHz = 0 }) {
 
 export const SCENARIOS = {
   /**
-   * The same animations, coordinated versus not.
-   *
-   * The claim is that one scheduler that knows what everything costs can hold a
-   * frame rate that N independent loops cannot.
+   * The same animations, coordinated or not: can one scheduler that knows what
+   * everything costs hold a frame rate N independent loops can't?
    */
   "many-animations": {
     count: 48,
@@ -143,11 +126,9 @@ export const SCENARIOS = {
   },
 
   /**
-   * Can one important animation keep running while the page is overloaded?
-   *
-   * Both arms use the shared loop; only shedding changes. That isolates the
-   * scheduling decision from the loop itself — a shared rAF loop is not novel,
-   * and GSAP and Motion both have one.
+   * Can one important animation keep running while the page is overloaded? Both
+   * arms use the shared loop and only shedding changes, which isolates the
+   * scheduling decision from the loop itself.
    */
   "protect-the-lead": {
     count: 90,
@@ -201,13 +182,9 @@ export async function run(name, armName, ms = 5000, load = 220) {
 
 /**
  * A long run at heavy load, sampling frame rate and the quality tier every
- * second.
- *
- * This is the only scenario a desktop cannot fake. A mobile GPU is fine for
- * twenty or thirty seconds and then is not, and `useAdaptiveQuality`'s device
- * floor is a bet on exactly that. Three minutes is long enough to see whether
- * the bet pays: if the frame rate sags and the tier does not move, the floor is
- * not doing its job.
+ * second. A mobile GPU is fine for twenty or thirty seconds and then isn't, and
+ * `useAdaptiveQuality`'s device floor is a bet on that. If the frame rate sags
+ * over three minutes and the tier doesn't move, the floor isn't doing its job.
  */
 export async function thermal({ ms = 180000, load = 4000, count = 90 } = {}) {
   if (document.hidden) return { error: "document.hidden — rAF is paused" };
@@ -254,7 +231,7 @@ export function deviceInfo() {
     const ext = gl?.getExtension("WEBGL_debug_renderer_info");
     if (gl) renderer = String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
   } catch {
-    /* no webgl2 — the tier already reflects that */
+    /* no webgl2: the tier already reflects that */
   }
   return {
     ua: navigator.userAgent,

@@ -3,34 +3,32 @@ import { getSensorBus } from "../sensor-bus/SensorBus";
 import { damp, clamp01 } from "../math";
 
 /**
- * VideoScrubber — maps scroll, pointer, or manual progress onto a video's
- * timeline. Framework-agnostic core; React (and future) adapters are thin
- * lifecycle bridges.
+ * VideoScrubber: maps scroll, pointer or manual progress onto a video's
+ * timeline. Framework-agnostic core: adapters are thin lifecycle bridges.
  *
- * What it handles that naive `currentTime = x` does not:
- * - Seek discipline: never issues a new seek while the previous one is
- *   in-flight (Safari queues them and stutters); sub-frame deltas are
- *   skipped; large jumps use `fastSeek` where available (keyframe-fast).
- * - iOS buffering: videos are primed with a muted play()/pause() round trip
- *   so Safari actually loads data before the first scrub.
- * - Attribute etiquette: `muted`/`playsInline`/`preload` are set for
- *   scrubbing but recorded first and restored exactly on destroy().
- * - Smoothing: frame-rate-independent damping on the shared conductor —
- *   no private rAF. Under prefers-reduced-motion the scrub still works
- *   (it is direct manipulation, not autonomous motion) but tracks
- *   instantly, with no trailing lag.
+ * What it handles beyond `currentTime = x`:
+ * - Seek discipline: never seeks while the previous seek is in flight (Safari
+ *   queues them and stutters), skips sub-frame deltas, and uses `fastSeek` for
+ *   large jumps where available.
+ * - iOS buffering: videos are primed with a muted play()/pause() round trip so
+ *   Safari loads data before the first scrub.
+ * - Attributes: `muted`, `playsInline` and `preload` are set for scrubbing,
+ *   recorded first and restored on destroy().
+ * - Smoothing: frame-rate-independent damping on the shared conductor. Under
+ *   prefers-reduced-motion the scrub still works, because it is direct
+ *   manipulation, but tracks instantly.
  */
 
 export type ScrubDriver = "scroll" | "pointer" | "manual";
 
 /**
  * How scroll position maps to progress when `driver: "scroll"`:
- * - "pin":   for tall tracks with sticky content — 0 when the track top
- *            docks at the viewport top, 1 when its bottom reaches the
- *            viewport bottom (the Apple scrollytelling pattern).
- * - "cross": 0 as the track top enters at the viewport bottom, 1 as its
- *            bottom exits at the top.
- * - "auto":  "pin" when the track is taller than ~1.2 viewports, else "cross".
+ * - "pin": for tall tracks with sticky content. 0 when the track top docks at
+ *   the viewport top, 1 when its bottom reaches the viewport bottom.
+ * - "cross": 0 as the track top enters at the viewport bottom, 1 as its bottom
+ *   exits at the top.
+ * - "auto": "pin" when the track is taller than about 1.2 viewports, else
+ *   "cross".
  */
 export type ScrubMapping = "auto" | "pin" | "cross";
 
@@ -39,14 +37,11 @@ export interface VideoScrubberOptions {
   driver?: ScrubDriver;
   /** Element whose geometry defines progress. Default: the video's parent. */
   track?: HTMLElement;
-  /** Scroll→progress mapping (scroll driver only). */
+  /** Scroll-to-progress mapping (scroll driver only). */
   mapping?: ScrubMapping;
   /**
    * How quickly the video catches up to the scrub position. Higher arrives
-   * sooner; `0` is instant with no trailing at all. Default 8.
-   *
-   * The old name for this was `smooth`, which read backwards — a lower number
-   * produced *more* smoothing.
+   * sooner, and `0` is instant with no trailing at all. Default 8.
    */
   speed?: number;
   /** Pointer driver: which axis of the track maps to progress. */
@@ -74,7 +69,7 @@ function supportsFastSeek(
 }
 
 /**
- * Pure scroll→progress mapping (exported for tests).
+ * Pure scroll-to-progress mapping, exported for tests.
  * `top` is the track's viewport-relative top (getBoundingClientRect().top).
  */
 export function scrollProgress(
@@ -99,10 +94,8 @@ export class VideoScrubber {
   private speed: number;
   /**
    * Sampled once, at construction, and honoured by every later write to
-   * `speed`. Without it the reduced-motion clamp applied only in the
-   * constructor and any subsequent `update({ speed })` silently restored the
-   * trailing lag — which is exactly what a React wrapper does when a `speed`
-   * prop changes.
+   * `speed`, so a React wrapper changing its `speed` prop can't restore the
+   * trailing lag.
    */
   private readonly prefersReduced: boolean;
   private pointerAxis: "x" | "y";
@@ -198,8 +191,8 @@ export class VideoScrubber {
 
     this.prime();
     if (this.driver === "pointer") this.attachPointer();
-    // Essential: this is direct manipulation. A scrub that stutters under
-    // load reads as a broken scrub, not as a tastefully degraded one.
+    // Essential: this is direct manipulation, and a scrub that stutters under
+    // load reads as broken.
     this.unsubscribe = getConductor().subscribe("update", this.frame, {
       priority: "essential",
       label: "VideoScrubber",
@@ -244,9 +237,9 @@ export class VideoScrubber {
   }
 
   /**
-   * Reduced motion wins over any requested smoothing. Scrubbing itself is
-   * direct manipulation, so it stays enabled — but the trailing lag is
-   * autonomous motion, and that is the part to drop.
+   * Reduced motion wins over any requested smoothing. Scrubbing is direct
+   * manipulation, so it stays enabled, but the trailing lag is autonomous
+   * motion and gets dropped.
    */
   private resolveSpeed(requested: number): number {
     return this.prefersReduced ? 0 : requested;

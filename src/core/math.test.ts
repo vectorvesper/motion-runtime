@@ -28,7 +28,7 @@ describe("rayRectIntersect", () => {
   const rect = { left: 100, top: 0, right: 200, bottom: 100 };
 
   it("hits a rect straight ahead with the correct time-to-impact", () => {
-    // 100px away at 100px/s → 1 second
+    // 100px away at 100px/s: 1 second
     expect(rayRectIntersect(0, 50, 100, 0, rect)).toBeCloseTo(1);
   });
 

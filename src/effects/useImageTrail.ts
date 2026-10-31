@@ -4,22 +4,17 @@ import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { createHybridRef } from "../react/hybrid-ref";
 
 /**
- * useImageTrail — images spawn along the pointer's path and fade away:
- * the classic award-site gallery flourish. What the free tutorials leak,
- * this pools: a fixed set of <img> nodes created once and recycled, each
- * flight animated with the Web Animations API — no rAF loop, no GC churn,
- * nothing allocated per move.
+ * useImageTrail: images spawn along the pointer's path and fade away. A fixed
+ * set of <img> nodes is created once and recycled, and each flight runs on the
+ * Web Animations API, so nothing is allocated per move.
  *
  *   const { ref } = useImageTrail({ images: ["/a.jpg", "/b.jpg", …] });
  *   <section ref={ref} className="relative h-[70vh]">…</section>
  *
- * Fails open (does nothing) on touch devices and under reduced motion.
+ * Does nothing on touch devices and under reduced motion.
  *
- * A *creative* hook, not a foundation one: it is deliberately self-contained
- * and does NOT join the shared conductor or SensorBus. Each flight is handed to
- * the Web Animations API, which runs on the compositor — cheaper than a
- * per-frame conductor subscription would be for this effect. It needs nothing
- * else in the package to work.
+ * It doesn't join the shared conductor or SensorBus: the Web Animations API
+ * runs on the compositor, which is cheaper here than a per-frame subscription.
  */
 
 export interface UseImageTrailOptions {
@@ -38,10 +33,9 @@ export interface UseImageTrailOptions {
 export function useImageTrail<T extends HTMLElement = HTMLDivElement>(
   options: UseImageTrailOptions,
 ): { ref: RefObject<T | null> } {
-  // A hybrid ref, so the trail starts when its element arrives rather than only
-  // on the first commit. A section behind a hydration guard, a loading branch
-  // or `next/dynamic` has no element there yet; up to 4.1.0 the effect bailed,
-  // nothing re-ran it, and no image ever followed the pointer. See hybrid-ref.ts.
+  // A hybrid ref, so the trail starts when its element arrives. A section behind
+  // a hydration guard, a loading branch or `next/dynamic` has no element on the
+  // first commit. See hybrid-ref.ts.
   const elementRef = useRef<T | null>(null);
   const [element, setElement] = useState<T | null>(null);
   // The factory only wires deferred getters/setters onto a function; it never

@@ -2,11 +2,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 /**
- * SensorBus — the one set of input listeners for the page.
- *
- * jsdom for window + events. rAF is stubbed and hand-cranked, and the module
- * is re-imported per test so the conductor and the bus are both fresh, the
- * same pattern the core conductor tests use.
+ * SensorBus. jsdom for window and events. rAF is stubbed and hand-cranked, and
+ * the module is re-imported per test so the conductor and the bus are both
+ * fresh.
  */
 
 let rafCallback: FrameRequestCallback | null = null;
