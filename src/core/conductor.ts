@@ -254,6 +254,10 @@ class FrameConductor {
   private liveCount = 0;
   private compactNeeded = false;
   private ticking = false;
+  /** The lane being run right now, or null between frames. */
+  private runningLane: ConductorLane | null = null;
+  /** Subscribed to the running lane mid-frame. They join when the frame ends. */
+  private pending: Subscriber[] = [];
 
   private rafId: number | null = null;
   private last = 0;
@@ -302,6 +306,19 @@ class FrameConductor {
    */
   get workMs(): number {
     return this.workMsEma;
+  }
+
+  /** Smoothed rAF-to-rAF interval, in ms. The same figure as `state.frameMs`. */
+  get frameMs(): number {
+    return this.frameMsEma;
+  }
+
+  /**
+   * How much of the frame was gone before the runtime got it, in ms, smoothed.
+   * The same figure as `state.preRuntimeMs`, without building `state`.
+   */
+  get preRuntimeMs(): number {
+    return this.preRuntimeEma;
   }
 
   /** The scope currently holding the foreground claim, or null. */
@@ -377,18 +394,10 @@ class FrameConductor {
       warnedError: false,
     };
 
-    // Keep each lane ordered by priority so that when the budget runs out we
-    // have already done the work that matters. Insertion order is preserved
-    // within a priority band.
-    const list = this.lanes[lane];
-    let at = list.length;
-    for (let i = 0; i < list.length; i++) {
-      if (list[i].rank > sub.rank) {
-        at = i;
-        break;
-      }
-    }
-    list.splice(at, 0, sub);
+    // An insert into the lane being run would shift the subscribers still to
+    // come: one would run twice and the last would miss the frame.
+    if (lane === this.runningLane) this.pending.push(sub);
+    else this.insert(sub);
 
     this.liveCount++;
     this.start();
@@ -444,6 +453,23 @@ class FrameConductor {
     };
   }
 
+  /**
+   * Keep each lane ordered by priority so that when the budget runs out we
+   * have already done the work that matters. Insertion order is preserved
+   * within a priority band.
+   */
+  private insert(sub: Subscriber): void {
+    const list = this.lanes[sub.lane];
+    let at = list.length;
+    for (let i = 0; i < list.length; i++) {
+      if (list[i].rank > sub.rank) {
+        at = i;
+        break;
+      }
+    }
+    list.splice(at, 0, sub);
+  }
+
   private compact(): void {
     if (!this.compactNeeded) return;
     this.compactNeeded = false;
@@ -484,8 +510,13 @@ class FrameConductor {
 
   private report(error: unknown, sub: Subscriber): void {
     if (this.onError) {
-      this.onError(error, sub.label, sub.lane);
-      return;
+      try {
+        this.onError(error, sub.label, sub.lane);
+        return;
+      } catch {
+        // A handler that throws would end the frame for everyone after it. Fall
+        // through and log the subscriber's own error instead.
+      }
     }
     // Log the first failure per subscriber. One throwing every frame would
     // otherwise bury the actual bug in the console.
@@ -540,8 +571,10 @@ class FrameConductor {
     let shed = 0;
 
     for (const lane of LANE_ORDER) {
+      this.runningLane = lane;
       const list = this.lanes[lane];
-      // Snapshot the length: anything subscribed mid-frame starts next frame.
+      // Snapshot the length: anything subscribed to this lane mid-frame waits
+      // in `pending` and starts next frame.
       const n = list.length;
       for (let i = 0; i < n; i++) {
         const sub = list[i];
@@ -611,8 +644,14 @@ class FrameConductor {
     this.worstWorkMs = Math.max(workMs, this.worstWorkMs * WORST_DECAY);
     this.shedLastFrame = shed;
 
+    this.runningLane = null;
     this.ticking = false;
     this.compact();
+    if (this.pending.length > 0) {
+      // Unsubscribed again before the frame ended: nothing to add.
+      for (const sub of this.pending) if (sub.alive) this.insert(sub);
+      this.pending.length = 0;
+    }
   };
 }
 

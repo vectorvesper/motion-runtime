@@ -375,8 +375,9 @@ class FramePressure {
   }
 
   private frame = (): void => {
+    // The conductor's getters, not `state`: that builds and sorts the whole
+    // subscriber table, and this runs every frame.
     const conductor = getConductor();
-    const stats = conductor.state;
 
     const longTasks = this.longTasksSinceFrame;
     this.longTasksSinceFrame = 0;
@@ -385,17 +386,17 @@ class FramePressure {
     this.pendingTail = null;
 
     const emitted = this.policy.push({
-      frameMs: stats.frameMs,
-      runtimeMs: stats.workMs,
+      frameMs: conductor.frameMs,
+      runtimeMs: conductor.workMs,
       probeDelayMs: tail,
-      preRuntimeMs: stats.preRuntimeMs,
-      budgetMs: stats.frameBudgetMs,
+      preRuntimeMs: conductor.preRuntimeMs,
+      budgetMs: conductor.frameBudgetMs,
       longTasks,
     });
 
     // Sample about ten times a second. The verdict changes slowly, and a probe
     // at frame rate measures a cost it helps create.
-    const every = Math.max(1, Math.round(stats.displayHz / 10));
+    const every = Math.max(1, Math.round(conductor.displayHz / 10));
     this.framesSinceProbe++;
     if (!this.probeInFlight && this.framesSinceProbe >= every && this.channel) {
       this.framesSinceProbe = 0;

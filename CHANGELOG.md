@@ -1,5 +1,52 @@
 # Changelog
 
+## 4.4.0
+
+### Options that can't be used no longer reach the page
+
+`useImageTrail` ignores a `size`, `spacing` or `duration` that isn't a finite
+number of zero or more and uses its default, so a string can no longer be
+written into the images' style. `maxActive` is kept between 1 and 100: a pool
+of 0 threw on every pointer move.
+
+`useNumberTicker` falls back to the browser's number format when `locale` or
+`format` is one `Intl.NumberFormat` rejects, and warns once, instead of
+throwing during render.
+
+### Subscribing during a frame no longer disturbs it
+
+A subscriber that subscribed another to its own lane while the frame was
+running shifted the ones still to come. With a higher priority newcomer, the
+subscriber that was running ran a second time in the same frame. Either way
+the last subscriber in the lane missed that frame, with no dt carried over.
+The newcomer now waits for the frame to end and starts on the next one. A lane
+that hasn't started yet still takes it straight away, as before.
+
+An `onError` handler that throws no longer ends the frame for the subscribers
+after it. The subscriber's own error is logged instead.
+
+### A scroll scrub follows a page that moves
+
+`VideoScrubber` with the scroll driver measured its track's place in the page
+once, and again only when the window resized. An image loading or a section
+opening above the track moved it without a resize, and the scrub stayed off by
+that distance. The track is now measured again once a second.
+
+### Less work per frame
+
+Frame pressure read the conductor's `state` on every frame, which builds and
+sorts the whole subscriber table. It now reads two new getters on the
+conductor, `frameMs` and `preRuntimeMs`. With 60 subscribers and one scene
+gate, the runtime's own bookkeeping went from about 13 to 4 microseconds a
+frame in Node.
+
+### Publishing
+
+`prepublishOnly` now checks the build for editor instrumentation, the same
+check CI runs, because the published tarball is built locally. Dev
+dependencies were updated to clear seven advisories; none of them shipped in
+the package.
+
 ## 4.3.3
 
 ### A scene the browser refuses shows its still

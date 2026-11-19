@@ -26,8 +26,15 @@ export interface UseImageTrailOptions {
   spacing?: number;
   /** How long each image stays on screen, in ms. Default 900. */
   duration?: number;
-  /** Pool size = max simultaneously visible images. Default 10. */
+  /** Pool size = max simultaneously visible images. Default 10, from 1 to 100. */
   maxActive?: number;
+}
+
+const MAX_POOL = 100;
+
+/** A finite number of zero or more, or the default. */
+function usable(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 
 export function useImageTrail<T extends HTMLElement = HTMLDivElement>(
@@ -54,10 +61,12 @@ export function useImageTrail<T extends HTMLElement = HTMLDivElement>(
     if (!window.matchMedia("(any-pointer: fine)").matches) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
-    const size = initial.size ?? 160;
-    const spacing = initial.spacing ?? 90;
-    const duration = initial.duration ?? 900;
-    const poolSize = initial.maxActive ?? 10;
+    // Size goes into a style string, and a pool of zero has nothing to spawn,
+    // so only usable numbers get this far.
+    const size = usable(initial.size, 160);
+    const spacing = usable(initial.spacing, 90);
+    const duration = usable(initial.duration, 900);
+    const poolSize = Math.min(Math.max(Math.floor(usable(initial.maxActive, 10)), 1), MAX_POOL);
 
     // The container must position its children.
     const prevPosition = container.style.position;

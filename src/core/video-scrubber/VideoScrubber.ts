@@ -61,6 +61,10 @@ const SEEK_EPSILON = 1 / 60;      // sub-frame target deltas are noise
 const FAST_SEEK_THRESHOLD = 0.35; // seconds; beyond this, keyframe-fast seek
 const PROGRESS_EPSILON = 1e-4;
 const CULL_MARGIN_VH = 1;         // viewports beyond which seeking pauses
+// Re-measure the track at least this often. Content above it changes height
+// without a resize: an image loads, a font swaps in, a section opens. Mirrors
+// PointerIntent's heartbeat.
+const TRACK_HEARTBEAT_S = 1.0;
 
 function supportsFastSeek(
   v: HTMLVideoElement,
@@ -118,6 +122,7 @@ export class VideoScrubber {
   private trackHeight = 0;
   private lastViewportWidth = 0;
   private lastViewportHeight = 0;
+  private lastMeasureTime = 0;
 
   private seekEpsilon = SEEK_EPSILON;
   private seekStartTime = 0;
@@ -264,15 +269,20 @@ export class VideoScrubber {
     this.trackHeight = this.track.offsetHeight;
   }
 
-  private frame = (dt: number): void => {
+  private frame = (dt: number, time: number): void => {
     let cullSeek = false;
     const { scroll, viewport } = getSensorBus().state;
 
-    // Recalculate track geometry only if viewport size changed (resize)
-    if (viewport.width !== this.lastViewportWidth || viewport.height !== this.lastViewportHeight) {
+    // Track geometry is read on a resize and on the heartbeat, never per frame.
+    // Only the scroll driver uses the track's place in the page.
+    const resized =
+      viewport.width !== this.lastViewportWidth || viewport.height !== this.lastViewportHeight;
+    const stale = this.driver === "scroll" && time - this.lastMeasureTime > TRACK_HEARTBEAT_S;
+    if (resized || stale) {
       this.measureTrack();
       this.lastViewportWidth = viewport.width;
       this.lastViewportHeight = viewport.height;
+      this.lastMeasureTime = time;
     }
 
     if (this.driver === "scroll") {

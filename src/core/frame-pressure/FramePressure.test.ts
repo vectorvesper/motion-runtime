@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { PressurePolicy, type PressureSample } from "./FramePressure";
 
 /**
@@ -252,5 +252,39 @@ describe("PressurePolicy — housekeeping", () => {
     expect(p.state.source).toBe("none");
     expect(p.state.mainOtherMs).toBeNull();
     expect(p.state.frameMs).toBe(0);
+  });
+});
+
+describe("FramePressure on the conductor", () => {
+  it("reads the conductor every frame without building its subscriber table", async () => {
+    let raf: FrameRequestCallback | null = null;
+    let clock = 0;
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+      raf = cb;
+      return 1;
+    });
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    vi.stubGlobal("performance", { now: () => clock });
+    vi.resetModules();
+    const { getConductor } = await import("../conductor");
+    const { getFramePressure } = await import("./FramePressure");
+
+    const conductor = getConductor();
+    const table = vi.spyOn(conductor, "state", "get");
+    const seen: number[] = [];
+    const off = getFramePressure().subscribe((state) => seen.push(state.frameMs));
+
+    for (let i = 0; i < 60; i++) {
+      clock += 40;
+      const cb = raf as FrameRequestCallback | null;
+      raf = null;
+      cb?.(clock);
+    }
+    off();
+
+    expect(table).not.toHaveBeenCalled();
+    // Still measuring: the verdicts carry the real frame interval.
+    expect(seen[seen.length - 1]).toBeCloseTo(40, 0);
+    vi.unstubAllGlobals();
   });
 });

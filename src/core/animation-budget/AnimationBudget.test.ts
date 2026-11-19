@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { BudgetPolicy, type BudgetState } from "./AnimationBudget";
+import { CapPolicy } from "../presentation-cap";
+import { BudgetPolicy, type BudgetState, type BudgetTier } from "./AnimationBudget";
 
 /** Feed `frames` intervals of `dtMs` starting at time `t`; collect emits. */
 function feed(
@@ -114,6 +115,18 @@ describe("BudgetPolicy", () => {
     // After reset, headroom EMA is restored to the initial full-budget value
     expect(p.state.headroom).toBeCloseTo(1000 / 60, 0); // ~16.6ms
   });
+
+  it("holds the tier through a single long frame", () => {
+    const p = new BudgetPolicy();
+    let t = feed(p, FAST, 60, 0).t;
+    t = feed(p, PANIC, 80, t).t;
+    expect(p.currentTier).toBe(2);
+
+    // A stall, a sleep or a resume says nothing about sustained load.
+    t += 0.3;
+    expect(p.push(0.3, t)?.tier).toBe(2);
+    expect(p.state.slowRatio).toBe(0);
+  });
 });
 
 describe("BudgetPolicy — the 60fps quality floor", () => {
@@ -185,5 +198,112 @@ describe("BudgetPolicy — a new budget (RB-1)", () => {
     expect(p.currentTier).toBe(0);
     // Headroom is what is left of the capped frame, so a mount gate can open.
     expect(p.state.headroom).toBeGreaterThan(6);
+  });
+});
+
+describe("BudgetPolicy — a new budget re-judges the steps down", () => {
+  // A GPU-bound scene on a 60Hz panel lands on whole vsyncs. Full quality
+  // takes three, and even the cheapest version misses every other one, so its
+  // steady 30fps looks like a battery-saver cap.
+  const VSYNC = 1000 / 60;
+
+  it("keeps a step down the new line would still take", () => {
+    const p = new BudgetPolicy();
+    let t = feed(p, 3 * VSYNC, 60, 0).t;
+    expect(p.currentTier).toBe(2);
+    t = feed(p, 2 * VSYNC, 90, t).t;
+
+    // Full quality is slow against 30fps too. Dropping to tier 0 here would
+    // only bring back the load that caused the step.
+    expect(p.setFrameBudget(1 / 30)).toBe(true);
+    expect(p.currentTier).toBe(2);
+    expect(p.state.slowRatio).toBe(0);
+
+    // The climb back is the normal one, timed from the step at 2s.
+    t = feed(p, 2 * VSYNC, 90, t).t; // to 9s
+    expect(p.currentTier).toBe(2);
+    feed(p, 2 * VSYNC, 45, t); // to 10.5s
+    expect(p.currentTier).toBe(1);
+  });
+
+  it("undoes only the steps the new line would not take, newest first", () => {
+    const p = new BudgetPolicy();
+    let t = feed(p, 3 * VSYNC, 40, 0).t; // full quality at 20fps: straight to 2
+    t = feed(p, FAST, 500, t).t; // tier 2 holds 60fps, so back up to 1
+    expect(p.currentTier).toBe(1);
+    feed(p, 2 * VSYNC, 60, t); // tier 1 runs at 30fps, so down again
+    expect(p.currentTier).toBe(2);
+
+    // Against 30fps, tier 1 was on time but full quality was still slow.
+    p.setFrameBudget(1 / 30);
+    expect(p.currentTier).toBe(1);
+  });
+
+  it("keeps the tier when the cap lifts", () => {
+    const p = new BudgetPolicy();
+    p.setFrameBudget(1 / 30);
+    feed(p, 3 * VSYNC, 120, 0); // slow against the capped line
+    expect(p.currentTier).toBe(2);
+
+    // A stricter line agrees with every step already taken.
+    expect(p.setFrameBudget(1 / 60)).toBe(true);
+    expect(p.currentTier).toBe(2);
+  });
+
+  /**
+   * Wired as AnimationBudget wires it: the cap is judged first, every fifth
+   * frame as the watcher does, a believed cap becomes the budget, then the
+   * frame is scored. `load` is the page's frame time at the tier it was told.
+   */
+  function governed(
+    load: (tier: BudgetTier, frame: number) => number,
+    ourScenesDrawing: boolean,
+    seconds: number,
+  ): { capAt: number | null; steps: Array<{ t: number; tier: BudgetTier }> } {
+    const policy = new BudgetPolicy();
+    const cap = new CapPolicy();
+    const steps: Array<{ t: number; tier: BudgetTier }> = [];
+    let budgetS = 1 / 60;
+    let capAt: number | null = null;
+    let t = 0;
+    for (let frame = 1; t < seconds; frame++) {
+      const tier = policy.currentTier;
+      const ms = load(tier, frame);
+      t += ms / 1000;
+      cap.push(ms);
+      if (frame % 5 === 0) {
+        const change = cap.evaluate(t, {
+          pressure: { source: "render", confidence: 0.9 },
+          ourScenesDrawing,
+          lowestTier: tier === 2,
+        });
+        if (change !== undefined) {
+          budgetS = change === null ? 1 / 60 : 1 / change;
+          if (change !== null && capAt === null) capAt = t;
+        }
+      }
+      policy.setFrameBudget(budgetS);
+      policy.push(ms / 1000, t);
+      if (policy.currentTier !== tier) steps.push({ t, tier: policy.currentTier });
+    }
+    return { capAt, steps };
+  }
+
+  it("does not bring the full load back to a GPU-bound page", () => {
+    const gpuBound = (tier: BudgetTier, frame: number) =>
+      (tier === 0 ? 3 : tier === 1 ? 2 + (frame % 2) : 2) * VSYNC;
+    const { capAt, steps } = governed(gpuBound, true, 60);
+
+    expect(capAt).not.toBeNull();
+    expect(steps[0].tier).toBeGreaterThan(0);
+    expect(steps.filter((s) => s.tier === 0)).toEqual([]);
+  });
+
+  it("returns a battery-saver page to full quality once the cap is believed", () => {
+    const { capAt, steps } = governed(() => 1000 / 30, false, 20);
+
+    // Every step was the old line's doing, and none comes back under the cap.
+    expect(capAt).not.toBeNull();
+    expect(steps[steps.length - 1]).toEqual({ t: capAt, tier: 0 });
   });
 });

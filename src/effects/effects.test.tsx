@@ -349,6 +349,67 @@ describe("useImageTrail", () => {
     view.unmount();
     expect(getConductor().state.subscribers).toHaveLength(0);
   });
+
+  it("keeps bad options out of the DOM and still spawns", async () => {
+    vi.resetModules();
+    const { useImageTrail } = await import("./useImageTrail");
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query.includes("pointer: fine"),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    const animate = vi.fn();
+    Object.assign(HTMLElement.prototype, { animate, getAnimations: () => [] });
+
+    function Trail() {
+      const { ref } = useImageTrail<HTMLDivElement>({
+        images: ["/a.png"],
+        size: "1px;background:url(https://example.com/x)" as unknown as number,
+        maxActive: 0,
+        spacing: 10,
+      });
+      return <div ref={ref} />;
+    }
+
+    const view = render(<Trail />);
+    const box = view.container.querySelector("div")!;
+    const imgs = box.querySelectorAll("img");
+    expect(imgs).toHaveLength(1);
+    expect(imgs[0].style.cssText).not.toContain("background");
+    expect(imgs[0].style.width).toBe("160px");
+
+    const move = (x: number) => box.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: x, clientY: 0 }));
+    move(0);
+    expect(() => move(50)).not.toThrow();
+    expect(animate).toHaveBeenCalledTimes(1);
+
+    view.unmount();
+    delete (HTMLElement.prototype as Partial<HTMLElement>).animate;
+    delete (HTMLElement.prototype as Partial<HTMLElement>).getAnimations;
+  });
+});
+
+describe("useNumberTicker with a bad locale", () => {
+  it("falls back to the browser's format and warns once", async () => {
+    vi.resetModules();
+    const { useNumberTicker } = await import("./useNumberTicker");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    function Score({ n }: { n: number }) {
+      const { ref } = useNumberTicker<HTMLSpanElement>(42, { locale: "not a locale!!", suffix: ` ${n}` });
+      return <span ref={ref} />;
+    }
+
+    const view = render(<Score n={1} />);
+    view.rerender(<Score n={2} />);
+    await act(async () => {
+      crankFrames(150);
+    });
+
+    expect(view.container.querySelector("span")!.textContent).toBe("42 2");
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("useVideoScrubber", () => {

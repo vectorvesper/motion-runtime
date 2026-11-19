@@ -77,7 +77,7 @@ export function useNumberTicker<T extends HTMLElement = HTMLSpanElement>(
     speedRef.current = options.speed ?? 6;
     prefixRef.current = options.prefix ?? "";
     suffixRef.current = options.suffix ?? "";
-    formatterRef.current = new Intl.NumberFormat(options.locale, options.format);
+    formatterRef.current = formatterFor(options.locale, options.format);
 
     // A landed counter is no longer ticking, so nothing else would show a new
     // prefix, suffix or format until the value changed. Write it once here,
@@ -146,6 +146,24 @@ export function useNumberTicker<T extends HTMLElement = HTMLSpanElement>(
 
   return { ref };
 }
+
+/**
+ * Intl throws on a locale or format it can't use, and a counter isn't worth
+ * taking the page down for, so it falls back to the browser's own.
+ */
+function formatterFor(locale: string | undefined, format: Intl.NumberFormatOptions | undefined): Intl.NumberFormat {
+  try {
+    return new Intl.NumberFormat(locale, format);
+  } catch (error) {
+    // The formatter is rebuilt on every render, so say it once.
+    if (!warnedFormat) {
+      warnedFormat = true;
+      console.warn(`useNumberTicker: ${String(error)}. Using the browser's number format.`);
+    }
+    return new Intl.NumberFormat();
+  }
+}
+let warnedFormat = false;
 
 /** One value as the caller wants it shown, rounded to two places so fractional counts read cleanly. */
 function textFor(v: number, formatter: Intl.NumberFormat | null, prefix: string, suffix: string): string {

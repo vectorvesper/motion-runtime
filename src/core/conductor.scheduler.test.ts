@@ -84,6 +84,82 @@ describe("priority ordering", () => {
   });
 });
 
+describe("subscribing while a frame is running", () => {
+  it("runs nothing twice and skips nothing when a higher priority joins the lane", async () => {
+    const conductor = await freshConductor();
+    const order: string[] = [];
+    let joined = false;
+    conductor.subscribe("update", () => order.push("first"), { priority: "essential" });
+    conductor.subscribe("update", () => {
+      order.push("spawner");
+      if (joined) return;
+      joined = true;
+      // Sorts ahead of the subscriber that is running right now.
+      conductor.subscribe("update", () => order.push("joined"), { priority: "essential" });
+    });
+    conductor.subscribe("update", () => order.push("after"));
+    conductor.subscribe("update", () => order.push("last"), { priority: "decorative" });
+
+    crank();
+    expect(order).toEqual(["first", "spawner", "after", "last"]);
+
+    order.length = 0;
+    crank();
+    expect(order).toEqual(["first", "joined", "spawner", "after", "last"]);
+  });
+
+  it("starts a same-priority newcomer on the next frame, and the tail still runs", async () => {
+    const conductor = await freshConductor();
+    const order: string[] = [];
+    let joined = false;
+    conductor.subscribe("update", () => {
+      order.push("spawner");
+      if (joined) return;
+      joined = true;
+      conductor.subscribe("update", () => order.push("joined"));
+    });
+    conductor.subscribe("update", () => order.push("last"), { priority: "decorative" });
+
+    crank();
+    expect(order).toEqual(["spawner", "last"]);
+
+    order.length = 0;
+    crank();
+    expect(order).toEqual(["spawner", "joined", "last"]);
+  });
+
+  it("still runs a newcomer this frame when its lane has not started yet", async () => {
+    const conductor = await freshConductor();
+    const order: string[] = [];
+    let joined = false;
+    conductor.subscribe("input", () => {
+      order.push("input");
+      if (joined) return;
+      joined = true;
+      conductor.subscribe("render", () => order.push("render"));
+    });
+    crank();
+    expect(order).toEqual(["input", "render"]);
+  });
+
+  it("drops a newcomer that unsubscribes before the frame ends", async () => {
+    const conductor = await freshConductor();
+    let ran = 0;
+    let done = false;
+    conductor.subscribe("update", () => {
+      if (done) return;
+      done = true;
+      const off = conductor.subscribe("update", () => { ran++; });
+      off();
+    });
+    crank();
+    crank();
+    expect(ran).toBe(0);
+    expect(conductor.state.subscriberCount).toBe(1);
+    expect(conductor.state.subscribers).toHaveLength(1);
+  });
+});
+
 describe("budget shedding", () => {
   it("sheds decorative work once the frame is mostly spent", async () => {
     const conductor = await freshConductor();
@@ -277,6 +353,20 @@ describe("diagnostics", () => {
     expect(onError.mock.calls[0][2]).toBe("update");
   });
 
+  it("finishes the frame when the error handler itself throws", async () => {
+    const conductor = await freshConductor();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    conductor.configure({ onError: () => { throw new Error("handler broke"); } });
+    let ran = 0;
+    conductor.subscribe("update", () => { throw new Error("boom"); }, { label: "bad" });
+    conductor.subscribe("update", () => { ran++; });
+    crank();
+    crank();
+    expect(ran).toBe(2);
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    errorSpy.mockRestore();
+  });
+
   it("logs a throwing subscriber once, not once per frame", async () => {
     const conductor = await freshConductor();
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -313,6 +403,16 @@ describe("diagnostics", () => {
     const stats = conductor.state;
     expect(stats.displayHz).toBe(120);
     expect(stats.frameBudgetMs).toBeCloseTo(8.33, 1);
+  });
+
+  it("gives the frame timings without building the subscriber table", async () => {
+    const conductor = await freshConductor();
+    conductor.subscribe("update", () => burn(3), { priority: "essential" });
+    for (let i = 0; i < 20; i++) crank();
+    const stats = conductor.state;
+    expect(conductor.frameMs).toBe(stats.frameMs);
+    expect(conductor.preRuntimeMs).toBe(stats.preRuntimeMs);
+    expect(conductor.frameMs).toBeCloseTo(16.67, 1);
   });
 
   it("scales the shed lines to the display, not to 60Hz", async () => {

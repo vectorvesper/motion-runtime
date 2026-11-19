@@ -96,6 +96,18 @@ function thresholdsFor(frameBudgetS: number): { slowS: number; verySlowS: number
   return { slowS: judged * SLOW_FACTOR, verySlowS: judged * VERY_SLOW_FACTOR };
 }
 
+/** The step-down rule, shared by live verdicts and re-judged steps. */
+function degrades(slowRatio: number, panicRatio: number): boolean {
+  return slowRatio > DOWN_RATIO || panicRatio > VERY_SLOW_TRIGGER;
+}
+
+/** A step down and the frames that caused it, so a new budget can re-judge it. */
+interface Step {
+  from: BudgetTier;
+  lastChange: number;
+  dts: Float32Array;
+}
+
 const LABELS = ["high", "medium", "low"] as const;
 
 // 3-frame EMA alpha for headroom smoothing, for a fast response.
@@ -116,6 +128,8 @@ export class BudgetPolicy {
   private tier: BudgetTier = 0;
   private lastChange = 0;
   private lastEmit = 0;
+  /** Steps down still in force, oldest first. */
+  private steps: Step[] = [];
   private frameBudgetS: number;
   private slowS: number;
   private verySlowS: number;
@@ -131,16 +145,23 @@ export class BudgetPolicy {
   }
 
   /**
-   * Retarget to a new display refresh rate. The rolling window was scored
-   * against the old thresholds, so it is discarded rather than reinterpreted.
-   * No-op when the change is negligible. Returns whether the window was
-   * discarded, so the caller can tell listeners at once.
+   * Retarget to a new frame budget. The window goes, and so does any step down
+   * the new line would not have taken. The rest stand, so the load they shed
+   * stays shed. Returns whether anything changed, so listeners hear it at once.
    */
   setFrameBudget(frameBudgetS: number): boolean {
     if (Math.abs(frameBudgetS - this.frameBudgetS) < 1e-4) return false;
     this.frameBudgetS = frameBudgetS;
     ({ slowS: this.slowS, verySlowS: this.verySlowS } = thresholdsFor(frameBudgetS));
-    this.reset();
+    // Newest first: an older step can't be undone while a newer one stands.
+    let step = this.steps[this.steps.length - 1];
+    while (step !== undefined && !this.wouldDegrade(step.dts)) {
+      this.tier = step.from;
+      this.lastChange = step.lastChange;
+      this.steps.pop();
+      step = this.steps[this.steps.length - 1];
+    }
+    this.clearWindow();
     return true;
   }
 
@@ -163,14 +184,31 @@ export class BudgetPolicy {
   }
 
   reset(): void {
+    this.clearWindow();
+    this.tier = 0;
+    this.lastChange = 0;
+    this.lastEmit = 0;
+    this.steps.length = 0;
+  }
+
+  /** Would these frames step the tier down against the current line? */
+  private wouldDegrade(dts: Float32Array): boolean {
+    let slow = 0;
+    let verySlow = 0;
+    for (let i = 0; i < dts.length; i++) {
+      if (dts[i] > this.slowS) slow++;
+      if (dts[i] > this.verySlowS) verySlow++;
+    }
+    return degrades(slow / dts.length, verySlow / dts.length);
+  }
+
+  /** Forget the measured frames, but not the tier they earned. */
+  private clearWindow(): void {
     this.head = 0;
     this.count = 0;
     this.sum = 0;
     this.slowCount = 0;
     this.verySlowCount = 0;
-    this.tier = 0;
-    this.lastChange = 0;
-    this.lastEmit = 0;
     this.headroomEma = this.frameBudgetS;
     this.workEma = 0;
   }
@@ -181,10 +219,10 @@ export class BudgetPolicy {
    * Returns the state to emit (tier change or heartbeat), or null.
    */
   push(dt: number, time: number, workS = 0): BudgetState | null {
-    // A frame longer than 150ms is a transient spike, device sleep, or
-    // resume-from-sleep. Reset rather than let it trigger a false panic.
+    // A frame longer than 150ms is a stall, a sleep or a resume, not sustained
+    // load. Start the window again rather than panic, and keep the tier.
     if (dt > SPIKE_S) {
-      this.reset();
+      this.clearWindow();
       this.lastChange = time;
       this.lastEmit = time;
       return this.state;
@@ -220,17 +258,24 @@ export class BudgetPolicy {
     const sinceChange = time - this.lastChange;
 
     let next = this.tier;
-    if (
-      sinceChange > DOWN_COOLDOWN &&
-      this.tier < 2 &&
-      (slowRatio > DOWN_RATIO || panicRatio > VERY_SLOW_TRIGGER)
-    ) {
+    if (sinceChange > DOWN_COOLDOWN && this.tier < 2 && degrades(slowRatio, panicRatio)) {
       next = panicRatio > PANIC_RATIO ? 2 : ((this.tier + 1) as BudgetTier);
     } else if (sinceChange > UP_DELAY && this.tier > 0 && slowRatio < UP_RATIO) {
       next = (this.tier - 1) as BudgetTier;
     }
 
     if (next !== this.tier) {
+      if (next > this.tier) {
+        this.steps.push({
+          from: this.tier,
+          lastChange: this.lastChange,
+          dts: this.dts.slice(0, this.count),
+        });
+      } else {
+        while (this.steps.length > 0 && this.steps[this.steps.length - 1].from >= next) {
+          this.steps.pop();
+        }
+      }
       this.tier = next;
       this.lastChange = time;
       this.lastEmit = time;
@@ -317,11 +362,10 @@ class AnimationBudget {
     // conductor's budget, and this frame should already be judged against it.
     this.cap?.frame(dt * 1000, time, this.policy.currentTier === 2);
     if (this.policy.setFrameBudget(conductor.frameBudgetMs / 1000)) {
-      // The window was scored against the old budget and has been discarded.
-      // Say so now: left to push(), listeners would hear nothing for MIN_SAMPLES
-      // frames, and a gate would keep a stale tier for over a second.
-      const reset = this.policy.state;
-      for (const fn of [...this.listeners]) fn(reset);
+      // New budget and headroom, and a new tier if a step was undone. Say so
+      // now: left to push(), listeners would hear nothing for MIN_SAMPLES frames.
+      const retargeted = this.policy.state;
+      for (const fn of [...this.listeners]) fn(retargeted);
     }
     // The input lane runs first, so the conductor's work figure is the
     // completed previous frame, the same vintage as `dt`.
